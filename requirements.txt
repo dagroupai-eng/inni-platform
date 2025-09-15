@@ -17,6 +17,20 @@ dspy-ai>=2.4.0,<4.0.0
 plotly==6.3.0
 pandas==2.3.1
 
+# Excel/CSV processing
+openpyxl==3.1.2
+xlrd==2.0.1
+
+# Additional file processing
+chardet==5.2.0
+
+# Geographic data processing
+geopandas>=0.14.0
+shapely>=2.0.0
+pyproj>=3.6.0
+requests>=2.31.0
+folium>=0.15.0
+
 # Development dependencies (optional)
 # pytest==7.4.3
 # black==23.11.0

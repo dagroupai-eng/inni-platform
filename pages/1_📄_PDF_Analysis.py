@@ -2,6 +2,7 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 from pdf_analyzer import extract_text_from_pdf, analyze_pdf_content
+from file_analyzer import UniversalFileAnalyzer
 from dspy_analyzer import EnhancedArchAnalyzer
 from prompt_processor import load_blocks, load_custom_blocks, process_prompt, save_custom_block, get_block_by_id
 from docx import Document
@@ -16,14 +17,14 @@ except UnicodeDecodeError:
 
 # 페이지 설정
 st.set_page_config(
-    page_title="PDF 분석",
+    page_title="파일 분석",
     page_icon="📄",
     layout="wide"
 )
 
 # 제목
-st.title("📄 PDF 분석")
-st.markdown("**건축 프로젝트 PDF 문서 분석**")
+st.title("📄 파일 분석")
+st.markdown("**건축 프로젝트 문서 분석 (PDF, Excel, CSV, 텍스트, JSON 지원)**")
 
 # Session state 초기화
 if 'project_name' not in st.session_state:
@@ -109,48 +110,59 @@ ANTHROPIC_API_KEY=your_api_key_here
         st.info(f"키 소스: {'Streamlit Secrets' if st.secrets.get('ANTHROPIC_API_KEY') else '환경변수'}")
 
 # 메인 컨텐츠
-tab1, tab2, tab3, tab4 = st.tabs(["📄 PDF 업로드", "🧩 분석 블록 선택", "⚡ 분석 실행", "📊 결과 다운로드"])
+tab1, tab2, tab3, tab4 = st.tabs(["📄 파일 업로드", "🧩 분석 블록 선택", "⚡ 분석 실행", "📊 결과 다운로드"])
 
 with tab1:
-    st.header("📄 PDF 업로드")
+    st.header("📄 파일 업로드")
     
     uploaded_file = st.file_uploader(
-        "PDF 파일을 업로드하세요",
-        type=['pdf'],
-        help="건축 프로젝트 관련 PDF 문서를 업로드하세요"
+        "파일을 업로드하세요",
+        type=['pdf', 'xlsx', 'xls', 'csv', 'txt', 'json'],
+        help="건축 프로젝트 관련 문서를 업로드하세요 (PDF, Excel, CSV, 텍스트, JSON 지원)"
     )
     
     if uploaded_file is not None:
         st.success(f"✅ 파일 업로드 완료: {uploaded_file.name}")
         
+        # 파일 확장자 확인
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+        
         # 임시 파일로 저장
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             tmp_path = tmp_file.name
         
-        # PDF 텍스트 추출
-        with st.spinner("PDF 텍스트 추출 중..."):
-            pdf_text = extract_text_from_pdf(tmp_path)
+        # 범용 파일 분석기 초기화
+        file_analyzer = UniversalFileAnalyzer()
         
-        if pdf_text:
-            st.success("✅ PDF 텍스트 추출 완료!")
+        # 파일 분석
+        with st.spinner(f"{file_extension.upper()} 파일 분석 중..."):
+            analysis_result = file_analyzer.analyze_file(tmp_path, file_extension)
+        
+        if analysis_result['success']:
+            st.success(f"✅ {file_extension.upper()} 파일 분석 완료!")
             
-            # PDF 기본 분석 결과 표시
-            analysis = analyze_pdf_content(pdf_text)
-            st.info(f"📊 문서 통계: {analysis['word_count']}단어, {analysis['char_count']}문자")
+            # 파일 정보 표시
+            file_info = file_analyzer.get_file_info(tmp_path)
+            st.info(f"📊 파일 정보: {file_info['file_size_mb']}MB, {analysis_result['word_count']}단어, {analysis_result['char_count']}문자")
             
-            if analysis['keywords']:
-                st.info(f"🔍 발견된 키워드: {', '.join(analysis['keywords'])}")
+            # 파일 형식별 특별 정보 표시
+            if analysis_result['file_type'] == 'excel':
+                st.info(f"📋 Excel 시트: {', '.join(analysis_result['sheet_names'])} ({analysis_result['sheet_count']}개 시트)")
+            elif analysis_result['file_type'] == 'csv':
+                st.info(f"📊 CSV 데이터: {analysis_result['shape'][0]}행 × {analysis_result['shape'][1]}열")
             
             # 세션에 저장
-            st.session_state['pdf_text'] = pdf_text
+            st.session_state['pdf_text'] = analysis_result['text']  # 기존 변수명 유지
             st.session_state['pdf_uploaded'] = True
+            st.session_state['file_type'] = analysis_result['file_type']
+            st.session_state['file_analysis'] = analysis_result
             
             # 텍스트 미리보기
-            with st.expander("📖 PDF 내용 미리보기"):
-                st.text(analysis['text_preview'])
+            with st.expander(f"📖 {file_extension.upper()} 내용 미리보기"):
+                st.text(analysis_result['preview'])
         else:
-            st.error("❌ PDF 텍스트 추출에 실패했습니다.")
+            st.error(f"❌ {file_extension.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
         
         # 임시 파일 삭제
         os.unlink(tmp_path)
