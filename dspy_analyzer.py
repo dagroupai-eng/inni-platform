@@ -2,8 +2,12 @@ import dspy
 import os
 from dotenv import load_dotenv
 
-# 환경변수 로드
-load_dotenv()
+# 환경변수 로드 (안전하게 처리)
+try:
+    load_dotenv()
+except UnicodeDecodeError:
+    # .env 파일에 인코딩 문제가 있는 경우 무시
+    pass
 
 # 간단한 Signature 정의
 class SimpleAnalysisSignature(dspy.Signature):

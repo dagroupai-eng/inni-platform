@@ -2,8 +2,12 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 
-# 환경변수 로드
-load_dotenv()
+# 환경변수 로드 (안전하게 처리)
+try:
+    load_dotenv()
+except UnicodeDecodeError:
+    # .env 파일에 인코딩 문제가 있는 경우 무시
+    pass
 
 # 페이지 설정
 st.set_page_config(
@@ -47,8 +51,6 @@ st.markdown("""
 st.sidebar.header("🔧 시스템 상태")
 
 # Streamlit secrets와 환경변수 모두 확인
-from dotenv import load_dotenv
-load_dotenv()
 
 # Streamlit secrets에서 먼저 확인
 api_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")

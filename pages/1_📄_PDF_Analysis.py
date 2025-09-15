@@ -7,8 +7,12 @@ from prompt_processor import load_blocks, load_custom_blocks, process_prompt, sa
 from docx import Document
 import tempfile
 
-# 환경변수 로드
-load_dotenv()
+# 환경변수 로드 (안전하게 처리)
+try:
+    load_dotenv()
+except UnicodeDecodeError:
+    # .env 파일에 인코딩 문제가 있는 경우 무시
+    pass
 
 # 페이지 설정
 st.set_page_config(

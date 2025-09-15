@@ -27,7 +27,7 @@ def generate_sample_data():
     project_counts = [25, 18, 12, 8, 7]
     
     # 월별 분석 통계
-    months = pd.date_range('2024-01-01', periods=12, freq='M')
+    months = pd.date_range('2024-01-01', periods=12, freq='ME')
     monthly_analysis = [random.randint(10, 50) for _ in range(12)]
     
     # 분석 블록별 사용 통계
@@ -116,7 +116,7 @@ with col2:
         title="월별 분석 통계",
         markers=True
     )
-    fig_line.update_xaxis(tickformat="%Y-%m")
+    fig_line.update_layout(xaxis_tickformat="%Y-%m")
     st.plotly_chart(fig_line, use_container_width=True)
 
 st.markdown("---")
