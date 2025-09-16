@@ -46,6 +46,12 @@
 - 전국 프로젝트 분포
 - 프로젝트 유형별 지도 시각화
 
+### 🏙️ 사이트 데이터 수집
+- 좌표 기반 자동 데이터 수집
+- OSM POI, V-World 용도지역, KOSIS 통계, 공공시설 데이터
+- Felo 결과 파일 업로드 지원
+- CSV, GeoJSON, XLSX 형식으로 결과 다운로드
+
 ---
 
 ## 🛠️ 설치 가이드
@@ -161,9 +167,21 @@ pip install -r requirements.txt
 streamlit --version
 ```
 
-### 6단계: API 키 설정
+### 6단계: 환경변수 설정
 
-#### 6-1. Anthropic API 키 발급
+#### 6-1. 환경변수 예시 파일 복사
+```bash
+# env.example 파일을 .env로 복사
+copy env.example .env
+```
+
+#### 6-2. API 키 발급 및 설정
+
+**필수 API 키:**
+- **Anthropic Claude API**: DSPy 분석에 사용
+- **V-World API**: 국가공간정보포털 데이터 수집에 사용
+
+**Anthropic API 키 발급:**
 1. **웹브라우저**에서 https://console.anthropic.com/ 접속
 2. **계정 생성** 또는 **로그인**
 3. **API Keys** 섹션으로 이동
@@ -171,29 +189,45 @@ streamlit --version
 5. **키 이름** 입력 (예: "Simple Arch Insight")
 6. **생성된 API 키** 복사 (sk-ant-로 시작하는 긴 문자열)
 
-#### 6-2. API 키 설정
-**Anaconda Prompt**에서 다음 명령어 입력:
+**V-World API 키 발급:**
+1. **웹브라우저**에서 https://www.vworld.kr/ 접속
+2. **회원가입** 또는 **로그인**
+3. **API 신청** 섹션에서 키 발급
+
+#### 6-3. .env 파일 수정
+생성된 `.env` 파일을 텍스트 에디터로 열어서 실제 API 키로 수정:
 
 ```bash
-# .env 파일 생성 (Windows PowerShell 방식)
-@"
-ANTHROPIC_API_KEY=여기에_실제_API_키_붙여넣기
-"@ | Out-File -FilePath ".env" -Encoding UTF8
+# .env 파일 편집 (메모장 사용)
+notepad .env
 ```
 
-**예시:**
-```bash
-@"
-ANTHROPIC_API_KEY=sk-ant-api03-abc123def456...
-"@ | Out-File -FilePath ".env" -Encoding UTF8
+**수정 예시:**
+```env
+# AI 모델 API 키 설정
+ANTHROPIC_API_KEY=sk-ant-api03-실제_API_키_여기에_입력
+OPENAI_API_KEY=your_openai_api_key_here
+
+# V-World API 설정
+VWORLD_API_KEY=실제_VWorld_API_키_여기에_입력
+
+# 기타 설정
+APP_ENV=development
+DEBUG=true
+LOG_LEVEL=INFO
 ```
 
-#### 6-3. 설정 확인
+#### 6-4. 설정 확인
 ```bash
 # .env 파일 내용 확인
 type .env
 ```
 API 키가 올바르게 저장되었는지 확인하세요.
+
+> **⚠️ 보안 주의사항:**
+> - `.env` 파일은 절대 git에 커밋하지 마세요
+> - API 키를 다른 사람과 공유하지 마세요
+> - `.gitignore`에 `.env`가 포함되어 있는지 확인하세요
 
 ---
 
@@ -245,6 +279,16 @@ streamlit run app.py
    - 전국 프로젝트 분포
    - 프로젝트 유형별 분포
 3. 지도에서 프로젝트 위치 및 정보 확인
+
+#### 🏙️ 사이트 데이터 수집
+1. 왼쪽 사이드바에서 **"🏙️ Site Data Collection"** 클릭
+2. 좌표 입력 방식 선택:
+   - **직접 입력**: 위도, 경도를 직접 입력
+   - **CSV 업로드**: 좌표가 포함된 CSV 파일 업로드
+   - **Felo 결과**: Felo에서 생성된 후보지 리스트 파일 업로드
+3. 수집 설정 선택 (OSM POI, V-World 용도지역, KOSIS 통계, 공공시설)
+4. **"데이터 수집 시작"** 버튼 클릭
+5. 수집 결과 확인 및 다운로드 (CSV, GeoJSON, XLSX)
 
 ---
 

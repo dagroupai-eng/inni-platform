@@ -37,17 +37,34 @@ class EnhancedArchAnalyzer:
         
         if not getattr(dspy.settings, "lm", None):
             try:
+                # DSPy 3.0에서 올바른 LM 사용법
                 lm = dspy.LM(
-                    "claude-sonnet-4-20250514",  # dA_AI와 동일한 모델
+                    model="claude-3-5-sonnet-20241022",  # 사용 가능한 Claude 모델
                     provider="anthropic",
                     api_key=anthropic_api_key,
-                    max_tokens=8000  # dA_AI와 동일한 토큰 수
+                    max_tokens=8000
                 )
                 dspy.configure(lm=lm, track_usage=True)
-                print("✅ Claude Sonnet 4 모델이 성공적으로 설정되었습니다.")
+                print("✅ Claude Sonnet 3.5 모델이 성공적으로 설정되었습니다.")
             except Exception as e:
                 print(f"❌ Claude 모델 설정 실패: {e}")
-                raise
+                # 대안으로 OpenAI 모델 시도
+                try:
+                    openai_api_key = os.environ.get('OPENAI_API_KEY')
+                    if openai_api_key:
+                        lm = dspy.LM(
+                            model="gpt-4o-mini",
+                            provider="openai",
+                            api_key=openai_api_key,
+                            max_tokens=8000
+                        )
+                        dspy.configure(lm=lm, track_usage=True)
+                        print("✅ OpenAI GPT-4o-mini 모델이 성공적으로 설정되었습니다.")
+                    else:
+                        raise ValueError("Claude와 OpenAI API 키가 모두 없습니다.")
+                except Exception as e2:
+                    print(f"❌ 대안 모델 설정도 실패: {e2}")
+                    raise
     
     def analyze_project(self, project_info, pdf_text):
         """프로젝트 분석 (dA_AI와 동일한 방식)"""

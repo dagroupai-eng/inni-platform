@@ -1,6 +1,6 @@
 # Core dependencies
 streamlit==1.28.1
-anthropic>=0.7.0,<1.0.0  # dA_AI와 동일한 버전 범위
+anthropic==0.7.8
 python-dotenv==1.0.0
 
 # PDF processing
@@ -11,7 +11,8 @@ python-docx==0.8.11
 Pillow==10.1.0
 
 # AI/ML framework
-dspy-ai>=2.4.0,<4.0.0
+dspy-ai==2.6.27
+dspy==2.6.27
 
 # Data visualization
 plotly==6.3.0
@@ -25,11 +26,12 @@ xlrd==2.0.1
 chardet==5.2.0
 
 # Geographic data processing
-geopandas>=0.14.0
-shapely>=2.0.0
-pyproj>=3.6.0
-requests>=2.31.0
-folium>=0.15.0
+geopandas==1.0.1
+shapely==2.0.7
+pyproj==3.6.1
+requests==2.32.5
+folium==0.20.0
+streamlit-folium==0.25.1
 
 # Development dependencies (optional)
 # pytest==7.4.3

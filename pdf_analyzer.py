@@ -8,19 +8,24 @@ def extract_text_from_pdf(pdf_path: str) -> str:
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF 파일을 찾을 수 없습니다: {pdf_path}")
         
-        doc = fitz.open(pdf_path)
-        text = ""
-        
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            page_text = page.get_text()
-            if page_text:
-                text += page_text + "\n"
-        
-        doc.close()
+        # 더 안전한 PDF 처리
+        with fitz.open(pdf_path) as doc:
+            text = ""
+            page_count = len(doc)
+            
+            for page_num in range(page_count):
+                try:
+                    page = doc[page_num]
+                    page_text = page.get_text()
+                    if page_text:
+                        text += page_text + "\n"
+                except Exception as page_error:
+                    # 개별 페이지 오류는 무시하고 계속 진행
+                    print(f"페이지 {page_num + 1} 처리 중 오류: {page_error}")
+                    continue
         
         if not text.strip():
-            raise ValueError("PDF에서 텍스트를 추출할 수 없습니다. 이미지 기반 PDF일 수 있습니다.")
+            raise ValueError("PDF에서 텍스트를 추출할 수 없습니다. 이미지 기반 PDF이거나 텍스트가 없는 PDF일 수 있습니다.")
         
         return text.strip()
         
