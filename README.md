@@ -28,7 +28,7 @@
 
 ## ✨ 주요 기능
 
-### 📄 문서서 분석
+### 📄 문서 분석
 
 - **문서 업로드**: 다양한 PDF, Excel, CSV, 텍스트, JSON 등 문서 분석 지원
 - **블록 기반 분석**: 선택한 분석 블록으로 체계적 분석
@@ -57,7 +57,7 @@
 
 #### 1-1. Miniconda 다운로드
 
-1. **웹브라우저**에서 [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html) 접속
+1. **웹브라우저**에서 [[https://docs.conda.io/en/latest/miniconda.html](https://www.anaconda.com/download)]접속
 2. **Windows** 섹션에서 **Python 3.9** 버전 다운로드
 3. 다운로드된 `.exe` 파일 실행
 
