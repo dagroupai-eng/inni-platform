@@ -53,23 +53,40 @@
 
 > **⚠️ 중요**: 이 가이드는 Windows 10/11 기준으로 작성되었습니다. macOS/Linux 사용자는 일부 명령어가 다를 수 있습니다.
 
-### 1단계: Miniconda 설치
+### 1단계: Visual Studio Code 확인 및 설치
 
-#### 1-1. Miniconda 다운로드
+#### 1-1. Visual Studio Code 확인
 
-1. **웹브라우저**에서 [[https://docs.conda.io/en/latest/miniconda.html](https://www.anaconda.com/download)]접속
-2. **Windows** 섹션에서 **Python 3.9** 버전 다운로드
+1. **시작 메뉴**에서 **"Visual Studio Code"** 검색
+2. **Visual Studio Code**가 설치되어 있으면 **2단계**로 진행
+3. 설치되어 있지 않으면 **1-2** 단계 진행
+
+#### 1-2. Visual Studio Code 설치 (필요한 경우)
+
+1. **웹브라우저**에서 [https://code.visualstudio.com/](https://code.visualstudio.com/) 접속
+2. **"Download for Windows"** 클릭
+3. 다운로드된 `.exe` 파일 실행
+4. **"Next"** 클릭하여 설치 진행
+5. **"Add to PATH"** 옵션 체크 후 설치 완료
+
+### 2단계: Miniconda 설치
+
+#### 2-1. Miniconda 다운로드
+
+1. **웹브라우저**에서 [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html) 접속
+2. **Windows** 섹션에서 **최신 버전** 다운로드
 3. 다운로드된 `.exe` 파일 실행
 
-#### 1-2. Miniconda 설치
+#### 2-2. Miniconda 설치
 
 1. **"Next"** 클릭하여 설치 시작
 2. **라이선스 동의** 체크 후 **"Next"**
 3. **설치 경로** 확인 (기본값 권장: `C:\Users\[사용자명]\miniconda3` 또는 원하는 경로)
 4. **"Add Miniconda3 to my PATH environment variable"** 체크
-5. **"Install"** 클릭하여 설치 완료
+5. **"Create shortcuts"**, **"Path environment variable"**, **"Clear the package cache upon completion"** 체크
+6. **"Install"** 클릭하여 설치 완료
 
-#### 1-3. 설치 확인
+#### 2-3. 설치 확인
 
 1. **시작 메뉴**에서 **"Anaconda Prompt (miniconda3)"** 실행
 2. 다음 명령어 입력하여 설치 확인:
@@ -78,46 +95,43 @@
 conda --version
 ```
 
-1. 버전 정보가 표시되면 설치 성공!
+버전 정보가 표시되면 설치 성공!
 
-### 2단계: 프로젝트 다운로드
+### 3단계: 프로젝트 다운로드
 
-#### 2-1. ZIP 파일 다운로드
+#### 3-1. ZIP 파일 다운로드
 
-1. **웹브라우저**에서 [https://github.com/dagroupai-eng/inni-platform](https://github.com/dagroupai-eng/inni-platform) 접속
+1. **웹브라우저**에서 프로젝트 저장소 접속
 2. **"Code"** 버튼 클릭
 3. **"Download ZIP"** 선택
-4. 다운로드된 `inni_platform-master.zip` 파일을 원하는 폴더에 저장 (예: 바탕화면, Documents, D드라이브 등)
+4. 다운로드된 ZIP 파일을 원하는 폴더에 저장
 
-#### 2-2. ZIP 파일 압축 해제
+#### 3-2. ZIP 파일 압축 해제
 
-1. 다운로드된 `inni_platform-master.zip` 파일을 **우클릭**
+1. 다운로드된 ZIP 파일을 **우클릭**
 2. **"압축 풀기"** 또는 **"Extract Here"** 선택
-3. 압축이 해제되면 `inni_platform-master` 폴더가 생성됩니다
+3. 압축이 해제되면 폴더가 생성됩니다
 
-#### 2-3. 폴더명 변경 및 이동
+#### 3-3. 폴더명 변경 및 이동
 
-```bash
-# Anaconda Prompt에서 실행
-# 1. 원하는 폴더로 이동 (예: 바탕화면, Documents, D드라이브 등)
-cd [원하는 폴더 경로]
-# 예시: cd Desktop, cd Documents, cd D:\Projects
+1. 압축 해제된 폴더명을 원하는 이름으로 변경
+2. 원하는 위치로 폴더 이동
 
-# 2. 폴더명을 원하는 이름으로 변경
-ren snu_platform-main [프로젝트 폴더명]
-# 예시: ren snu_platform-main block-analyzer
-# 예시: ren snu_platform-main doc-analyzer
-# 예시: ren snu_platform-main my-project
+#### 3-4. Visual Studio Code에서 프로젝트 열기
 
-# 3. 프로젝트 폴더로 이동
-cd [프로젝트 폴더명]
-```
+1. **Visual Studio Code** 실행
+2. **"File"** → **"Open Folder"** 클릭
+3. 압축 해제한 프로젝트 폴더 선택
+4. **"New Terminal"** 클릭하여 터미널 열기
 
-#### 2-4. 다운로드 확인
+#### 3-5. 다운로드 확인
 
 ```bash
 # 현재 폴더의 파일 목록 확인
 dir
+
+# Conda 버전 확인
+conda --version
 ```
 
 다음과 같은 파일들이 보이면 성공:
@@ -128,69 +142,101 @@ dir
 - `pages/` 폴더
 - 기타 파일들
 
-### 3단계: Python 환경 설정
+### 4단계: Conda 환경 생성
 
-#### 3-1. Conda 환경 생성
-
-```bash
-# Python 3.9 환경 생성 (환경명을 원하는 이름으로 변경 가능)
-conda create -n [환경명] python=3.9 -y
-# 예시: conda create -n block-analyzer python=3.9 -y
-# 예시: conda create -n doc-analyzer python=3.9 -y
-# 예시: conda create -n my-project python=3.9 -y
-```
-
-#### 3-2. 환경 활성화
+#### 4-1. Conda 환경 생성
 
 ```bash
-# 환경 활성화 (위에서 생성한 환경명 사용)
-conda activate [환경명]
-# 예시: conda activate block-analyzer
-# 예시: conda activate doc-analyzer
-# 예시: conda activate my-project
+# Python 3.11 환경 생성 (환경명을 원하는 이름으로 변경 가능)
+conda create -n test_analyzer python=3.11 -y
 ```
 
-성공하면 프롬프트 앞에 `([환경명])`이 표시됩니다.
+**환경명 설명:**
 
-#### 3-3. 환경 확인
+- `test_analyzer`: 생성할 환경명 (원하는 이름으로 변경 가능)
+- `python=3.11`: Python 3.11 버전 사용
+- `-y`: 자동으로 yes 응답
+
+#### 4-2. Terms of Service 오류 해결
+
+만약 다음과 같은 오류가 발생하면:
+
+```text
+CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels. Please accept or remove them before proceeding:
+- https://repo.anaconda.com/pkgs/main
+- https://repo.anaconda.com/pkgs/r
+- https://repo.anaconda.com/pkgs/msys2
+```
+
+다음 명령어들을 **순서대로** 실행:
+
+```bash
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/msys2
+```
+
+그 후 다시 환경 생성:
+
+```bash
+conda create -n test_analyzer python=3.11 -y
+```
+
+#### 4-3. 환경 활성화
+
+```bash
+# 환경 활성화
+conda activate test_analyzer
+
+# 환경 비활성화 (필요한 경우)
+conda deactivate
+```
+
+성공하면 프롬프트 앞에 `(test_analyzer)`이 표시됩니다.
+
+#### 4-4. 환경 확인
 
 ```bash
 # Python 버전 확인
 python --version
 ```
 
-`Python 3.9.x`가 표시되면 성공!
+`Python 3.11.x`가 표시되면 성공!
 
-### 4단계: 필요한 패키지 설치
+### 5단계: 필요한 패키지 설치
 
-#### 4-1. 패키지 설치
+#### 5-1. 지오스택 패키지 설치 (conda-forge 사용)
 
 ```bash
-# 모든 필요한 패키지 설치
+# 바이너리/지오 스택 + madoka를 conda-forge로 설치
+# (Windows에서 pip로 빌드 이슈를 피하기 위함)
+conda install -c conda-forge madoka geopandas shapely pyproj -y
+```
+
+#### 5-2. pip 도구 최신화
+
+```bash
+# pip 도구 최신화
+python -m pip install -U pip setuptools wheel
+```
+
+#### 5-3. 나머지 패키지 설치
+
+```bash
+# requirements.txt로 나머지 패키지 설치
 pip install -r requirements.txt
 ```
 
-#### 4-2. 설치 확인
+#### 5-4. 설치 확인
 
 ```bash
 # Streamlit 설치 확인
 streamlit --version
 ```
 
-### 5단계: 환경변수 설정
+### 6단계: API 키 설정
 
-#### 5-1. 환경변수 예시 파일 복사
-
-```bash
-# env.example 파일을 .env로 복사
-copy env.example .env
-```
-
-#### 5-2. API 키 발급 및 설정
-
-**필수 API 키:**
-
-- **Anthropic Claude API**: DSPy 분석에 사용
+#### 6-1. API 키 발급
 
 **Anthropic API 키 발급:**
 
@@ -201,42 +247,61 @@ copy env.example .env
 5. **키 이름** 입력 (예: "Block Based Analyzer")
 6. **생성된 API 키** 복사 (sk-ant-로 시작하는 긴 문자열)
 
-#### 5-3. .env 파일 수정
+#### 6-2. .streamlit/secrets.toml 파일 생성
 
-생성된 `.env` 파일을 텍스트 에디터로 열어서 실제 API 키로 수정:
+1. 프로젝트 폴더에 `.streamlit` 폴더가 없으면 생성
+2. `.streamlit` 폴더 안에 `secrets.toml` 파일 생성
+3. 다음 내용 입력:
 
-```bash
-# .env 파일 편집 (메모장 사용)
-notepad .env
+```toml
+ANTHROPIC_API_KEY = "your_anthropic_api_key_here"
 ```
 
-**수정 예시:**
+1. `your_anthropic_api_key_here` 부분을 실제 API 키로 교체
+
+#### 6-3. .env 파일 생성
+
+1. 프로젝트 루트 폴더에 `.env` 파일 생성
+2. 다음 내용 입력:
 
 ```env
-# AI 모델 API 키 설정
-ANTHROPIC_API_KEY=sk-ant-api03-실제_API_키_여기에_입력
-OPENAI_API_KEY=your_openai_api_key_here
-
-# 기타 설정
-APP_ENV=development
-DEBUG=true
-LOG_LEVEL=INFO
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
 ```
 
-#### 5-4. 설정 확인
+1. `your_anthropic_api_key_here` 부분을 실제 API 키로 교체
+2. 파일 저장
+
+### 7단계: 앱 실행
+
+#### 7-1. 환경 활성화 확인
+
+**Visual Studio Code**의 터미널에서:
 
 ```bash
-# .env 파일 내용 확인
-type .env
+# 환경 활성화 (필요한 경우)
+conda activate test_analyzer
 ```
 
-API 키가 올바르게 저장되었는지 확인하세요.
+프롬프트 앞에 `(test_analyzer)`가 표시되어야 합니다.
+
+#### 7-2. 앱 실행
+
+```bash
+# Streamlit 앱 실행
+streamlit run app.py
+```
+
+#### 7-3. 브라우저에서 접속
+
+1. 터미널에 표시되는 **URI** 확인 (예: `http://localhost:8501`)
+2. **Ctrl + 클릭**하여 웹 브라우저에서 열기
+3. 또는 브라우저 주소창에 URI 입력
 
 > **⚠️ 보안 주의사항:**
 >
-> - `.env` 파일은 절대 git에 커밋하지 마세요
+> - `.env` 파일과 `secrets.toml` 파일은 절대 git에 커밋하지 마세요
 > - API 키를 다른 사람과 공유하지 마세요
-> - `.gitignore`에 `.env`가 포함되어 있는지 확인하세요
+> - `.gitignore`에 `.env`와 `.streamlit/`이 포함되어 있는지 확인하세요
 
 ---
 
