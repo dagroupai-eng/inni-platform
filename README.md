@@ -57,7 +57,7 @@
 
 #### 1-1. Miniconda 다운로드
 
-1. **웹브라우저**에서 [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html) 접속
+1. **웹브라우저**에서 [[https://docs.conda.io/en/latest/miniconda.html](https://www.anaconda.com/download)]접속
 2. **Windows** 섹션에서 **Python 3.9** 버전 다운로드
 3. 다운로드된 `.exe` 파일 실행
 
