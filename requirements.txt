@@ -1,32 +1,34 @@
 # Core dependencies
-streamlit==1.49.1
-anthropic==0.68.0
-python-dotenv==1.1.1
+streamlit==1.28.1
+anthropic==0.7.8
+python-dotenv==1.0.0
 
 # PDF processing
-PyMuPDF==1.26.4
+PyMuPDF==1.23.8
 
 # Document generation
 python-docx==0.8.11
-Pillow==10.4.0
+Pillow==10.1.0
 
 # AI/ML framework
-dspy-ai==3.0.3
-dspy==3.0.3
+dspy-ai==2.6.27
+dspy==2.6.27
 
 # Data visualization
 plotly==6.3.0
 pandas==2.3.1
 
 # Excel/CSV processing
-openpyxl==3.1.5
-xlrd==2.0.2
+openpyxl==3.1.2
+xlrd==2.0.1
 
 # Additional file processing
-chardet==3.0.4
+chardet==5.2.0
 
-# Geographic data processing (optional - install if needed)
-
-requests==2.32.3
+# Geographic data processing
+geopandas==1.0.1
+shapely==2.0.7
+pyproj==3.6.1
+requests==2.32.5
 folium==0.20.0
 streamlit-folium==0.25.1
