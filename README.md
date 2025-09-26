@@ -76,25 +76,24 @@
 
 ```bash
 conda --version
+```
 
-3. 버전 정보가 표시되면 설치 성공!
-
-
+1. 버전 정보가 표시되면 설치 성공!
 
 ### 2단계: 프로젝트 다운로드
 
 #### 2-1. ZIP 파일 다운로드
 
-1. **웹브라우저**에서 [https://github.com/dagroupai-eng/snu_platform](https://github.com/dagroupai-eng/snu_platform) 접속
+1. **웹브라우저**에서 [https://github.com/dagroupai-eng/inni-platform](https://github.com/dagroupai-eng/inni-platform) 접속
 2. **"Code"** 버튼 클릭
 3. **"Download ZIP"** 선택
-4. 다운로드된 `snu_platform-main.zip` 파일을 원하는 폴더에 저장 (예: 바탕화면, Documents, D드라이브 등)
+4. 다운로드된 `inni_platform-master.zip` 파일을 원하는 폴더에 저장 (예: 바탕화면, Documents, D드라이브 등)
 
 #### 2-2. ZIP 파일 압축 해제
 
-1. 다운로드된 `snu_platform-main.zip` 파일을 **우클릭**
+1. 다운로드된 `inni_platform-master.zip` 파일을 **우클릭**
 2. **"압축 풀기"** 또는 **"Extract Here"** 선택
-3. 압축이 해제되면 `snu_platform-main` 폴더가 생성됩니다
+3. 압축이 해제되면 `inni_platform-master` 폴더가 생성됩니다
 
 #### 2-3. 폴더명 변경 및 이동
 
@@ -409,4 +408,3 @@ streamlit run app.py --logger.level debug
 > - [ ] API 키 설정 완료
 > - [ ] 앱 실행 성공
 > - [ ] 브라우저에서 접속 성공
-""
