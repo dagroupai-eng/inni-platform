@@ -31,7 +31,12 @@ def process_prompt(block: Dict[str, Any], pdf_text: str) -> str:
         if len(pdf_text) > 5000:
             pdf_text = pdf_text[:5000] + "\n\n[내용이 길어 일부만 표시됩니다...]"
         
-        return block['prompt'].format(pdf_text=pdf_text)
+        # RISEN 구조 블록인지 확인
+        if 'role' in block and 'instructions' in block and 'steps' in block:
+            return _process_risen_prompt(block, pdf_text)
+        else:
+            # 기존 구조 블록
+            return block['prompt'].format(pdf_text=pdf_text)
         
     except KeyError as e:
         print(f"프롬프트 처리 오류: {e}")
@@ -39,6 +44,61 @@ def process_prompt(block: Dict[str, Any], pdf_text: str) -> str:
     except Exception as e:
         print(f"프롬프트 처리 중 예상치 못한 오류: {e}")
         return block.get('prompt', '')
+
+def _process_risen_prompt(block: Dict[str, Any], pdf_text: str) -> str:
+    """RISEN 구조의 프롬프트를 처리합니다."""
+    try:
+        # 단계들을 포맷팅
+        steps_formatted = ""
+        for i, step in enumerate(block.get('steps', []), 1):
+            steps_formatted += f"{i}. **{step}**\n"
+        
+        # narrowing 객체 처리
+        narrowing = block.get('narrowing', {})
+        narrowing_formatted = ""
+        
+        # narrowing의 각 항목을 처리
+        for key, value in narrowing.items():
+            if isinstance(value, list):
+                value_str = ", ".join(value)
+            else:
+                value_str = str(value)
+            narrowing_formatted += f"- **{key.replace('_', ' ').title()}:** {value_str}\n"
+        
+        # 프롬프트 템플릿에 값들 삽입
+        prompt_template = block['prompt']
+        
+        # 기본 필드들
+        formatted_prompt = prompt_template.format(
+            role=block.get('role', ''),
+            instructions=block.get('instructions', ''),
+            steps_formatted=steps_formatted,
+            end_goal=block.get('end_goal', ''),
+            narrowing_output_format=narrowing.get('output_format', ''),
+            narrowing_required_items=narrowing.get('required_items', ''),
+            narrowing_classification_criteria=narrowing.get('classification_criteria', ''),
+            narrowing_evaluation_scale=narrowing.get('evaluation_scale', ''),
+            narrowing_constraints=narrowing.get('constraints', ''),
+            narrowing_quality_standards=narrowing.get('quality_standards', ''),
+            # 추가 narrowing 필드들
+            narrowing_required_sections=narrowing.get('required_sections', ''),
+            narrowing_design_focus=narrowing.get('design_focus', ''),
+            narrowing_required_metrics=narrowing.get('required_metrics', ''),
+            narrowing_calculation_method=narrowing.get('calculation_method', ''),
+            narrowing_evaluation_criteria=narrowing.get('evaluation_criteria', ''),
+            narrowing_scoring_system=narrowing.get('scoring_system', ''),
+            narrowing_verification_scope=narrowing.get('verification_scope', ''),
+            narrowing_risk_assessment=narrowing.get('risk_assessment', ''),
+            narrowing_analysis_areas=narrowing.get('analysis_areas', ''),
+            pdf_text=pdf_text
+        )
+        
+        return formatted_prompt
+        
+    except Exception as e:
+        print(f"RISEN 프롬프트 처리 오류: {e}")
+        # 오류 발생 시 기본 프롬프트 반환
+        return block.get('prompt', '').format(pdf_text=pdf_text)
 
 def get_block_by_id(block_id: str) -> Dict[str, Any]:
     """ID로 특정 블록을 찾습니다."""

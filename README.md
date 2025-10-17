@@ -1,23 +1,23 @@
-# 🧩 Block Based Analyzer Template - AI 기반 문서 분석 도구
+# Block Based Analyzer Template - AI 기반 문서 분석 도구
 
 > **블록 기반으로 구성된 AI 문서 분석 템플릿 도구**
 
-## 📋 목차
+## 목차
 
-- [🎯 프로젝트 소개](#-프로젝트-소개)
-- [✨ 주요 기능](#-주요-기능)
-- [🛠️ 설치 가이드](#️-설치-가이드)
-- [🚀 사용 방법](#-사용-방법)
-- [🔧 문제 해결](#-문제-해결)
-- [📞 지원](#-지원)
+- [프로젝트 소개](#프로젝트-소개)
+- [주요 기능](#주요-기능)
+- [설치 가이드](#설치-가이드)
+- [사용 방법](#사용-방법)
+- [문제 해결](#문제-해결)
+- [지원](#지원)
 
 ---
 
-## 🎯 프로젝트 소개
+## 프로젝트 소개
 
 **Block Based Analyzer Template**은 블록 단위로 구성된 AI 분석 엔진으로, 다양한 문서를 체계적으로 분석하고 시각화하는 템플릿 도구입니다.
 
-### 🎨 주요 특징
+### 주요 특징
 
 - **블록 기반 분석**: 재사용 가능한 분석 블록으로 체계적 분석
 - **AI 기반 처리**: Claude Sonnet 4 모델을 사용한 고품질 분석
@@ -26,21 +26,21 @@
 
 ---
 
-## ✨ 주요 기능
+## 주요 기능
 
-### 📄 문서 분석
+### 문서 분석
 
 - **문서 업로드**: 다양한 PDF, Excel, CSV, 텍스트, JSON 등 문서 분석 지원
 - **블록 기반 분석**: 선택한 분석 블록으로 체계적 분석
 - **AI 기반 처리**: Claude Sonnet 4 모델을 사용한 Chain of Thought 분석
 - **구조화된 결과**: 분석 블록별 맞춤 결과 제공
 
-### 🗺️ 지도 분석
+### 지도 분석
 
 - 위치 정보 표시 및 시각화
 - 지리적 데이터 분석
 
-### 🔧 블록 생성기
+### 블록 생성기
 
 - 새로운 분석 블록 생성
 - 기존 블록 편집 및 관리
@@ -49,9 +49,26 @@
 
 ---
 
-## 🛠️ 설치 가이드
+## 설치 가이드
 
-> **⚠️ 중요**: 이 가이드는 Windows 10/11 기준으로 작성되었습니다. macOS/Linux 사용자는 일부 명령어가 다를 수 있습니다.
+> **중요**: 이 가이드는 Windows 10/11 기준으로 작성되었습니다. macOS/Linux 사용자는 일부 명령어가 다를 수 있습니다.
+
+### 1단계: Miniconda 설치
+
+#### 1-1. Miniconda 다운로드
+
+1. **웹브라우저**에서 [https://www.anaconda.com/download/success](https://www.anaconda.com/download/success) 접속
+2. **Windows** 섹션에서 **최신 버전** 다운로드
+3. 다운로드된 `.exe` 파일 실행
+
+#### 2-2. Miniconda 설치
+
+1. **"Next"** 클릭하여 설치 시작
+2. **라이선스 동의** 체크 후 **"Next"**
+3. **설치 경로** 확인 (기본값 권장: `C:\Users\[사용자명]\miniconda3` 또는 원하는 경로)
+4. **"Add Miniconda3 to my PATH environment variable"** 체크
+5. **"Create shortcuts"**, **"Path environment variable"**, **"Clear the package cache upon completion"** 체크
+6. **"Install"** 클릭하여 설치 완료
 
 ### 1단계: Visual Studio Code 확인 및 설치
 
@@ -69,33 +86,7 @@
 4. **"Next"** 클릭하여 설치 진행
 5. **"Add to PATH"** 옵션 체크 후 설치 완료
 
-### 2단계: Miniconda 설치
 
-#### 2-1. Miniconda 다운로드
-
-1. **웹브라우저**에서 [https://www.anaconda.com/download](https://www.anaconda.com/download) 접속
-2. **Windows** 섹션에서 **최신 버전** 다운로드
-3. 다운로드된 `.exe` 파일 실행
-
-#### 2-2. Miniconda 설치
-
-1. **"Next"** 클릭하여 설치 시작
-2. **라이선스 동의** 체크 후 **"Next"**
-3. **설치 경로** 확인 (기본값 권장: `C:\Users\[사용자명]\miniconda3` 또는 원하는 경로)
-4. **"Add Miniconda3 to my PATH environment variable"** 체크
-5. **"Create shortcuts"**, **"Path environment variable"**, **"Clear the package cache upon completion"** 체크
-6. **"Install"** 클릭하여 설치 완료
-
-#### 2-3. 설치 확인
-
-1. **시작 메뉴**에서 **"Anaconda Prompt (miniconda3)"** 실행
-2. 다음 명령어 입력하여 설치 확인:
-
-```bash
-conda --version
-```
-
-버전 정보가 표시되면 설치 성공!
 
 ### 3단계: 프로젝트 다운로드
 
@@ -297,7 +288,7 @@ streamlit run app.py
 2. **Ctrl + 클릭**하여 웹 브라우저에서 열기
 3. 또는 브라우저 주소창에 URI 입력
 
-> **⚠️ 보안 주의사항:**
+> **보안 주의사항:**
 >
 > - `.env` 파일과 `secrets.toml` 파일은 절대 git에 커밋하지 마세요
 > - API 키를 다른 사람과 공유하지 마세요
@@ -305,7 +296,7 @@ streamlit run app.py
 
 ---
 
-## 🚀 사용 방법
+## 사용 방법
 
 ### 1단계: 앱 실행
 
@@ -330,26 +321,26 @@ streamlit run app.py
 
 ### 3단계: 기능 사용
 
-#### 📄 PDF 분석
+#### PDF 분석
 
-1. 왼쪽 사이드바에서 **"📄 PDF Analysis"** 클릭
+1. 왼쪽 사이드바에서 **"PDF Analysis"** 클릭
 2. **"프로젝트명"** 입력
 3. **"PDF 파일 업로드"** 버튼으로 파일 선택
 4. **분석 블록** 선택 (기본 정보 추출, 요구사항 분석 등)
 5. **"분석 시작"** 버튼 클릭
 6. 분석 결과 확인 및 Word 문서 다운로드
 
-#### 🗺️ 지도 분석 기능
+#### 지도 분석 기능
 
-1. 왼쪽 사이드바에서 **"🗺️ Mapping"** 클릭
+1. 왼쪽 사이드바에서 **"Mapping"** 클릭
 2. 지도 분석 기능:
    - 위치 정보 시각화
    - 지리적 데이터 분석
 3. 지도에서 프로젝트 위치 및 정보 확인
 
-#### 🔧 블록 생성기 사용법
+#### 블록 생성기 사용법
 
-1. 왼쪽 사이드바에서 **"🔧 Block Generator"** 클릭
+1. 왼쪽 사이드바에서 **"Block Generator"** 클릭
 2. 분석 블록 생성 및 관리:
    - 새로운 분석 블록 생성
    - 기존 블록 편집
@@ -357,7 +348,7 @@ streamlit run app.py
 
 ---
 
-## 🔧 문제 해결
+## 문제 해결
 
 ### 자주 발생하는 문제들
 
@@ -424,7 +415,7 @@ streamlit run app.py --logger.level debug
 
 ---
 
-## 📞 지원
+## 지원
 
 ### 도움이 필요한 경우
 
@@ -447,7 +438,7 @@ streamlit run app.py --logger.level debug
 
 ---
 
-## 📄 라이선스
+## 라이선스
 
 이 프로젝트는 교육 목적으로 제작되었습니다.
 
