@@ -39,15 +39,15 @@ class EnhancedArchAnalyzer:
             try:
                 # DSPy 3.0에서 올바른 LM 사용법
                 lm = dspy.LM(
-                    model="claude-3-5-sonnet-20241022",  # 사용 가능한 Claude 모델
+                    model="claude-sonnet-4-20250514",  # 사용 가능한 Claude 모델
                     provider="anthropic",
                     api_key=anthropic_api_key,
                     max_tokens=8000
                 )
                 dspy.configure(lm=lm, track_usage=True)
-                print("✅ Claude Sonnet 3.5 모델이 성공적으로 설정되었습니다.")
+                print("Claude Sonnet 4.0 모델이 성공적으로 설정되었습니다.")
             except Exception as e:
-                print(f"❌ Claude 모델 설정 실패: {e}")
+                print(f"Claude 모델 설정 실패: {e}")
                 # 대안으로 OpenAI 모델 시도
                 try:
                     openai_api_key = os.environ.get('OPENAI_API_KEY')
@@ -59,11 +59,11 @@ class EnhancedArchAnalyzer:
                             max_tokens=8000
                         )
                         dspy.configure(lm=lm, track_usage=True)
-                        print("✅ OpenAI GPT-4o-mini 모델이 성공적으로 설정되었습니다.")
+                        print("OpenAI GPT-4o-mini 모델이 성공적으로 설정되었습니다.")
                     else:
                         raise ValueError("Claude와 OpenAI API 키가 모두 없습니다.")
                 except Exception as e2:
-                    print(f"❌ 대안 모델 설정도 실패: {e2}")
+                    print(f"대안 모델 설정도 실패: {e2}")
                     raise
     
     def analyze_project(self, project_info, pdf_text):
@@ -82,12 +82,12 @@ class EnhancedArchAnalyzer:
 
 다음 형식으로 분석해주세요:
 
-## 🏗️ 프로젝트 개요
+## 프로젝트 개요
 - 프로젝트명
 - 주요 특징
 - 건축적 의미
 
-## 📋 기본 정보 추출 (CoT)
+## 기본 정보 추출 (CoT)
 - 핵심 키워드
 - 우선순위
 """
