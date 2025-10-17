@@ -66,27 +66,25 @@
 1. **"Next"** 클릭하여 설치 시작
 2. **라이선스 동의** 체크 후 **"Next"**
 3. **설치 경로** 확인 (기본값 권장: `C:\Users\[사용자명]\miniconda3` 또는 원하는 경로)
-4. **"Add Miniconda3 to my PATH environment variable"** 체크
-5. **"Create shortcuts"**, **"Path environment variable"**, **"Clear the package cache upon completion"** 체크
+4. **"Add Miniconda3 to my PATH environment variable"** 체크 해제
+5. **"Create shortcuts"**, **"Register Miniconda as my default python 3.13"**, **"Clear the package cache upon completion"** 체크
 6. **"Install"** 클릭하여 설치 완료
 
-### 1단계: Visual Studio Code 확인 및 설치
+### 2단계: Visual Studio Code 확인 및 설치
 
-#### 1-1. Visual Studio Code 확인
+#### 2-1. Visual Studio Code 확인
 
 1. **시작 메뉴**에서 **"Visual Studio Code"** 검색
 2. **Visual Studio Code**가 설치되어 있으면 **2단계**로 진행
-3. 설치되어 있지 않으면 **1-2** 단계 진행
+3. 설치되어 있지 않으면 **2-2** 단계 진행
 
-#### 1-2. Visual Studio Code 설치 (필요한 경우)
+#### 2-2. Visual Studio Code 설치 (필요한 경우)
 
 1. **웹브라우저**에서 [https://code.visualstudio.com/](https://code.visualstudio.com/) 접속
 2. **"Download for Windows"** 클릭
 3. 다운로드된 `.exe` 파일 실행
 4. **"Next"** 클릭하여 설치 진행
 5. **"Add to PATH"** 옵션 체크 후 설치 완료
-
-
 
 ### 3단계: 프로젝트 다운로드
 
