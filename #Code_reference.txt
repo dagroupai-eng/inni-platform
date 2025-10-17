@@ -1,0 +1,31 @@
+conda --version
+
+{
+  "terminal.integrated.profiles.windows": {
+    "Command Prompt": {
+      "path": "C:\\Windows\\System32\\cmd.exe",
+      "args": ["/K", "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat", "base"]
+    }
+  },
+
+  "terminal.integrated.defaultProfile.windows": "Command Prompt"
+}
+
+
+conda create -n 원하는 환경 이름 python=3.11 -y
+conda activate test_analyzer
+conda deactivate
+
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/msys2
+
+
+python --version
+
+conda install -c conda-forge madoka geopandas shapely pyproj -y
+python -m pip install -U pip setuptools wheel
+pip install -r requirements.txt
+streamlit --version
+
+streamlit run app.py
