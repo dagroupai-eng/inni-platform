@@ -1,3 +1,68 @@
+{
+  // 보기 좋게: 필요시 유지
+  "git.ignoreMissingGitWarning": true,
+
+  // 1) 터미널 프로필들
+  "terminal.integrated.profiles.windows": {
+    // --- A. CMD 프로필 (자동 탐지) ---
+    "Command Prompt (Conda Auto)": {
+      "path": "C:\\Windows\\System32\\cmd.exe",
+      "args": [
+        "/K",
+        // 여러 경로를 차례로 검사해 activate.bat 실행
+        "set \"_C1=%USERPROFILE%\\miniconda3\\Scripts\\activate.bat\" && " +
+        "set \"_C2=C:\\ProgramData\\miniconda3\\Scripts\\activate.bat\" && " +
+        "set \"_C3=%USERPROFILE%\\anaconda3\\Scripts\\activate.bat\" && " +
+        "set \"_C4=C:\\ProgramData\\anaconda3\\Scripts\\activate.bat\" && " +
+        "if exist \"%_C1%\" (call \"%_C1%\" base) else if exist \"%_C2%\" (call \"%_C2%\" base) else if exist \"%_C3%\" (call \"%_C3%\" base) else if exist \"%_C4%\" (call \"%_C4%\" base) else echo [Conda] activate.bat not found (miniconda/anaconda not detected)"
+      ]
+    },
+
+    // --- B. PowerShell 프로필 (자동 탐지) ---
+    "PowerShell (Conda Auto)": {
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "args": [
+        "-NoExit",
+        "-Command",
+        // conda-hook.ps1 있으면 dot-source 후 conda activate, 없으면 activate.bat를 찾아 실행
+        "$hooks=@(" +
+          "\"$env:USERPROFILE\\miniconda3\\shell\\condabin\\conda-hook.ps1\"," +
+          "\"C:\\ProgramData\\miniconda3\\shell\\condabin\\conda-hook.ps1\"," +
+          "\"$env:USERPROFILE\\anaconda3\\shell\\condabin\\conda-hook.ps1\"," +
+          "\"C:\\ProgramData\\anaconda3\\shell\\condabin\\conda-hook.ps1\"" +
+        ");" +
+        "$h=$hooks | ? { Test-Path $_ } | Select-Object -First 1;" +
+        "if($h){ . $h; conda activate base }" +
+        "else{" +
+          "$acts=@(" +
+            "\"$env:USERPROFILE\\miniconda3\\Scripts\\activate.bat\"," +
+            "\"C:\\ProgramData\\miniconda3\\Scripts\\activate.bat\"," +
+            "\"$env:USERPROFILE\\anaconda3\\Scripts\\activate.bat\"," +
+            "\"C:\\ProgramData\\anaconda3\\Scripts\\activate.bat\"" +
+          ");" +
+          "$a=$acts | ? { Test-Path $_ } | Select-Object -First 1;" +
+          "if($a){ cmd /k \"\"\"$a\"\" base\" }" +
+          "else{ Write-Host \"[Conda] not found (miniconda/anaconda not detected)\" }" +
+        "}"
+      ]
+    }
+  },
+
+  // 2) 기본 터미널(원하면 PowerShell로 바꿔도 됨)
+  "terminal.integrated.defaultProfile.windows": "Command Prompt (Conda Auto)"
+}
+
+
+
+
+
+
+
+
+
+
+
+
 conda --version
 
 {
@@ -24,8 +89,40 @@ conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/ms
 python --version
 
 conda install -c conda-forge madoka geopandas shapely pyproj -y
+
 python -m pip install -U pip setuptools wheel
+
 pip install -r requirements.txt
+
 streamlit --version
 
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
 streamlit run app.py
+
+
+
+안 잡히면: PATH 수동 등록
+
+Windows 환경 변수에서 사용자 Path에 아래 3개 추가 후 VS Code 재실행:
+
+C:\Users\<사용자명>\miniconda3
+C:\Users\<사용자명>\miniconda3\Scripts
+C:\Users\<사용자명>\miniconda3\Library\bin
+
+
+그리고 VS Code 설정(JSON)에 명시(선택):
+
+"python.condaPath": "C:\\Users\\<사용자명>\\miniconda3\\Scripts\\conda.exe"
+
+
+{
+  "git.ignoreMissingGitWarning": true,
+  "terminal.integrated.shell.windows": "C:\\Windows\\Sysnative\\cmd.exe",
+  "terminal.integrated.shellArgs.windows": [
+    "-NoExit",
+    "-Command",
+    "& 'C:\\Users\\da\\miniconda3\\shell\\condabin\\conda-hook.ps1'; conda activate base"
+  ]
+}
+

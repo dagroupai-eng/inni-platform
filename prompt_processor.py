@@ -28,8 +28,8 @@ def process_prompt(block: Dict[str, Any], pdf_text: str) -> str:
             pdf_text = str(pdf_text)
         
         # PDF 텍스트 길이 제한 (토큰 제한 고려)
-        if len(pdf_text) > 5000:
-            pdf_text = pdf_text[:5000] + "\n\n[내용이 길어 일부만 표시됩니다...]"
+        if len(pdf_text) > 8000:
+            pdf_text = pdf_text[:8000] + "\n\n[내용이 길어 일부만 표시됩니다...]"
         
         # RISEN 구조 블록인지 확인
         if 'role' in block and 'instructions' in block and 'steps' in block:
@@ -68,30 +68,73 @@ def _process_risen_prompt(block: Dict[str, Any], pdf_text: str) -> str:
         # 프롬프트 템플릿에 값들 삽입
         prompt_template = block['prompt']
         
+        # narrowing 필드들을 문자열로 변환
+        def format_narrowing_value(value):
+            if isinstance(value, list):
+                return ", ".join(value)
+            return str(value)
+        
         # 기본 필드들
         formatted_prompt = prompt_template.format(
             role=block.get('role', ''),
             instructions=block.get('instructions', ''),
             steps_formatted=steps_formatted,
             end_goal=block.get('end_goal', ''),
-            narrowing_output_format=narrowing.get('output_format', ''),
-            narrowing_required_items=narrowing.get('required_items', ''),
-            narrowing_classification_criteria=narrowing.get('classification_criteria', ''),
-            narrowing_evaluation_scale=narrowing.get('evaluation_scale', ''),
-            narrowing_constraints=narrowing.get('constraints', ''),
-            narrowing_quality_standards=narrowing.get('quality_standards', ''),
+            narrowing_output_format=format_narrowing_value(narrowing.get('output_format', '')),
+            narrowing_required_items=format_narrowing_value(narrowing.get('required_items', '')),
+            narrowing_classification_criteria=format_narrowing_value(narrowing.get('classification_criteria', '')),
+            narrowing_evaluation_scale=format_narrowing_value(narrowing.get('evaluation_scale', '')),
+            narrowing_constraints=format_narrowing_value(narrowing.get('constraints', '')),
+            narrowing_quality_standards=format_narrowing_value(narrowing.get('quality_standards', '')),
             # 추가 narrowing 필드들
-            narrowing_required_sections=narrowing.get('required_sections', ''),
-            narrowing_design_focus=narrowing.get('design_focus', ''),
-            narrowing_required_metrics=narrowing.get('required_metrics', ''),
-            narrowing_calculation_method=narrowing.get('calculation_method', ''),
-            narrowing_evaluation_criteria=narrowing.get('evaluation_criteria', ''),
-            narrowing_scoring_system=narrowing.get('scoring_system', ''),
-            narrowing_verification_scope=narrowing.get('verification_scope', ''),
-            narrowing_risk_assessment=narrowing.get('risk_assessment', ''),
-            narrowing_analysis_areas=narrowing.get('analysis_areas', ''),
+            narrowing_required_sections=format_narrowing_value(narrowing.get('required_sections', '')),
+            narrowing_design_focus=format_narrowing_value(narrowing.get('design_focus', '')),
+            narrowing_required_metrics=format_narrowing_value(narrowing.get('required_metrics', '')),
+            narrowing_calculation_method=format_narrowing_value(narrowing.get('calculation_method', '')),
+            narrowing_evaluation_criteria=format_narrowing_value(narrowing.get('evaluation_criteria', '')),
+            narrowing_scoring_system=format_narrowing_value(narrowing.get('scoring_system', '')),
+            narrowing_verification_scope=format_narrowing_value(narrowing.get('verification_scope', '')),
+            narrowing_risk_assessment=format_narrowing_value(narrowing.get('risk_assessment', '')),
+            narrowing_analysis_areas=format_narrowing_value(narrowing.get('analysis_areas', '')),
             pdf_text=pdf_text
         )
+        
+        # 디버깅을 위한 출력 (개발 시에만)
+        print(f"=== {block.get('id', 'unknown')} 블록 프롬프트 생성 완료 ===")
+        print(f"블록 ID: {block.get('id', 'unknown')}")
+        print(f"블록 이름: {block.get('name', 'unknown')}")
+        print(f"프롬프트 길이: {len(formatted_prompt)}자")
+        
+        # 프롬프트의 핵심 부분들 출력
+        if "역할 (Role):" in formatted_prompt:
+            role_start = formatted_prompt.find("역할 (Role):")
+            role_end = formatted_prompt.find("**지시 (Instructions):**", role_start)
+            if role_end > role_start:
+                role_text = formatted_prompt[role_start:role_end].strip()
+                print(f"역할 섹션: {role_text[:100]}...")
+        
+        if "지시 (Instructions):" in formatted_prompt:
+            inst_start = formatted_prompt.find("지시 (Instructions):")
+            inst_end = formatted_prompt.find("**단계 (Steps):**", inst_start)
+            if inst_end > inst_start:
+                inst_text = formatted_prompt[inst_start:inst_end].strip()
+                print(f"지시 섹션: {inst_text[:100]}...")
+        
+        # 프롬프트 해시 생성 (고유성 확인용)
+        import hashlib
+        prompt_hash = hashlib.md5(formatted_prompt.encode()).hexdigest()[:8]
+        print(f"프롬프트 해시: {prompt_hash}")
+        
+        # 프롬프트가 제대로 생성되었는지 확인
+        if "역할 (Role):" not in formatted_prompt:
+            print("❌ ERROR: 프롬프트에 '역할 (Role):' 섹션이 없습니다!")
+        if "지시 (Instructions):" not in formatted_prompt:
+            print("❌ ERROR: 프롬프트에 '지시 (Instructions):' 섹션이 없습니다!")
+        if "단계 (Steps):" not in formatted_prompt:
+            print("❌ ERROR: 프롬프트에 '단계 (Steps):' 섹션이 없습니다!")
+        
+        print(f"✅ 프롬프트 구조 검증 완료")
+        print("=" * 50)
         
         return formatted_prompt
         
