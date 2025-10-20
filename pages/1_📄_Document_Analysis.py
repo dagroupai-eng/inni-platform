@@ -17,14 +17,14 @@ except UnicodeDecodeError:
 
 # 페이지 설정
 st.set_page_config(
-    page_title="파일 분석",
+    page_title="도시 프로젝트 분석",
     page_icon=None,
     layout="wide"
 )
 
 # 제목
-st.title("파일 분석")
-st.markdown("**건축 프로젝트 문서 분석 (PDF, Excel, CSV, 텍스트, JSON 지원)**")
+st.title("도시 프로젝트 분석")
+st.markdown("**도시 프로젝트 문서 분석 (PDF, Excel, CSV, 텍스트, JSON 지원)**")
 
 # Session state 초기화
 if 'project_name' not in st.session_state:
@@ -78,10 +78,8 @@ def create_word_document(project_name, analysis_results):
     
     return doc
 
-# 사이드바 - 프로젝트 정보
+# 사이드바 - 설정
 with st.sidebar:
-    st.header("프로젝트 정보")
-    project_name = st.text_input("프로젝트명", placeholder="예: 학생 기숙사 프로젝트", key="project_name")
     
     st.header("설정")
     
@@ -115,56 +113,37 @@ tab1, tab2, tab3, tab4 = st.tabs(["기본 정보 & 파일 업로드", "분석 �
 with tab1:
     st.header("프로젝트 기본 정보")
     
+    # 프로젝트명 입력
+    project_name = st.text_input(
+        "프로젝트명", 
+        placeholder="예: 서울 도심 재생 프로젝트", 
+        help="도시 프로젝트의 이름을 입력하세요"
+    )
+    
     # 기본 정보 입력 섹션
-    col1, col2 = st.columns(2)
+    st.subheader("프로젝트 개요")
     
-    with col1:
-        st.subheader("프로젝트 개요")
-        project_type = st.selectbox(
-            "프로젝트 유형",
-            ["", "사무용", "주거용", "상업용", "문화시설", "교육시설", "의료시설", "기타"],
-            help="건물의 주요 용도를 선택하세요"
-        )
-        
-        location = st.text_input(
-            "위치",
-            placeholder="예: 서울시 강남구",
-            help="프로젝트가 위치한 지역을 입력하세요"
-        )
-        
-        scale = st.text_input(
-            "규모",
-            placeholder="예: 지하 2층, 지상 15층",
-            help="건물의 규모나 층수를 입력하세요"
-        )
+    location = st.text_input(
+        "위치/지역",
+        placeholder="예: 서울시 중구 명동 일대",
+        help="프로젝트가 진행될 도시 지역을 입력하세요"
+    )
     
-    with col2:
-        st.subheader("프로젝트 관련자")
-        owner = st.text_input(
-            "건축주/발주처",
-            placeholder="예: 서울특별시",
-            help="프로젝트를 발주한 기관이나 개인"
-        )
-        
-        architect = st.text_input(
-            "건축가/설계사",
-            placeholder="예: 김건축",
-            help="설계를 담당한 건축가나 설계사무소"
-        )
-        
-        site_area = st.text_input(
-            "대지 면적",
-            placeholder="예: 15,000㎡",
-            help="프로젝트 대지의 면적"
-        )
+    # 프로젝트 목표
+    project_goals = st.text_area(
+        "프로젝트 목표",
+        placeholder="프로젝트의 목표, 비전, 기대효과를 입력하세요...",
+        height=80,
+        help="도시 프로젝트의 목표, 비전, 기대효과를 입력하세요"
+    )
     
     # 추가 정보
     st.subheader("추가 정보")
     additional_info = st.text_area(
-        "기타 프로젝트 정보",
-        placeholder="프로젝트의 특별한 특징이나 요구사항을 입력하세요...",
-        height=100,
-        help="프로젝트의 특별한 특징, 요구사항, 제약조건 등을 자유롭게 입력하세요"
+        "추가 정보",
+        placeholder="프로젝트와 관련된 특별한 요구사항, 제약조건, 참고사항 등을 입력하세요...",
+        height=80,
+        help="프로젝트와 관련된 특별한 요구사항, 제약조건, 참고사항 등을 자유롭게 입력하세요"
     )
     
     st.markdown("---")
@@ -173,7 +152,7 @@ with tab1:
     uploaded_file = st.file_uploader(
         "파일을 업로드하세요",
         type=['pdf', 'xlsx', 'xls', 'csv', 'txt', 'json'],
-        help="건축 프로젝트 관련 문서를 업로드하세요 (PDF, Excel, CSV, 텍스트, JSON 지원)"
+        help="도시 프로젝트 관련 문서를 업로드하세요 (PDF, Excel, CSV, 텍스트, JSON 지원)"
     )
     
     if uploaded_file is not None:
@@ -211,6 +190,7 @@ with tab1:
             st.session_state['pdf_uploaded'] = True
             st.session_state['file_type'] = analysis_result['file_type']
             st.session_state['file_analysis'] = analysis_result
+            st.session_state['uploaded_file'] = uploaded_file  # 파일 객체 저장
             
             # 텍스트 미리보기
             with st.expander(f"{file_extension.upper()} 내용 미리보기"):
@@ -222,7 +202,7 @@ with tab2:
     st.header("분석 블록 선택")
     
     # 기본 정보나 파일 중 하나라도 있으면 진행
-    has_basic_info = any([project_name, project_type, location, scale, owner, architect, site_area, additional_info])
+    has_basic_info = any([project_name, location, project_goals, additional_info])
     has_file = st.session_state.get('pdf_uploaded', False)
     
     if not has_basic_info and not has_file:
@@ -387,7 +367,7 @@ with tab3:
     st.header("분석 실행")
     
     # 기본 정보와 파일 업로드 상태 확인
-    has_basic_info = any([project_name, project_type, location, scale, owner, architect, site_area, additional_info])
+    has_basic_info = any([project_name, location, project_goals, additional_info])
     has_file = st.session_state.get('pdf_uploaded', False)
     
     if not has_basic_info and not has_file:
@@ -407,18 +387,10 @@ with tab3:
         st.markdown("**프로젝트 정보**")
         if project_name:
             st.write(f"• 프로젝트명: {project_name}")
-        if project_type:
-            st.write(f"• 프로젝트 유형: {project_type}")
         if location:
-            st.write(f"• 위치: {location}")
-        if scale:
-            st.write(f"• 규모: {scale}")
-        if owner:
-            st.write(f"• 건축주: {owner}")
-        if architect:
-            st.write(f"• 건축가: {architect}")
-        if site_area:
-            st.write(f"• 대지 면적: {site_area}")
+            st.write(f"• 위치/지역: {location}")
+        if project_goals:
+            st.write(f"• 프로젝트 목표: {project_goals[:100]}...")
         if additional_info:
             st.write(f"• 추가 정보: {additional_info[:100]}...")
     
@@ -426,7 +398,14 @@ with tab3:
         st.markdown("**파일 정보**")
         if has_file:
             file_analysis = st.session_state.get('file_analysis', {})
-            st.write(f"• 파일명: {st.session_state.get('uploaded_file', {}).get('name', 'N/A')}")
+            # 파일명 가져오기 (session_state에서 직접 또는 uploaded_file 변수에서)
+            file_name = "N/A"
+            if 'uploaded_file' in st.session_state and st.session_state['uploaded_file']:
+                file_name = st.session_state['uploaded_file'].name
+            elif uploaded_file is not None:
+                file_name = uploaded_file.name
+            
+            st.write(f"• 파일명: {file_name}")
             st.write(f"• 파일 유형: {file_analysis.get('file_type', 'N/A')}")
             st.write(f"• 텍스트 길이: {file_analysis.get('char_count', 0)}자")
             st.write(f"• 단어 수: {file_analysis.get('word_count', 0)}단어")
@@ -478,12 +457,8 @@ with tab3:
                 basic_info_text = f"""
 ## 프로젝트 기본 정보
 - 프로젝트명: {project_name or 'N/A'}
-- 프로젝트 유형: {project_type or 'N/A'}
-- 위치: {location or 'N/A'}
-- 규모: {scale or 'N/A'}
-- 건축주: {owner or 'N/A'}
-- 건축가: {architect or 'N/A'}
-- 대지 면적: {site_area or 'N/A'}
+- 위치/지역: {location or 'N/A'}
+- 프로젝트 목표: {project_goals or 'N/A'}
 - 추가 정보: {additional_info or 'N/A'}
 """
                 combined_content += basic_info_text
@@ -494,35 +469,55 @@ with tab3:
                 if file_text:
                     combined_content += f"\n## 업로드된 파일 내용\n{file_text}"
             
+            # 디버깅: combined_content 확인
+            st.info(f"**{block_info['name']} 블록용 combined_content 길이:** {len(combined_content)}자")
+            
             # 프롬프트에 결합된 내용 삽입
             prompt = process_prompt(block_info, combined_content)
             
-            # DSPy + CoT 분석 실행
-            if block_id.startswith('custom_'):
-                # 사용자 정의 블록은 custom_module 사용
-                result = analyzer.analyze_custom_block(
-                    prompt, 
-                    combined_content
-                )
-            else:
-                # 예시 블록은 기본 분석 사용
-                project_info = {
-                    "project_name": project_name or "프로젝트",
-                    "project_type": project_type or "N/A",
-                    "location": location or "N/A",
-                    "scale": scale or "N/A",
-                    "owner": owner or "N/A",
-                    "architect": architect or "N/A",
-                    "site_area": site_area or "N/A"
-                }
-                result = analyzer.analyze_project(
-                    project_info, 
-                    combined_content
-                )
+            # 디버깅: 생성된 프롬프트 확인
+            with st.expander(f"🔍 {block_info['name']} 블록 프롬프트 미리보기"):
+                st.text_area("프롬프트", prompt[:800] + "..." if len(prompt) > 800 else prompt, height=300, key=f"debug_prompt_{block_id}")
+                st.write(f"**프롬프트 길이:** {len(prompt)}자")
+                st.write(f"**블록 ID:** {block_id}")
+                st.write(f"**블록 이름:** {block_info['name']}")
+                
+                # 프롬프트 고유성 확인
+                st.write("**프롬프트 고유성 체크:**")
+                if "역할 (Role):" in prompt:
+                    role_start = prompt.find("역할 (Role):")
+                    role_end = prompt.find("**지시 (Instructions):**", role_start)
+                    if role_end > role_start:
+                        role_text = prompt[role_start:role_end].strip()
+                        st.write(f"✅ 역할 섹션: {role_text[:100]}...")
+                    else:
+                        st.write("❌ 역할 섹션을 찾을 수 없습니다")
+                else:
+                    st.write("❌ 프롬프트에 '역할 (Role):' 섹션이 없습니다")
+                
+                # 프롬프트 해시 생성 (고유성 확인용)
+                import hashlib
+                prompt_hash = hashlib.md5(prompt.encode()).hexdigest()[:8]
+                st.write(f"**프롬프트 해시:** {prompt_hash}")
+            
+            # 모든 블록에 대해 동일한 방식으로 분석 실행 (블록별 고유 프롬프트와 Signature 사용)
+            result = analyzer.analyze_custom_block(
+                prompt, 
+                combined_content,
+                block_id
+            )
             
             if result['success']:
                 analysis_results[block_id] = result['analysis']
                 st.success(f"{block_info['name']} 완료")
+                
+                # 디버깅 정보 표시
+                with st.expander(f"🔍 {block_info['name']} 분석 결과 디버깅", expanded=False):
+                    st.write(f"**사용된 Signature:** {result.get('method', 'Unknown')}")
+                    st.write(f"**블록 ID:** {result.get('block_id', 'Unknown')}")
+                    st.write(f"**분석 결과 길이:** {len(result['analysis'])}자")
+                    st.write(f"**분석 결과 미리보기:**")
+                    st.text(result['analysis'][:300] + "..." if len(result['analysis']) > 300 else result['analysis'])
             else:
                 st.error(f"{block_info['name']} 실패: {result.get('error', '알 수 없는 오류')}")
             
@@ -543,17 +538,22 @@ with tab3:
         # 프로젝트 정보 구성
         project_info = {
             "project_name": project_name or "프로젝트",
-            "project_type": project_type or "N/A",
             "location": location or "N/A",
-            "scale": scale or "N/A",
-            "owner": owner or "N/A",
-            "architect": architect or "N/A",
-            "site_area": site_area or "N/A",
+            "project_goals": project_goals or "N/A",
             "additional_info": additional_info or "N/A"
         }
         
-        # 분석 결과를 blocks.json에 저장
-        blocks_data = {
+        # 분석 결과를 별도 파일에 저장
+        analysis_folder = "analysis_results"
+        
+        # analysis_results 폴더가 없으면 생성
+        if not os.path.exists(analysis_folder):
+            os.makedirs(analysis_folder)
+        
+        analysis_filename = f"analysis_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        analysis_filepath = os.path.join(analysis_folder, analysis_filename)
+        
+        analysis_data = {
             "project_info": project_info,
             "analysis_results": analysis_results,
             "pdf_text": st.session_state.get('pdf_text', ''),
@@ -562,13 +562,13 @@ with tab3:
             "cot_history": []  # Chain of Thought 히스토리 (향후 확장 가능)
         }
         
-        # blocks.json 파일에 저장
+        # 분석 결과 파일에 저장
         try:
-            with open('blocks.json', 'w', encoding='utf-8') as f:
-                json.dump(blocks_data, f, ensure_ascii=False, indent=2)
-            st.success("분석 결과가 blocks.json에 저장되었습니다!")
+            with open(analysis_filepath, 'w', encoding='utf-8') as f:
+                json.dump(analysis_data, f, ensure_ascii=False, indent=2)
+            st.success(f"분석 결과가 {analysis_filepath}에 저장되었습니다!")
         except Exception as e:
-            st.warning(f"blocks.json 저장 실패: {e}")
+            st.warning(f"분석 결과 저장 실패: {e}")
         
         # 결과 미리보기
         if analysis_results:

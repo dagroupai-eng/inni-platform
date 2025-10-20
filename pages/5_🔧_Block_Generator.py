@@ -3,6 +3,120 @@ import json
 import os
 from datetime import datetime
 
+def generate_dspy_signature(block_id, block_name, block_description):
+    """블록 정보를 바탕으로 DSPy Signature 코드를 생성합니다."""
+    
+    # 블록 이름에서 Signature 클래스명 생성
+    signature_name = ''.join(word.capitalize() for word in block_id.split('_')) + 'Signature'
+    
+    # 블록 설명을 기반으로 입력/출력 필드 설명 생성
+    input_desc = f"{block_name}을 위한 입력 데이터"
+    output_desc = f"{block_description}에 따른 분석 결과"
+    
+    signature_code = f'''class {signature_name}(dspy.Signature):
+    """{block_name}을 위한 Signature"""
+    input = dspy.InputField(desc="{input_desc}")
+    output = dspy.OutputField(desc="{output_desc}")'''
+    
+    return signature_code, signature_name
+
+def update_dspy_analyzer(block_id, signature_code, signature_name):
+    """dspy_analyzer.py 파일에 새로운 Signature를 추가합니다."""
+    
+    # dspy_analyzer.py 파일 경로
+    analyzer_file = 'dspy_analyzer.py'
+    
+    try:
+        # 기존 파일 읽기
+        with open(analyzer_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Signature 클래스들을 찾을 위치 (SimpleAnalysisSignature 다음)
+        insertion_point = content.find('class EnhancedArchAnalyzer:')
+        
+        if insertion_point == -1:
+            st.error("dspy_analyzer.py 파일에서 적절한 삽입 위치를 찾을 수 없습니다.")
+            return False
+        
+        # 새로운 Signature 코드 삽입
+        new_content = content[:insertion_point] + signature_code + '\n\n' + content[insertion_point:]
+        
+        # signature_map에 새 블록 추가
+        signature_map_pattern = r'signature_map = \{([^}]+)\}'
+        import re
+        match = re.search(signature_map_pattern, new_content, re.DOTALL)
+        
+        if match:
+            # 기존 signature_map 내용
+            map_content = match.group(1)
+            
+            # 새 블록 추가
+            new_map_entry = f"                '{block_id}': {signature_name},"
+            updated_map_content = map_content.rstrip() + '\n' + new_map_entry + '\n'
+            
+            # signature_map 업데이트
+            new_content = re.sub(
+                signature_map_pattern,
+                f'signature_map = {{{updated_map_content}}}',
+                new_content,
+                flags=re.DOTALL
+            )
+        
+        # 파일에 저장
+        with open(analyzer_file, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"dspy_analyzer.py 파일 업데이트 중 오류 발생: {e}")
+        return False
+
+def remove_dspy_signature(block_id, signature_name):
+    """dspy_analyzer.py 파일에서 Signature를 제거합니다."""
+    
+    analyzer_file = 'dspy_analyzer.py'
+    
+    try:
+        # 기존 파일 읽기
+        with open(analyzer_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        import re
+        
+        # Signature 클래스 제거
+        signature_pattern = rf'class {signature_name}\(dspy\.Signature\):[^}}]+}}\n\n'
+        content = re.sub(signature_pattern, '', content, flags=re.DOTALL)
+        
+        # signature_map에서 해당 블록 제거
+        signature_map_pattern = r'signature_map = \{([^}]+)\}'
+        match = re.search(signature_map_pattern, content, re.DOTALL)
+        
+        if match:
+            map_content = match.group(1)
+            # 해당 블록 라인 제거
+            lines = map_content.split('\n')
+            filtered_lines = [line for line in lines if f"'{block_id}'" not in line and line.strip()]
+            updated_map_content = '\n'.join(filtered_lines)
+            
+            # signature_map 업데이트
+            content = re.sub(
+                signature_map_pattern,
+                f'signature_map = {{{updated_map_content}\n}}',
+                content,
+                flags=re.DOTALL
+            )
+        
+        # 파일에 저장
+        with open(analyzer_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"dspy_analyzer.py 파일에서 Signature 제거 중 오류 발생: {e}")
+        return False
+
 def load_blocks():
     """blocks.json 파일에서 블록 데이터를 로드합니다."""
     try:
@@ -57,11 +171,25 @@ def main():
                     st.write(f"**ID:** {block.get('id', 'N/A')}")
                     st.write(f"**설명:** {block.get('description', 'N/A')}")
                     if st.button(f"삭제", key=f"delete_{i}"):
+                        # 삭제할 블록 정보
+                        block_to_delete = existing_blocks[i]
+                        block_id = block_to_delete.get('id')
+                        block_name = block_to_delete.get('name')
+                        
+                        # Signature 이름 생성
+                        signature_name = ''.join(word.capitalize() for word in block_id.split('_')) + 'Signature'
+                        
                         # 블록 삭제
                         existing_blocks.pop(i)
                         blocks_data["blocks"] = existing_blocks
+                        
                         if save_blocks(blocks_data):
-                            st.success("블록이 삭제되었습니다!")
+                            # DSPy Signature도 제거
+                            if remove_dspy_signature(block_id, signature_name):
+                                st.success("블록과 DSPy Signature가 삭제되었습니다!")
+                            else:
+                                st.success("블록이 삭제되었습니다!")
+                                st.warning("DSPy Signature 제거에 실패했습니다. 수동으로 제거해주세요.")
                             st.rerun()
         else:
             st.info("생성된 블록이 없습니다.")
@@ -300,12 +428,27 @@ def main():
                         
                         # 저장
                         if save_blocks(blocks_data):
-                            st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
-                            st.balloons()
+                            # DSPy Signature 자동 생성
+                            signature_code, signature_name = generate_dspy_signature(
+                                block_id, final_name, block_description
+                            )
+                            
+                            # dspy_analyzer.py 파일 업데이트
+                            if update_dspy_analyzer(block_id, signature_code, signature_name):
+                                st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
+                                st.success(f"DSPy Signature '{signature_name}'도 자동으로 생성되었습니다!")
+                                st.balloons()
+                            else:
+                                st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
+                                st.warning("DSPy Signature 자동 생성에 실패했습니다. 수동으로 추가해주세요.")
                             
                             # 생성된 블록 정보 표시
                             with st.expander("생성된 블록 정보", expanded=True):
                                 st.json(new_block)
+                            
+                            # 생성된 DSPy Signature 코드 표시
+                            with st.expander("생성된 DSPy Signature", expanded=False):
+                                st.code(signature_code, language="python")
                         else:
                             st.error("블록 저장 중 오류가 발생했습니다.")
     
@@ -322,69 +465,178 @@ def main():
         - **E**nd Goal (최종 목표): 달성하고자 하는 결과
         - **N**arrowing (구체화): 제약조건 및 출력 형식
         
-        **1. 역할 (Role)**
-        - AI가 어떤 전문가 역할을 할지 명확히 정의
-        - 예: "건축 설계 전문가로서..."
+        **🔧 자동 DSPy Signature 생성**
+        - 새 블록 생성 시 자동으로 DSPy Signature 클래스가 생성됩니다
+        - 블록 ID를 기반으로 고유한 Signature 클래스명이 생성됩니다
+        - 예: `my_analysis` → `MyAnalysisSignature`
+        - 삭제 시에도 자동으로 Signature가 제거됩니다
         
-        **2. 지시 (Instructions)**
-        - 수행해야 할 작업의 구체적인 지시사항
-        - 명확하고 실행 가능한 내용으로 작성
+        **1. 역할 (Role) - 전문가 역할 정의**
+        ```
+        ✅ 좋은 예시:
+        "도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다"
         
-        **3. 단계 (Steps)**
-        - 분석 과정을 논리적 순서로 나누어 제시
-        - 각 단계는 구체적이고 명확해야 함
+        ❌ 나쁜 예시:
+        "분석 전문가"
+        ```
         
-        **4. 최종 목표 (End Goal)**
-        - 이 분석을 통해 달성하고자 하는 결과
-        - 사용자에게 어떤 가치를 제공할지 명시
+        **2. 지시 (Instructions) - 구체적인 작업 지시**
+        ```
+        ✅ 좋은 예시:
+        "제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다"
         
-        **5. 구체화/제약 조건 (Narrowing)**
-        - 출력 형식, 필수 항목, 제약 조건 등
-        - 품질 기준과 평가 방법 명시
+        ❌ 나쁜 예시:
+        "문서를 분석하세요"
+        ```
+        
+        **3. 단계 (Steps) - 논리적 분석 과정**
+        ```
+        ✅ 좋은 예시:
+        1. "사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출"
+        2. "영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리"
+        3. "종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시"
+        
+        ❌ 나쁜 예시:
+        1. "분석하기"
+        2. "결과 만들기"
+        ```
+        
+        **4. 최종 목표 (End Goal) - 달성하고자 하는 결과**
+        ```
+        ✅ 좋은 예시:
+        "도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다"
+        
+        ❌ 나쁜 예시:
+        "분석 결과를 제공합니다"
+        ```
+        
+        **5. 구체화/제약 조건 (Narrowing) - 출력 형식 및 기준**
+        ```
+        ✅ 좋은 예시:
+        - 출력 형식: "표와 차트를 포함한 구조화된 보고서"
+        - 필수 항목: "긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항"
+        - 제약 조건: "문서에 명시된 데이터만 사용, 추측 금지"
+        - 품질 기준: "각 결론에 근거 제시, 출처 명시"
+        
+        ❌ 나쁜 예시:
+        - 출력 형식: "보고서"
+        - 필수 항목: "결과"
+        ```
         """)
         
         st.markdown("---")
         
-        st.subheader("📖 예시 프롬프트")
+        st.subheader("📖 실제 사용 예시")
         
-        with st.expander("기본 정보 추출 예시"):
-            st.code("""
-다음 단계별로 분석해주세요:
-
-1단계: 문서 스캔
-- PDF 내용을 읽고 건축 프로젝트 관련 정보 식별
-
-2단계: 정보 분류
-- 프로젝트명, 건축주, 대지위치, 건물용도, 주요 요구사항으로 분류
-
-3단계: 정보 정리
-- 각 항목별로 명확하게 정리하여 제시
-
-각 단계별 사고 과정을 보여주세요.
-
-PDF 내용: {pdf_text}
-            """, language="text")
+        with st.expander("도시 재개발 프로젝트 분석 예시"):
+            st.markdown("""
+            **블록 이름:** 도시 재개발 사회경제적 영향 분석
+            
+            **역할 (Role):**
+            도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다
+            
+            **지시 (Instructions):**
+            제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다
+            
+            **단계 (Steps):**
+            1. 사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출
+            2. 영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리
+            3. 종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시
+            
+            **최종 목표 (End Goal):**
+            도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다
+            
+            **구체화/제약 조건 (Narrowing):**
+            - 출력 형식: 표와 차트를 포함한 구조화된 보고서
+            - 필수 항목: 긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항
+            - 제약 조건: 문서에 명시된 데이터만 사용, 추측 금지
+            - 품질 기준: 각 결론에 근거 제시, 출처 명시
+            """)
         
-        with st.expander("요구사항 분석 예시"):
-            st.code("""
-다음 단계별로 요구사항을 분석해주세요:
-
-1단계: 요구사항 식별
-- PDF에서 건축 관련 요구사항을 찾아내기
-
-2단계: 요구사항 분류
-- 공간 요구사항, 기능적 요구사항, 법적 요구사항, 기술적 요구사항으로 분류
-
-3단계: 우선순위 평가
-- 각 요구사항의 중요도와 우선순위 평가
-
-4단계: 종합 정리
-- 분류된 요구사항을 명확하게 정리하여 제시
-
-각 단계별 사고 과정을 보여주세요.
-
-PDF 내용: {pdf_text}
-            """, language="text")
+        with st.expander("환경 영향 평가 예시"):
+            st.markdown("""
+            **블록 이름:** 도시 프로젝트 환경 영향 평가
+            
+            **역할 (Role):**
+            환경 전문가로서 도시 개발 프로젝트가 지역 환경에 미치는 영향을 과학적이고 객관적으로 평가하는 역할을 수행합니다
+            
+            **지시 (Instructions):**
+            제공된 도시 개발 문서에서 환경 관련 정보를 추출하고, 대기질, 수질, 생태계, 소음 등 다양한 환경 요소별로 영향을 분석하여 종합적인 환경 평가를 수행합니다
+            
+            **단계 (Steps):**
+            1. 환경 영향 요소 식별 - 대기, 수질, 토양, 생태계, 소음 등 영향 요소 파악
+            2. 영향 정도 평가 - 각 환경 요소별 영향의 규모와 심각도 분석
+            3. 완화 방안 도출 - 부정적 환경 영향을 최소화할 수 있는 대안 제시
+            
+            **최종 목표 (End Goal):**
+            도시 개발 프로젝트의 환경적 지속가능성을 확보할 수 있도록 환경 영향 평가 결과를 제공하고, 친환경적인 개발 방향을 제시합니다
+            
+            **구체화/제약 조건 (Narrowing):**
+            - 출력 형식: 환경 영향 매트릭스와 개선 방안 목록
+            - 필수 항목: 영향 요소별 분석, 영향 정도 평가, 완화 방안
+            - 제약 조건: 객관적 데이터 기반 평가, 환경 기준 준수
+            - 품질 기준: 환경 법규 및 기준 참조, 전문가 의견 반영
+            """)
+        
+        with st.expander("교통 영향 분석 예시"):
+            st.markdown("""
+            **블록 이름:** 도시 프로젝트 교통 영향 분석
+            
+            **역할 (Role):**
+            교통 전문가로서 도시 개발 프로젝트가 지역 교통 체계에 미치는 영향을 분석하고 교통 개선 방안을 제시하는 역할을 수행합니다
+            
+            **지시 (Instructions):**
+            제공된 도시 개발 문서에서 교통 관련 정보를 분석하고, 교통량 변화, 접근성 개선, 교통 혼잡도 등 다양한 교통 요소를 평가하여 종합적인 교통 영향 분석을 수행합니다
+            
+            **단계 (Steps):**
+            1. 교통 현황 파악 - 기존 교통 인프라 및 교통량 분석
+            2. 개발 영향 평가 - 프로젝트로 인한 교통량 변화 및 접근성 변화 분석
+            3. 교통 개선 방안 제시 - 교통 혼잡 완화 및 접근성 향상 방안 도출
+            
+            **최종 목표 (End Goal):**
+            도시 개발 프로젝트가 지역 교통 체계에 미치는 영향을 체계적으로 분석하여 교통 효율성을 높이고 주민들의 이동 편의성을 개선할 수 있는 구체적인 교통 개선 방안을 제시합니다
+            
+            **구체화/제약 조건 (Narrowing):**
+            - 출력 형식: 교통 영향 분석표와 개선 방안 도표
+            - 필수 항목: 교통량 변화, 접근성 분석, 혼잡도 평가, 개선 방안
+            - 제약 조건: 교통 데이터 기반 분석, 현실적 개선 방안
+            - 품질 기준: 교통 전문 지식 반영, 실현 가능성 검토
+            """)
+        
+        st.markdown("---")
+        
+        st.subheader("📝 작성 가이드라인")
+        
+        st.markdown("""
+        ### ✅ 효과적인 블록 작성 팁
+        
+        **1. 구체적이고 명확하게 작성하세요**
+        - 모호한 표현보다는 구체적인 용어 사용
+        - "분석하세요" → "식별하고 분류하며 평가하세요"
+        
+        **2. 도시 프로젝트에 특화된 내용으로 작성하세요**
+        - 건축 중심이 아닌 도시 계획 관점에서 접근
+        - 사회적, 경제적, 환경적 영향 고려
+        
+        **3. 단계는 논리적 순서로 구성하세요**
+        - 정보 수집 → 분석 → 평가 → 결론 도출
+        - 각 단계가 다음 단계의 기반이 되도록
+        
+        **4. 출력 형식을 구체적으로 명시하세요**
+        - "보고서" → "표와 차트를 포함한 구조화된 보고서"
+        - "분석 결과" → "긍정적/부정적 영향 분석표와 개선 권고사항"
+        
+        **5. 제약 조건을 명확히 하세요**
+        - 문서 기반 분석인지, 추가 조사가 필요한지
+        - 추측이나 가정의 범위 설정
+        
+        ### ❌ 피해야 할 표현들
+        
+        - "분석하세요", "검토하세요" (너무 일반적)
+        - "자세히", "구체적으로" (구체성이 부족)
+        - "적절한", "합리적인" (기준이 모호)
+        - "가능한 한", "최대한" (범위가 불분명)
+        """)
 
 if __name__ == "__main__":
     main()
