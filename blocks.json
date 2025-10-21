@@ -13,7 +13,7 @@
       ],
       "end_goal": "프로젝트의 핵심 기본 정보가 체계적으로 정리된 완전한 프로필을 제공하여 후속 분석의 기초 자료로 활용할 수 있도록 합니다",
       "narrowing": {
-        "output_format": "표 형태 또는 구조화된 리스트로 제시",
+        "output_format": "표 형태 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
         "required_items": [
           "프로젝트명",
           "건축주",
@@ -22,7 +22,7 @@
           "주요 요구사항"
         ],
         "constraints": "문서에 명시되지 않은 정보는 추측하지 말고 '정보 없음'으로 표시",
-        "quality_standards": "각 정보의 출처(문서 내 위치)를 명시"
+        "quality_standards": "각 정보의 출처(문서 내 위치)를 명시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상"
       },
       "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**단계 (Steps):**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **필수 항목:** {narrowing_required_items}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**분석할 문서 내용:**\n{pdf_text}"
     },
@@ -40,13 +40,13 @@
       ],
       "end_goal": "설계팀이 참고할 수 있는 완전하고 우선순위가 명확한 요구사항 목록을 제공하여 효율적인 설계 의사결정을 지원합니다",
       "narrowing": {
-        "output_format": "요구사항 매트릭스 표 + 우선순위 도표",
+        "output_format": "요구사항 매트릭스 표 + 우선순위 도표 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
         "classification_criteria": "공간/기능/법적/기술적/경제적 요구사항",
         "evaluation_scale": "1-5점 척도로 중요도 및 긴급도 평가",
         "constraints": "문서에 명시되지 않은 요구사항은 '추정' 표시",
-        "quality_standards": "각 요구사항의 문서 내 근거 제시"
+        "quality_standards": "각 요구사항의 문서 내 근거 제시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상"
       },
-      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**단계 (Steps):**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **분류 기준:** {narrowing_classification_criteria}\n- **평가 척도:** {narrowing_evaluation_scale}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**분석할 문서 내용:**\n{pdf_text}"
+      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**반드시 다음 단계를 순서대로 수행하세요:**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **분류 기준:** {narrowing_classification_criteria}\n- **평가 척도:** {narrowing_evaluation_scale}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**중요:** 위의 단계들을 순서대로 수행하여 요구사항 분석 결과를 제시하세요. 단계별로 명확한 요구사항을 식별하고 분류하며, 우선순위를 평가하여 매트릭스로 정리하세요.\n\n**분석할 문서 내용:**\n{pdf_text}"
     },
     {
       "id": "design_suggestions",
@@ -62,7 +62,7 @@
       ],
       "end_goal": "프로젝트의 특성에 맞는 최적의 설계 방향과 실행 가능한 구체적 제안을 제공하여 설계팀의 의사결정을 지원합니다",
       "narrowing": {
-        "output_format": "설계 제안서 형태의 구조화된 보고서",
+        "output_format": "설계 제안서 형태의 구조화된 보고서 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
         "required_sections": [
           "현황 분석",
           "설계 컨셉",
@@ -71,38 +71,9 @@
         ],
         "design_focus": "기능성, 효율성, 지속가능성을 중점적으로 고려",
         "constraints": "문서에 명시된 제약조건과 법규를 반드시 준수",
-        "quality_standards": "각 제안의 근거와 실행 가능성을 명확히 제시"
+        "quality_standards": "각 제안의 근거와 실행 가능성을 명확히 제시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상"
       },
-      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**단계 (Steps):**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **필수 섹션:** {narrowing_required_sections}\n- **설계 중점:** {narrowing_design_focus}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**분석할 문서 내용:**\n{pdf_text}"
-    },
-    {
-      "id": "investment_metrics_calculator",
-      "name": "투자 지표 계산기",
-      "description": "투자 지표(IRR, ROI, NPV, Payback)를 체계적으로 계산하고 분석합니다",
-      "role": "재무 분석 전문가로서 프로젝트의 투자 매력도를 정확하게 평가하고 의사결정을 지원하는 역할을 수행합니다",
-      "instructions": "제공된 문서에서 투자 관련 정보를 추출하고, 재무 지표를 계산하며, 민감도 분석을 통해 투자 의사결정을 지원합니다",
-      "steps": [
-        "투자비 산정 - PDF에서 총 투자비 정보를 찾아 정확히 산정하고 구성 요소별로 분류",
-        "현금흐름 추정 - 연간 수익과 비용을 추정하여 현금흐름 계산 및 시나리오 작성",
-        "재무 지표 계산 - IRR, ROI, NPV, Payback Period 등 핵심 지표 계산",
-        "민감도 분석 - 주요 변수 변화에 따른 지표 변화 분석 및 시나리오별 비교",
-        "투자 의사결정 지원 - 계산 결과 해석 및 투자 매력도 평가"
-      ],
-      "end_goal": "투자자와 의사결정권자가 참고할 수 있는 정확하고 신뢰할 수 있는 재무 분석 결과를 제공하여 투자 결정을 지원합니다",
-      "narrowing": {
-        "output_format": "재무 분석 보고서 + 지표 계산표 + 민감도 분석 차트",
-        "required_metrics": [
-          "IRR",
-          "ROI",
-          "NPV",
-          "Payback Period",
-          "현금흐름 분석"
-        ],
-        "calculation_method": "표준 재무 분석 방법론을 준수하여 계산",
-        "constraints": "문서에 명시된 정보만을 근거로 계산, 추정값은 명확히 표시",
-        "quality_standards": "모든 계산 과정과 근거를 명확히 제시"
-      },
-      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**단계 (Steps):**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **필수 지표:** {narrowing_required_metrics}\n- **계산 방법:** {narrowing_calculation_method}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**분석할 문서 내용:**\n{pdf_text}"
+      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**반드시 다음 단계를 순서대로 수행하세요:**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **필수 섹션:** {narrowing_required_sections}\n- **설계 중점:** {narrowing_design_focus}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**중요:** 위의 단계들을 순서대로 수행하여 설계 제안 결과를 제시하세요.\n\n**분석할 문서 내용:**\n{pdf_text}"
     },
     {
       "id": "accessibility_analysis",
@@ -118,7 +89,7 @@
       ],
       "end_goal": "대상지의 접근성 현황을 정확히 파악하고 개선이 필요한 영역과 우선순위를 제시하여 개발 방향을 제안합니다",
       "narrowing": {
-        "output_format": "접근성 평가 보고서 + 점수 매트릭스 + 개선방안 로드맵",
+        "output_format": "접근성 평가 보고서 + 점수 매트릭스 + 개선방안 로드맵 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
         "evaluation_criteria": [
           "교통 접근성",
           "보행 접근성",
@@ -127,9 +98,9 @@
         ],
         "scoring_system": "5점 척도로 각 요소별 점수 평가 후 가중 평균으로 종합 점수 산출",
         "constraints": "문서에 명시된 정보와 일반적인 접근성 기준을 기반으로 평가",
-        "quality_standards": "각 평가 기준과 점수 산출 근거를 명확히 제시"
+        "quality_standards": "각 평가 기준과 점수 산출 근거를 명확히 제시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상"
       },
-      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**단계 (Steps):**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **평가 기준:** {narrowing_evaluation_criteria}\n- **점수 체계:** {narrowing_scoring_system}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**분석할 문서 내용:**\n{pdf_text}"
+      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**반드시 다음 단계를 순서대로 수행하세요:**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **평가 기준:** {narrowing_evaluation_criteria}\n- **점수 체계:** {narrowing_scoring_system}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**중요:** 위의 단계들을 순서대로 수행하여 접근성 평가 결과를 제시하세요.\n\n**분석할 문서 내용:**\n{pdf_text}"
     },
     {
       "id": "zoning_verification",
@@ -145,7 +116,7 @@
       ],
       "end_goal": "대상지 개발 시 발생할 수 있는 모든 법적 리스크를 사전에 식별하고 대응방안을 제시하여 프로젝트의 법적 안정성을 확보합니다",
       "narrowing": {
-        "output_format": "법규 검증 보고서 + 위험요소 매트릭스 + 대응방안 가이드",
+        "output_format": "법규 검증 보고서 + 위험요소 매트릭스 + 대응방안 가이드 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
         "verification_scope": [
           "용도지역",
           "건축법규",
@@ -154,9 +125,9 @@
         ],
         "risk_assessment": "위험도별(높음/중간/낮음) 리스크 요소 분류",
         "constraints": "현재 시점의 법령 기준으로 검증, 법령 변경 가능성 고려",
-        "quality_standards": "각 법규 조항과 검증 근거를 명확히 제시"
+        "quality_standards": "각 법규 조항과 검증 근거를 명확히 제시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상"
       },
-      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**단계 (Steps):**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **검증 범위:** {narrowing_verification_scope}\n- **위험 평가:** {narrowing_risk_assessment}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**분석할 문서 내용:**\n{pdf_text}"
+      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**반드시 다음 단계를 순서대로 수행하세요:**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **검증 범위:** {narrowing_verification_scope}\n- **위험 평가:** {narrowing_risk_assessment}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**중요:** 위의 단계들을 순서대로 수행하여 법규 검증 결과를 제시하세요.\n\n**분석할 문서 내용:**\n{pdf_text}"
     },
     {
       "id": "capacity_estimation",
@@ -173,7 +144,7 @@
       ],
       "end_goal": "대상지의 최적 개발 규모를 제안하고 단계별 개발 전략을 수립하여 개발사업의 성공 가능성을 높입니다",
       "narrowing": {
-        "output_format": "수용력 분석 보고서 + 개발 규모 추정표 + 단계별 개발 로드맵",
+        "output_format": "수용력 분석 보고서 + 개발 규모 추정표 + 단계별 개발 로드맵 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
         "analysis_areas": [
           "물리적 수용력",
           "법적 수용력",
@@ -182,9 +153,9 @@
         ],
         "calculation_method": "각 수용력 요소별 정량적 분석 후 종합 평가",
         "constraints": "문서에 명시된 정보와 일반적인 개발 기준을 기반으로 분석",
-        "quality_standards": "각 수용력 계산 과정과 근거를 명확히 제시"
+        "quality_standards": "각 수용력 계산 과정과 근거를 명확히 제시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상"
       },
-      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**단계 (Steps):**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **분석 영역:** {narrowing_analysis_areas}\n- **계산 방법:** {narrowing_calculation_method}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**분석할 문서 내용:**\n{pdf_text}"
+      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**반드시 다음 단계를 순서대로 수행하세요:**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **분석 영역:** {narrowing_analysis_areas}\n- **계산 방법:** {narrowing_calculation_method}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**중요:** 위의 단계들을 순서대로 수행하여 수용력 추정 결과를 제시하세요.\n\n**분석할 문서 내용:**\n{pdf_text}"
     },
     {
       "id": "feasibility_analysis",
@@ -201,7 +172,7 @@
       ],
       "end_goal": "투자자와 의사결정권자가 참고할 수 있는 종합적이고 객관적인 사업성 평가 결과를 제공하여 투자 결정을 지원합니다",
       "narrowing": {
-        "output_format": "사업성 평가 보고서 + 재무 분석표 + 위험도 매트릭스 + 투자 권고안",
+        "output_format": "사업성 평가 보고서 + 재무 분석표 + 위험도 매트릭스 + 투자 권고안 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
         "evaluation_criteria": [
           "시장성",
           "수익성",
@@ -210,31 +181,9 @@
         ],
         "scoring_system": "각 기준별 1-5점 평가 후 가중 평균으로 종합 점수 산출",
         "constraints": "문서에 명시된 정보와 일반적인 사업성 평가 기준을 기반으로 분석",
-        "quality_standards": "모든 분석 과정과 근거를 명확히 제시하고 보수적 관점에서 평가"
+        "quality_standards": "모든 분석 과정과 근거를 명확히 제시하고 보수적 관점에서 평가 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상"
       },
-      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**단계 (Steps):**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **평가 기준:** {narrowing_evaluation_criteria}\n- **점수 체계:** {narrowing_scoring_system}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**분석할 문서 내용:**\n{pdf_text}"
-    },
-    {
-      "id": "도시_재개발_사회경제적_영향_분석",
-      "name": "도시 재개발 사회경제적 영향 분석",
-      "description": "도시 재개발 사회경제적 영향 분석",
-      "role": "도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다",
-      "instructions": "제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다",
-      "steps": [
-        "사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출",
-        "영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리",
-        "종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시"
-      ],
-      "end_goal": "도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다",
-      "narrowing": {
-        "output_format": "표와 차트를 포함한 구조화된 보고서",
-        "required_items": "긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항",
-        "constraints": "문서에 명시된 데이터만 사용, 추측 금지",
-        "quality_standards": "각 결론에 근거 제시, 출처 명시"
-      },
-      "prompt": "**역할 (Role):** 도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다\n\n**지시 (Instructions):** 제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다\n\n**단계 (Steps):**\n1. **사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출**\n2. **영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리**\n3. **종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시**\n\n**최종 목표 (End Goal):** 도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다\n\n**구체화/제약 조건 (Narrowing):**\n- **Output Format:** 표와 차트를 포함한 구조화된 보고서\n- **Required Items:** 긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항\n- **Constraints:** 문서에 명시된 데이터만 사용, 추측 금지\n- **Quality Standards:** 각 결론에 근거 제시, 출처 명시\n\n**분석할 문서 내용:**\n{pdf_text}",
-      "created_at": "2025-10-20T15:09:22.410816",
-      "created_by": "user"
+      "prompt": "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**반드시 다음 단계를 순서대로 수행하세요:**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **평가 기준:** {narrowing_evaluation_criteria}\n- **점수 체계:** {narrowing_scoring_system}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**중요:** 위의 단계들을 순서대로 수행하여 사업성 평가 결과를 제시하세요.\n\n**분석할 문서 내용:**\n{pdf_text}"
     }
   ]
 }

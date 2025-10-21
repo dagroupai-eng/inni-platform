@@ -1,12 +1,13 @@
 import streamlit as st
 import os
+import re
 from dotenv import load_dotenv
-from pdf_analyzer import extract_text_from_pdf, analyze_pdf_content
 from file_analyzer import UniversalFileAnalyzer
 from dspy_analyzer import EnhancedArchAnalyzer
-from prompt_processor import load_blocks, load_custom_blocks, process_prompt, save_custom_block, get_block_by_id
+from prompt_processor import load_blocks, load_custom_blocks
 from docx import Document
-import tempfile
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt
 
 # 환경변수 로드 (안전하게 처리)
 try:
@@ -72,11 +73,227 @@ def create_word_document(project_name, analysis_results):
         # 섹션 제목
         doc.add_heading(block_name, level=1)
         
-        # 분석 결과 내용
-        doc.add_paragraph(result)
+        # Word 표 형식으로 처리
+        add_content_with_tables(doc, result)
         doc.add_paragraph()  # 빈 줄
     
     return doc
+
+def add_content_with_tables(doc, text):
+    """텍스트를 분석하여 표는 Word 표로, 일반 텍스트는 문단으로 추가합니다."""
+    import re
+    
+    lines = text.split('\n')
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # 표 시작 패턴 확인 (개선된 방식)
+        if is_table_line(line):
+            # 표 데이터 수집
+            table_lines = [line]
+            i += 1
+            
+            # 연속된 표 줄들 수집 (개선된 방식)
+            while i < len(lines) and is_table_line(lines[i].strip()):
+                table_lines.append(lines[i].strip())
+                i += 1
+            
+            # Word 표 생성
+            create_word_table(doc, table_lines)
+            continue
+        
+        # 일반 텍스트 처리
+        if line:
+            # Markdown 헤더 처리
+            if line.startswith('#'):
+                level = len(line) - len(line.lstrip('#'))
+                header_text = line.lstrip('#').strip()
+                doc.add_heading(header_text, level=min(level, 6))
+            else:
+                # 리스트 처리
+                if line.startswith('- '):
+                    line = '• ' + line[2:]
+                elif line.startswith('* '):
+                    line = '• ' + line[2:]
+                
+                # 볼드 텍스트 처리 (**text**)
+                line = re.sub(r'\*\*(.*?)\*\*', r'\1', line)
+                
+                doc.add_paragraph(line)
+        
+        i += 1
+
+def create_word_table(doc, table_lines):
+    """Markdown 표 줄들을 Word 표로 변환합니다."""
+    if not table_lines:
+        return
+    
+    # 표 데이터 파싱
+    table_data = []
+    for line in table_lines:
+        # |로 구분된 셀들 추출
+        cells = [cell.strip() for cell in line.split('|')[1:-1]]  # 첫 번째와 마지막 빈 요소 제거
+        if cells:
+            table_data.append(cells)
+    
+    if not table_data:
+        return
+    
+    # 첫 번째 행이 헤더 구분선인지 확인 (--- 형태)
+    if len(table_data) > 1 and all(cell == '---' or cell == '------' or cell == '' for cell in table_data[1]):
+        headers = table_data[0]
+        data_rows = table_data[2:]
+    else:
+        headers = None
+        data_rows = table_data
+    
+    # 열 수 결정
+    max_cols = max(len(row) for row in table_data) if table_data else 2
+    
+    # Word 표 생성 - 개선된 방식
+    try:
+        table = doc.add_table(rows=len(data_rows) + (1 if headers else 0), cols=max_cols)
+        table.style = 'Table Grid'
+        
+        # 표 자동 크기 조절 활성화
+        table.allow_autofit = True
+        table.autofit = True
+        
+        # 헤더 추가
+        if headers:
+            header_row = table.rows[0]
+            for i, header in enumerate(headers):
+                if i < len(header_row.cells):
+                    cell = header_row.cells[i]
+                    cell.text = clean_text_for_pdf(header)
+                    
+                    # 헤더 스타일링 강화
+                    for paragraph in cell.paragraphs:
+                        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        for run in paragraph.runs:
+                            run.bold = True
+                            run.font.size = Pt(10)
+                        # 셀 패딩 조정
+                        paragraph.paragraph_format.space_before = Pt(2)
+                        paragraph.paragraph_format.space_after = Pt(2)
+        
+        # 데이터 행 추가
+        start_row = 1 if headers else 0
+        for i, row_data in enumerate(data_rows):
+            if start_row + i < len(table.rows):
+                table_row = table.rows[start_row + i]
+                for j, cell_data in enumerate(row_data):
+                    if j < len(table_row.cells):
+                        cell = table_row.cells[j]
+                        cell.text = clean_text_for_pdf(cell_data)
+                        
+                        # 셀 스타일링
+                        for paragraph in cell.paragraphs:
+                            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                            for run in paragraph.runs:
+                                run.font.size = Pt(9)
+                            # 셀 패딩 조정
+                            paragraph.paragraph_format.space_before = Pt(1)
+                            paragraph.paragraph_format.space_after = Pt(1)
+        
+        # 표 후 빈 줄 추가
+        doc.add_paragraph()
+        
+    except Exception as e:
+        print(f"Word 표 생성 오류: {e}")
+        # 오류 발생 시 텍스트로 대체
+        doc.add_paragraph("[표 생성 실패 - 원본 데이터]")
+        for row in table_data:
+            doc.add_paragraph(" | ".join(row))
+        doc.add_paragraph()
+
+def is_table_line(line):
+    """한 줄이 표 행인지 확인"""
+    if not line:
+        return False
+    
+    # | 구분자가 있는 경우 (마크다운 표 형식)
+    if '|' in line and line.count('|') >= 2:
+        return True
+    
+    # 탭으로 구분된 경우
+    if '\t' in line:
+        return True
+    
+    # 2개 이상의 공백으로 구분된 경우 (정렬된 텍스트)
+    if re.search(r'\s{2,}', line):
+        return True
+    
+    return False
+
+def is_table_format(text):
+    """텍스트가 표 형식인지 확인"""
+    try:
+        if not text or not isinstance(text, str):
+            return False
+            
+        lines = text.strip().split('\n')
+        if len(lines) < 2:
+            return False
+        
+        # 1. 마크다운 표 형식 확인 (| 구분자)
+        pipe_count = text.count('|')
+        if pipe_count >= 3:  # 최소 1x2 표를 위해서는 3개의 | 필요
+            # 구분선이 있는지 확인 (표의 특징)
+            for line in lines:
+                line = line.strip()
+                if re.match(r'^[\s\-=_:|]+\s*$', line):
+                    return True
+            # 구분선이 없어도 |가 많이 있으면 표로 간주
+            if pipe_count >= 6:
+                return True
+        
+        # 2. 구분선 확인 (마크다운 표 구분선)
+        for line in lines:
+            line = line.strip()
+            if re.match(r'^[\s\-=_:|]+\s*$', line):
+                return True
+        
+        # 3. 탭 구분자 확인
+        tab_count = sum(1 for line in lines if '\t' in line)
+        if tab_count >= 2:
+            return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"표 형식 확인 오류: {e}")
+        return False
+
+def clean_text_for_pdf(text):
+    """PDF/Word용 텍스트 정리"""
+    if not text:
+        return ""
+    
+    import re
+    
+    # HTML 태그 제거
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # Markdown 볼드 제거 (**text** -> text)
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    
+    # Markdown 이탤릭 제거 (*text* -> text)
+    text = re.sub(r'\*(.*?)\*', r'\1', text)
+    
+    # 특수 문자 정리
+    text = text.replace('&nbsp;', ' ')
+    text = text.replace('&amp;', '&')
+    text = text.replace('&lt;', '<')
+    text = text.replace('&gt;', '>')
+    
+    # 연속된 공백 정리
+    text = re.sub(r'\s+', ' ', text)
+    
+    return text.strip()
+
 
 # 사이드바 - 설정
 with st.sidebar:
@@ -414,6 +631,9 @@ with tab3:
     
     st.markdown("---")
     
+    # 블록 간 Chain of Thought 분석 (기본 활성화)
+    st.info("🔗 블록 간 Chain of Thought (CoT) 분석이 활성화되어 있습니다. 각 블록의 분석 결과가 다음 블록 분석에 누적되어 연결됩니다.")
+    
     if st.button("분석 시작", type="primary"):
         # DSPy 분석기 초기화
         try:
@@ -422,9 +642,6 @@ with tab3:
             st.error(f"분석기 초기화 실패: {e}")
             st.stop()
         
-        # 분석 결과 저장용
-        analysis_results = {}
-        
         # 진행 상황 표시
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -432,104 +649,89 @@ with tab3:
         selected_blocks = st.session_state['selected_blocks']
         total_blocks = len(selected_blocks)
         
-        for i, block_id in enumerate(selected_blocks):
-            # 블록 정보 찾기
-            block_info = None
-            example_blocks = get_example_blocks()
-            custom_blocks = load_custom_blocks()
-            
-            for block in example_blocks + custom_blocks:
-                if block['id'] == block_id:
-                    block_info = block
-                    break
-            
-            if not block_info:
-                st.error(f"블록 {block_id}를 찾을 수 없습니다.")
-                continue
-            
-            status_text.text(f"분석 중: {block_info['name']}")
-            
-            # 기본 정보와 파일 내용을 결합하여 프롬프트 생성
-            combined_content = ""
-            
-            # 기본 정보 추가
-            if has_basic_info:
-                basic_info_text = f"""
-## 프로젝트 기본 정보
-- 프로젝트명: {project_name or 'N/A'}
-- 위치/지역: {location or 'N/A'}
-- 프로젝트 목표: {project_goals or 'N/A'}
-- 추가 정보: {additional_info or 'N/A'}
-"""
-                combined_content += basic_info_text
-            
-            # 파일 내용 추가
-            if has_file:
-                file_text = st.session_state.get('pdf_text', '')
-                if file_text:
-                    combined_content += f"\n## 업로드된 파일 내용\n{file_text}"
-            
-            # 디버깅: combined_content 확인
-            st.info(f"**{block_info['name']} 블록용 combined_content 길이:** {len(combined_content)}자")
-            
-            # 프롬프트에 결합된 내용 삽입
-            prompt = process_prompt(block_info, combined_content)
-            
-            # 디버깅: 생성된 프롬프트 확인
-            with st.expander(f"🔍 {block_info['name']} 블록 프롬프트 미리보기"):
-                st.text_area("프롬프트", prompt[:800] + "..." if len(prompt) > 800 else prompt, height=300, key=f"debug_prompt_{block_id}")
-                st.write(f"**프롬프트 길이:** {len(prompt)}자")
-                st.write(f"**블록 ID:** {block_id}")
-                st.write(f"**블록 이름:** {block_info['name']}")
-                
-                # 프롬프트 고유성 확인
-                st.write("**프롬프트 고유성 체크:**")
-                if "역할 (Role):" in prompt:
-                    role_start = prompt.find("역할 (Role):")
-                    role_end = prompt.find("**지시 (Instructions):**", role_start)
-                    if role_end > role_start:
-                        role_text = prompt[role_start:role_end].strip()
-                        st.write(f"✅ 역할 섹션: {role_text[:100]}...")
-                    else:
-                        st.write("❌ 역할 섹션을 찾을 수 없습니다")
-                else:
-                    st.write("❌ 프롬프트에 '역할 (Role):' 섹션이 없습니다")
-                
-                # 프롬프트 해시 생성 (고유성 확인용)
-                import hashlib
-                prompt_hash = hashlib.md5(prompt.encode()).hexdigest()[:8]
-                st.write(f"**프롬프트 해시:** {prompt_hash}")
-            
-            # 모든 블록에 대해 동일한 방식으로 분석 실행 (블록별 고유 프롬프트와 Signature 사용)
-            result = analyzer.analyze_custom_block(
-                prompt, 
-                combined_content,
-                block_id
+        # 파일 텍스트 가져오기
+        file_text = st.session_state.get('pdf_text', '') if has_file else ""
+        
+        # 프로젝트 정보 구성
+        project_info = {
+            "project_name": project_name,
+            "location": location,
+            "project_goals": project_goals,
+            "additional_info": additional_info,
+            "file_text": file_text
+        }
+        
+        # 블록 정보 수집
+        example_blocks = get_example_blocks()
+        custom_blocks = load_custom_blocks()
+        block_infos = {}
+        
+        for block in example_blocks + custom_blocks:
+            if block['id'] in selected_blocks:
+                block_infos[block['id']] = block
+        
+        # 🔗 블록 간 Chain of Thought 분석 (항상 활성화)
+        status_text.text("🔗 블록 간 Chain of Thought 분석 시작...")
+        
+        # 진행 상황 표시를 위한 컨테이너 생성
+        progress_container = st.container()
+        with progress_container:
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+        
+        # 진행 상황 콜백 함수
+        def update_progress(message):
+            progress_text.text(message)
+            # 메시지에서 현재 블록 번호 추출하여 진행률 계산
+            if "블록 분석 중" in message:
+                try:
+                    # "📊 1/3 블록 분석 중" 형태에서 현재 번호 추출
+                    current = int(message.split("📊 ")[1].split("/")[0])
+                    total = int(message.split("/")[1].split(" ")[0])
+                    progress = current / total
+                    progress_bar.progress(progress)
+                except:
+                    pass
+        
+        try:
+            result = analyzer.analyze_blocks_with_cot(
+                selected_blocks, 
+                project_info, 
+                file_text, 
+                block_infos,
+                progress_callback=update_progress
             )
             
             if result['success']:
-                analysis_results[block_id] = result['analysis']
-                st.success(f"{block_info['name']} 완료")
+                analysis_results = result['analysis_results']
+                cot_history = result['cot_history']
                 
-                # 디버깅 정보 표시
-                with st.expander(f"🔍 {block_info['name']} 분석 결과 디버깅", expanded=False):
-                    st.write(f"**사용된 Signature:** {result.get('method', 'Unknown')}")
-                    st.write(f"**블록 ID:** {result.get('block_id', 'Unknown')}")
-                    st.write(f"**분석 결과 길이:** {len(result['analysis'])}자")
-                    st.write(f"**분석 결과 미리보기:**")
-                    st.text(result['analysis'][:300] + "..." if len(result['analysis']) > 300 else result['analysis'])
+                # 진행 상황 표시 정리
+                with progress_container:
+                    progress_text.text("✅ 분석 완료!")
+                    progress_bar.progress(1.0)
+                
+                # 세션 상태에 저장
+                st.session_state['analysis_results'] = analysis_results
+                st.session_state['cot_history'] = cot_history
+                
+                # 분석 완료 메시지
+                st.success(f"✅ CoT 분석 완료! {len(analysis_results)}개 블록이 연결되어 분석됨")
+                
             else:
-                st.error(f"{block_info['name']} 실패: {result.get('error', '알 수 없는 오류')}")
-            
-            # 진행률 업데이트
-            progress_bar.progress((i + 1) / total_blocks)
-        
-        # 분석 완료
-        status_text.text("모든 분석이 완료되었습니다!")
-        progress_bar.empty()
-        
-        # 결과를 세션에 저장 (기본 정보 포함)
-        st.session_state['analysis_results'] = analysis_results
+                # 진행 상황 표시 정리
+                with progress_container:
+                    progress_text.text("❌ 분석 실패")
+                    progress_bar.progress(0)
+                st.error(f"CoT 분석 실패: {result.get('error', '알 수 없는 오류')}")
+                
+        except Exception as e:
+            # 진행 상황 표시 정리
+            with progress_container:
+                progress_text.text("❌ 오류 발생")
+                progress_bar.progress(0)
+            st.error(f"CoT 분석 중 오류 발생: {e}")
+            st.error("분석을 다시 시도해주세요.")
         
         # 기본 정보와 분석 결과를 blocks.json에 저장
         import json
