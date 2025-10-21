@@ -50,9 +50,15 @@ def update_dspy_analyzer(block_id, signature_code, signature_name):
             # 기존 signature_map 내용
             map_content = match.group(1)
             
-            # 새 블록 추가
-            new_map_entry = f"                '{block_id}': {signature_name},"
-            updated_map_content = map_content.rstrip() + '\n' + new_map_entry + '\n'
+            # 기존 내용에서 마지막 쉼표 확인 및 추가
+            map_content_stripped = map_content.rstrip()
+            if not map_content_stripped.endswith(','):
+                # 마지막 항목에 쉼표가 없으면 추가
+                map_content_stripped += ','
+            
+            # 새 블록 추가 (항상 쉼표 포함)
+            new_map_entry = f"                '{block_id}': {signature_name}"
+            updated_map_content = map_content_stripped + '\n' + new_map_entry + '\n'
             
             # signature_map 업데이트
             new_content = re.sub(
@@ -97,6 +103,14 @@ def remove_dspy_signature(block_id, signature_name):
             # 해당 블록 라인 제거
             lines = map_content.split('\n')
             filtered_lines = [line for line in lines if f"'{block_id}'" not in line and line.strip()]
+            
+            # 딕셔너리 문법 수정: 마지막 항목의 쉼표 처리
+            if filtered_lines:
+                # 마지막 항목의 쉼표 제거
+                last_line = filtered_lines[-1].rstrip()
+                if last_line.endswith(','):
+                    filtered_lines[-1] = last_line[:-1]
+            
             updated_map_content = '\n'.join(filtered_lines)
             
             # signature_map 업데이트
@@ -391,21 +405,8 @@ def main():
                         if scoring_system.strip():
                             narrowing['scoring_system'] = scoring_system.strip()
                         
-                        # 프롬프트 템플릿 생성
-                        prompt_template = f"""**역할 (Role):** {role}
-
-**지시 (Instructions):** {instructions}
-
-**단계 (Steps):**
-{chr(10).join([f"{i+1}. **{step}**" for i, step in enumerate(steps)])}
-
-**최종 목표 (End Goal):** {end_goal}
-
-**구체화/제약 조건 (Narrowing):**
-{chr(10).join([f"- **{key.replace('_', ' ').title()}:** {value}" for key, value in narrowing.items()])}
-
-**분석할 문서 내용:**
-{{pdf_text}}"""
+                        # 간단한 프롬프트 템플릿 생성 (blocks.json과 동일한 구조)
+                        prompt_template = "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**반드시 다음 단계를 순서대로 수행하세요:**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **분류 기준:** {narrowing_classification_criteria}\n- **평가 척도:** {narrowing_evaluation_scale}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**중요:** 위의 단계들을 순서대로 수행하여 분석 결과를 제시하세요.\n\n**분석할 문서 내용:**\n{pdf_text}"
                         
                         # 새 블록 생성 (RISEN 구조)
                         new_block = {
