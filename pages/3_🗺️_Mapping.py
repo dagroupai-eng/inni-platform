@@ -53,90 +53,71 @@ def generate_geo_data():
 # 데이터 로드
 seoul_projects, cities_data = generate_geo_data()
 
-# 탭으로 기능 분리
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["지도 시각화", "통계 분석 (개발중)", "데이터 필터 (개발중)", "인사이트 (개발중)", "데이터 입력 (개발중)"])
+# 지도 시각화 기능
+st.subheader("프로젝트 위치 지도")
 
-with tab1:
-    st.subheader("프로젝트 위치 지도")
+# 지도 타입 선택
+map_type = st.selectbox(
+    "지도 타입 선택",
+    ["서울 상세 지도", "전국 프로젝트 분포", "히트맵", "타임라인 지도"]
+)
+
+if map_type == "서울 상세 지도":
+    # 서울 프로젝트 지도
+    df_seoul = pd.DataFrame(seoul_projects)
     
-    # 지도 타입 선택
-    map_type = st.selectbox(
-        "지도 타입 선택",
-        ["서울 상세 지도", "전국 프로젝트 분포", "히트맵", "타임라인 지도"]
-    )
+    st.subheader("서울 지역 프로젝트 분포")
+    st.map(df_seoul, size=20)
     
-    if map_type == "서울 상세 지도":
-        # 서울 프로젝트 지도
-        df_seoul = pd.DataFrame(seoul_projects)
-        
-        st.subheader("서울 지역 프로젝트 분포")
-        st.map(df_seoul, size=20)
-        
-        # 프로젝트 정보 테이블
-        st.subheader("프로젝트 상세 정보")
-        st.dataframe(df_seoul[['name', 'type', 'size', 'status', 'budget', 'area']], use_container_width=True)
+    # 프로젝트 정보 테이블
+    st.subheader("프로젝트 상세 정보")
+    st.dataframe(df_seoul[['name', 'type', 'size', 'status', 'budget', 'area']], use_container_width=True)
 
-    elif map_type == "전국 프로젝트 분포":
-        # 전국 도시별 프로젝트 분포
-        df_cities = pd.DataFrame(cities_data)
-        
-        st.subheader("전국 도시별 프로젝트 분포")
-        st.map(df_cities, size=30)
-        
-        # 도시 정보 테이블
-        st.subheader("도시별 상세 정보")
-        st.dataframe(df_cities, use_container_width=True)
-
-    elif map_type == "히트맵":
-        # 히트맵 생성 (예산 기준으로 크기 조정)
-        df_seoul = pd.DataFrame(seoul_projects)
-        
-        # 예산에 따른 크기 계산 (최소 10, 최대 50)
-        df_seoul['budget_size'] = ((df_seoul['budget'] - df_seoul['budget'].min()) / 
-                                  (df_seoul['budget'].max() - df_seoul['budget'].min()) * 40 + 10)
-        
-        st.subheader("서울 지역 프로젝트 예산 히트맵")
-        st.map(df_seoul, size='budget_size')
-        
-        # 예산 정보 테이블
-        st.subheader("예산별 프로젝트 정보")
-        st.dataframe(df_seoul[['name', 'budget', 'area', 'type']], use_container_width=True)
+elif map_type == "전국 프로젝트 분포":
+    # 전국 도시별 프로젝트 분포
+    df_cities = pd.DataFrame(cities_data)
     
-    elif map_type == "타임라인 지도":
-        # 타임라인 지도 (진행 상태별)
-        df_seoul = pd.DataFrame(seoul_projects)
-        
-        st.subheader("프로젝트 진행 상태별 분포")
-        st.map(df_seoul, size=20)
-        
-        # 진행 상태별 통계
-        st.subheader("진행 상태별 통계")
-        status_counts = df_seoul['status'].value_counts()
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("완료", len(df_seoul[df_seoul['status'] == '완료']))
-        with col2:
-            st.metric("진행중", len(df_seoul[df_seoul['status'] == '진행중']))
-        with col3:
-            st.metric("계획", len(df_seoul[df_seoul['status'] == '계획']))
-        
-        # 진행 상태 데이터 테이블
-        st.subheader("진행 상태별 프로젝트 정보")
-        st.dataframe(df_seoul[['name', 'status', 'start_date', 'end_date', 'type']], use_container_width=True)
+    st.subheader("전국 도시별 프로젝트 분포")
+    st.map(df_cities, size=30)
+    
+    # 도시 정보 테이블
+    st.subheader("도시별 상세 정보")
+    st.dataframe(df_cities, use_container_width=True)
 
-with tab2:
-    st.subheader("통계 분석 (개발중)")
-    st.info("이 기능은 현재 개발 중입니다.")
+elif map_type == "히트맵":
+    # 히트맵 생성 (예산 기준으로 크기 조정)
+    df_seoul = pd.DataFrame(seoul_projects)
+    
+    # 예산에 따른 크기 계산 (최소 10, 최대 50)
+    df_seoul['budget_size'] = ((df_seoul['budget'] - df_seoul['budget'].min()) / 
+                              (df_seoul['budget'].max() - df_seoul['budget'].min()) * 40 + 10)
+    
+    st.subheader("서울 지역 프로젝트 예산 히트맵")
+    st.map(df_seoul, size='budget_size')
+    
+    # 예산 정보 테이블
+    st.subheader("예산별 프로젝트 정보")
+    st.dataframe(df_seoul[['name', 'budget', 'area', 'type']], use_container_width=True)
 
-with tab3:
-    st.subheader("데이터 필터 (개발중)")
-    st.info("이 기능은 현재 개발 중입니다.")
-
-with tab4:
-    st.subheader("인사이트 (개발중)")
-    st.info("이 기능은 현재 개발 중입니다.")
-
-with tab5:
-    st.subheader("데이터 입력 (개발중)")
-    st.info("이 기능은 현재 개발 중입니다.")
+elif map_type == "타임라인 지도":
+    # 타임라인 지도 (진행 상태별)
+    df_seoul = pd.DataFrame(seoul_projects)
+    
+    st.subheader("프로젝트 진행 상태별 분포")
+    st.map(df_seoul, size=20)
+    
+    # 진행 상태별 통계
+    st.subheader("진행 상태별 통계")
+    status_counts = df_seoul['status'].value_counts()
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("완료", len(df_seoul[df_seoul['status'] == '완료']))
+    with col2:
+        st.metric("진행중", len(df_seoul[df_seoul['status'] == '진행중']))
+    with col3:
+        st.metric("계획", len(df_seoul[df_seoul['status'] == '계획']))
+    
+    # 진행 상태 데이터 테이블
+    st.subheader("진행 상태별 프로젝트 정보")
+    st.dataframe(df_seoul[['name', 'status', 'start_date', 'end_date', 'type']], use_container_width=True)

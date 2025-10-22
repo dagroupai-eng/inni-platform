@@ -772,19 +772,87 @@ with tab3:
         except Exception as e:
             st.warning(f"분석 결과 저장 실패: {e}")
         
-        # 결과 미리보기
+        # 결과 미리보기 - 탭 형태로 표시
         if analysis_results:
-            st.subheader("분석 결과 미리보기")
-            for block_id, result in analysis_results.items():
+            st.subheader("📊 분석 결과")
+            
+            # 블록별 탭 생성
+            tab_names = []
+            tab_contents = []
+            
+            for i, (block_id, result) in enumerate(analysis_results.items(), 1):
                 # 블록 이름 찾기
                 block_name = "알 수 없음"
+                
                 for block in example_blocks + custom_blocks:
                     if block['id'] == block_id:
                         block_name = block['name']
                         break
                 
-                with st.expander(f"{block_name}"):
-                    st.markdown(result)
+                tab_names.append(f"{i}. {block_name}")
+                tab_contents.append(result)
+            
+            # 탭 생성 및 표시
+            if tab_names:
+                tabs = st.tabs(tab_names)
+                for i, tab in enumerate(tabs):
+                    with tab:
+                        # 품질 검증 결과 표시
+                        block_id = list(analysis_results.keys())[i]
+                        cot_history = st.session_state.get('cot_history', [])
+                        
+                        # 해당 블록의 검증 결과 찾기
+                        validation_result = None
+                        for history_item in cot_history:
+                            if history_item.get('block_id') == block_id:
+                                validation_result = history_item.get('validation')
+                                break
+                        
+                        # 품질 점수 및 등급 표시
+                        if validation_result and validation_result.get('success'):
+                            quality_score = None
+                            quality_grade = "미평가"
+                            
+                            validation_text = validation_result.get('validation', '')
+                            
+                            if validation_text:
+                                import re
+                                # 점수 추출
+                                score_match = re.search(r'종합 점수:\s*(\d+)/25', validation_text)
+                                if score_match:
+                                    quality_score = int(score_match.group(1))
+                                
+                                # 등급 추출
+                                grade_match = re.search(r'품질 등급:\s*([가-힣]+)', validation_text)
+                                if grade_match:
+                                    quality_grade = grade_match.group(1)
+                            
+                            # 품질 등급만 표시
+                            if quality_score:
+                                # 점수에 따른 색상 설정
+                                if quality_score >= 20:
+                                    st.success(f"🏆 품질 등급: {quality_grade}")
+                                elif quality_score >= 15:
+                                    st.info(f"📊 품질 등급: {quality_grade}")
+                                elif quality_score >= 10:
+                                    st.warning(f"⚠️ 품질 등급: {quality_grade}")
+                                else:
+                                    st.error(f"❌ 품질 등급: {quality_grade}")
+                        else:
+                            st.warning("검증 결과가 없거나 검증에 실패했습니다.")
+                        
+                        # 분석 결과 표시
+                        st.markdown(tab_contents[i])
+                        
+                        # 각 탭 하단에 블록 정보 표시
+                        with st.expander("ℹ️ 블록 정보"):
+                            block_id = list(analysis_results.keys())[i]
+                            for block in example_blocks + custom_blocks:
+                                if block['id'] == block_id:
+                                    st.write(f"**블록 ID:** {block['id']}")
+                                    st.write(f"**설명:** {block.get('description', 'N/A')}")
+                                    st.write(f"**역할:** {block.get('role', 'N/A')}")
+                                    break
 
 with tab4:
     st.header("결과 다운로드")

@@ -13,10 +13,14 @@ def generate_dspy_signature(block_id, block_name, block_description):
     input_desc = f"{block_name}을 위한 입력 데이터"
     output_desc = f"{block_description}에 따른 분석 결과"
     
+    # 문자열에서 줄바꿈과 따옴표 이스케이프 처리
+    input_desc_escaped = input_desc.replace('"', '\\"').replace('\n', ' ').replace('\r', ' ')
+    output_desc_escaped = output_desc.replace('"', '\\"').replace('\n', ' ').replace('\r', ' ')
+    
     signature_code = f'''class {signature_name}(dspy.Signature):
     """{block_name}을 위한 Signature"""
-    input = dspy.InputField(desc="{input_desc}")
-    output = dspy.OutputField(desc="{output_desc}")'''
+    input = dspy.InputField(desc="{input_desc_escaped}")
+    output = dspy.OutputField(desc="{output_desc_escaped}")'''
     
     return signature_code, signature_name
 
@@ -57,7 +61,7 @@ def update_dspy_analyzer(block_id, signature_code, signature_name):
                 map_content_stripped += ','
             
             # 새 블록 추가 (항상 쉼표 포함)
-            new_map_entry = f"                '{block_id}': {signature_name}"
+            new_map_entry = f"                '{block_id}': {signature_name},"
             updated_map_content = map_content_stripped + '\n' + new_map_entry + '\n'
             
             # signature_map 업데이트
@@ -223,14 +227,14 @@ def main():
             # 블록 이름
             block_name = st.text_input(
                 "블록 이름",
-                placeholder="예: 건축 요구사항 분석 (CoT)",
+                placeholder="예: 도시 재개발 사회경제적 영향 분석",
                 help="블록의 표시 이름을 입력하세요."
             )
             
             # 블록 설명
             block_description = st.text_area(
                 "블록 설명",
-                placeholder="예: Chain of Thought로 건축 관련 요구사항을 분석하고 정리합니다",
+                placeholder="예: 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가합니다",
                 help="블록의 기능을 설명하는 간단한 문장을 입력하세요."
             )
             
@@ -240,7 +244,7 @@ def main():
             # Role (역할)
             role = st.text_area(
                 "역할 (Role)",
-                placeholder="건축 설계 전문가로서 프로젝트의 모든 요구사항을 종합적으로 분석하고 우선순위를 설정하는 역할을 수행합니다",
+                placeholder="도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다",
                 height=80,
                 help="AI가 수행할 전문가 역할을 정의해주세요."
             )
@@ -248,7 +252,7 @@ def main():
             # Instructions (지시)
             instructions = st.text_area(
                 "지시 (Instructions)",
-                placeholder="제공된 문서에서 건축 프로젝트의 모든 요구사항을 식별하고, 분류하며, 우선순위를 평가하여 설계 방향을 제시합니다",
+                placeholder="제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다",
                 height=80,
                 help="AI에게 수행해야 할 작업의 구체적인 지시사항을 작성해주세요."
             )
@@ -271,11 +275,11 @@ def main():
             for i in range(num_steps):
                 # 실제 예시 placeholder 설정
                 if i == 0:
-                    placeholder = "요구사항 식별 및 수집 - 문서에서 명시적/암시적 요구사항 모두 식별"
+                    placeholder = "사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출"
                 elif i == 1:
-                    placeholder = "요구사항 상세 분석 - 각 요구사항의 구체적 내용 및 기준 명확화"
+                    placeholder = "영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리"
                 elif i == 2:
-                    placeholder = "우선순위 평가 및 순위화 - 중요도, 긴급도, 실행 가능성 기준으로 평가"
+                    placeholder = "종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시"
                 else:
                     placeholder = f"단계 {i+1} 내용 - 구체적 지시사항"
                 
@@ -301,7 +305,7 @@ def main():
             # End Goal (최종 목표)
             end_goal = st.text_area(
                 "최종 목표 (End Goal)",
-                placeholder="설계팀이 참고할 수 있는 완전하고 우선순위가 명확한 요구사항 목록을 제공하여 효율적인 설계 의사결정을 지원합니다",
+                placeholder="도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다",
                 height=80,
                 help="이 분석을 통해 달성하고자 하는 최종 목표를 명시해주세요."
             )
@@ -314,38 +318,38 @@ def main():
             with col_narrowing1:
                 output_format = st.text_input(
                     "출력 형식",
-                    placeholder="요구사항 매트릭스 표 + 우선순위 도표",
+                    value="표와 차트를 포함한 구조화된 보고서 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
                     help="분석 결과의 출력 형식을 지정해주세요."
                 )
                 
                 required_items = st.text_input(
                     "필수 항목/섹션",
-                    placeholder="프로젝트명, 건축주, 대지위치, 건물용도, 주요 요구사항",
+                    placeholder="긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항",
                     help="분석 결과에 반드시 포함되어야 할 항목들을 나열해주세요."
                 )
                 
                 constraints = st.text_input(
                     "제약 조건",
-                    placeholder="문서에 명시되지 않은 정보는 추측하지 말고 '정보 없음'으로 표시",
+                    value="문서에 명시된 데이터만 사용, 추측 금지",
                     help="분석 시 준수해야 할 제약 조건을 명시해주세요."
                 )
             
             with col_narrowing2:
                 quality_standards = st.text_input(
                     "품질 기준",
-                    placeholder="각 정보의 출처(문서 내 위치)를 명시",
+                    value="각 결론에 근거 제시, 출처 명시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상",
                     help="분석 결과의 품질 기준을 명시해주세요."
                 )
                 
                 evaluation_criteria = st.text_input(
                     "평가 기준/분석 영역",
-                    placeholder="공간/기능/법적/기술적/경제적 요구사항",
+                    placeholder="고용, 주거비, 상권 변화, 교통, 환경, 사회적 영향",
                     help="평가나 분석의 기준이나 영역을 명시해주세요."
                 )
                 
                 scoring_system = st.text_input(
                     "점수 체계/계산 방법",
-                    placeholder="1-5점 척도로 중요도 및 긴급도 평가",
+                    value="정량적 지표 기반 영향도 평가 + 가중치 적용 종합 점수 산출",
                     help="평가 점수 체계나 계산 방법을 명시해주세요."
                 )
             
