@@ -23,6 +23,10 @@ conda --version
   "python.terminal.activateEnvInCurrentTerminal": true
 }
 
+2-1. PowerShell이 기본적으로 외부 스크립트 실행을 막고 있어서 생긴 오류
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+
 3. conda 환경 생성
 3-1. 생성
 conda create -n 원하는 환경 이름 python=3.11 -y
@@ -36,7 +40,7 @@ conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/ma
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/msys2
 
-5. 환경 확인인
+5. 환경 확인
 python --version
 
 6. 필요 패키지 설치
@@ -49,7 +53,7 @@ pip install -r requirements.txt
 6-4. 설치 완료 확인
 streamlit --version
 
-7. API 키 파일 생성성
+7. API 키 파일 생성
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
 8. app 실행행
