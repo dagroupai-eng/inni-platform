@@ -6,27 +6,6 @@ conda --version
   "python.condaPath": "${env:USERPROFILE}\\miniconda3\\Scripts\\conda.exe",
   "python.terminal.activateEnvironment": true,
   
-  // 터미널 프로필 설정 추가
-  "terminal.integrated.profiles.windows": {
-    "Command Prompt": {
-      "path": "C:\\Windows\\System32\\cmd.exe",
-      "args": ["/K", "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat"]
-    },
-    "PowerShell with Conda": {
-      "source": "PowerShell",
-      "args": ["-NoExit", "-Command", "& '${env:USERPROFILE}\\miniconda3\\shell\\condabin\\conda-hook.ps1'"]
-    }
-  },
-  "terminal.integrated.defaultProfile.windows": "PowerShell with Conda",
-  
-  "python.defaultInterpreterPath": "${env:USERPROFILE}\\miniconda3\\python.exe",
-  "python.terminal.activateEnvInCurrentTerminal": true
-}
-
-{
-  "python.condaPath": "${env:USERPROFILE}\\miniconda3\\Scripts\\conda.exe",
-  "python.terminal.activateEnvironment": true,
-  
   "terminal.integrated.profiles.windows": {
     "Command Prompt": {
       "path": "C:\\Windows\\System32\\cmd.exe",
