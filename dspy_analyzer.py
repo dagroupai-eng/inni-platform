@@ -67,12 +67,76 @@ class AnalysisQualityValidator(dspy.Signature):
     validation_criteria = dspy.InputField(desc="품질 검증 기준")
     output = dspy.OutputField(desc="품질 점수, 개선 사항, 완성도 평가를 포함한 검증 결과")
 
+class 건축요구사항분석CotSignature(dspy.Signature):
+    """건축 요구사항 분석 (CoT)을 위한 Signature"""
+    input = dspy.InputField(desc="건축 요구사항 분석 (CoT)을 위한 입력 데이터")
+    output = dspy.OutputField(desc="Chain of Thought로 건축 관련 요구사항을 분석하고 정리합니다에 따른 분석 결과")
+
+class 건축요구사항분석22Signature(dspy.Signature):
+    """건축 요구사항 분석22을 위한 Signature"""
+    input = dspy.InputField(desc="건축 요구사항 분석22을 위한 입력 데이터")
+    output = dspy.OutputField(desc="Chain of Thought로 건축 관련 요구사항을 분석하고 정리합니다에 따른 분석 결과")
+
 class EnhancedArchAnalyzer:
     """dA_AI와 동일한 방식으로 DSPy를 사용하는 건축 분석기"""
     
     def __init__(self):
         """DSPy 설정 초기화 (dA_AI와 동일한 방식)"""
         self.setup_dspy()
+    
+    def _get_output_format_template(self):
+        """출력 형식 템플릿을 반환하는 공통 함수"""
+        return """
+## 📝 출력 형식 요구사항
+
+**반드시 다음 형식으로 결과를 제시해주세요:**
+
+### 🎯 [소제목 1]
+[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
+
+| 항목 | 내용 | 비고 |
+|------|------|------|
+| 항목1 | 내용1 | 비고1 |
+| 항목2 | 내용2 | 비고2 |
+
+**[표 해설]**
+위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
+
+### 🏢 [소제목 2]
+[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
+
+| 항목 | 내용 | 비고 |
+|------|------|------|
+| 항목1 | 내용1 | 비고1 |
+| 항목2 | 내용2 | 비고2 |
+
+**[표 해설]**
+위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
+
+### 📊 [소제목 3]
+[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
+
+| 항목 | 내용 | 비고 |
+|------|------|------|
+| 항목1 | 내용1 | 비고1 |
+| 항목2 | 내용2 | 비고2 |
+
+**[표 해설]**
+위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
+
+### 💡 [소제목 4]
+[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
+
+| 항목 | 내용 | 비고 |
+|------|------|------|
+| 항목1 | 내용1 | 비고1 |
+| 항목2 | 내용2 | 비고2 |
+
+**[표 해설]**
+위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
+
+**중요**: 각 소제목 아래에는 반드시 3-5문장의 상세한 해설을 작성하고, 각 표 아래에는 반드시 4-8문장의 표 해설을 작성해주세요.
+"""
     
     def setup_dspy(self):
         """dA_AI와 동일한 DSPy 설정"""
@@ -255,7 +319,7 @@ class EnhancedArchAnalyzer:
                 'accessibility_analysis': AccessibilitySignature,
                 'zoning_verification': ZoningSignature,
                 'capacity_estimation': CapacitySignature,
-                'feasibility_analysis': FeasibilitySignature,
+                'feasibility_analysis': FeasibilitySignature
 }
             
             # 기본 Signature 사용 (블록 ID가 없거나 매핑되지 않은 경우)
@@ -278,55 +342,7 @@ class EnhancedArchAnalyzer:
             enhanced_prompt = f"""
 {formatted_prompt}
 
-## 📝 출력 형식 요구사항
-
-**반드시 다음 형식으로 결과를 제시해주세요:**
-
-### 🎯 [소제목 1]
-[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
-
-| 항목 | 내용 | 비고 |
-|------|------|------|
-| 항목1 | 내용1 | 비고1 |
-| 항목2 | 내용2 | 비고2 |
-
-**[표 해설]**
-위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
-
-### 🏢 [소제목 2]
-[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
-
-| 항목 | 내용 | 비고 |
-|------|------|------|
-| 항목1 | 내용1 | 비고1 |
-| 항목2 | 내용2 | 비고2 |
-
-**[표 해설]**
-위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
-
-### 📊 [소제목 3]
-[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
-
-| 항목 | 내용 | 비고 |
-|------|------|------|
-| 항목1 | 내용1 | 비고1 |
-| 항목2 | 내용2 | 비고2 |
-
-**[표 해설]**
-위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
-
-### 💡 [소제목 4]
-[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
-
-| 항목 | 내용 | 비고 |
-|------|------|------|
-| 항목1 | 내용1 | 비고1 |
-| 항목2 | 내용2 | 비고2 |
-
-**[표 해설]**
-위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
-
-**중요**: 각 소제목 아래에는 반드시 3-5문장의 상세한 해설을 작성하고, 각 표 아래에는 반드시 4-8문장의 표 해설을 작성해주세요.
+{self._get_output_format_template()}
 """
             
             # DSPy Predict 사용 (블록별 특화 signature 포함)
@@ -350,85 +366,153 @@ class EnhancedArchAnalyzer:
             }
     
     def validate_analysis_quality(self, analysis_result, block_type="general"):
-        """분석 결과 품질 검증"""
+        """분석 결과 품질 검증 - 개선된 버전"""
         try:
+            # 블록별 특화 검증 기준
             validation_criteria = {
-                "general": """
-                분석 결과 품질 검증 기준:
-                1. 완성도: 모든 요구된 섹션이 포함되었는가?
-                2. 구체성: 구체적인 수치나 명확한 결론이 있는가?
-                3. 구조화: 체계적인 형식으로 구성되었는가?
-                4. 신뢰성: 근거와 출처가 명시되었는가?
-                5. 실용성: 실제 활용 가능한 정보인가?
-                """,
-                "requirements": """
-                요구사항 분석 품질 검증 기준:
-                1. 요구사항 식별: 명시적/암시적 요구사항이 모두 식별되었는가?
-                2. 분류 체계: 체계적인 분류 기준이 적용되었는가?
-                3. 우선순위: 명확한 우선순위 설정이 있는가?
-                4. 매트릭스: 요구사항 매트릭스가 포함되었는가?
-                5. 설계 방향: 구체적인 설계 방향이 제시되었는가?
-                """,
-                "capacity": """
-                수용력 분석 품질 검증 기준:
-                1. 다각도 분석: 물리적/법적/사회적/경제적 측면이 모두 고려되었는가?
-                2. 정량적 분석: 구체적인 수치와 계산이 포함되었는가?
-                3. 제약요소: 주요 제약요소가 식별되었는가?
-                4. 최적화: 최적 개발 규모가 제시되었는가?
-                5. 실행 가능성: 현실적인 제안인가?
-                """
+                "basic_info": {
+                    "name": "기본 정보 추출",
+                    "criteria": [
+                        "프로젝트명, 위치, 규모 등 핵심 정보가 모두 포함되었는가?",
+                        "표 형태로 정보가 체계적으로 정리되었는가?",
+                        "각 표 하단에 상세한 해설이 있는가?",
+                        "소제목별로 서술형 설명이 있는가?",
+                        "문서 출처와 근거가 명시되었는가?"
+                    ],
+                    "weights": [0.25, 0.25, 0.2, 0.15, 0.15]
+                },
+                "requirements": {
+                    "name": "건축 요구사항 분석",
+                    "criteria": [
+                        "요구사항이 체계적으로 식별되고 분류되었는가?",
+                        "우선순위가 명확하게 설정되었는가?",
+                        "요구사항 매트릭스가 포함되었는가?",
+                        "설계 방향이 구체적으로 제시되었는가?",
+                        "표 해설과 서술형 설명이 충분한가?"
+                    ],
+                    "weights": [0.3, 0.2, 0.2, 0.2, 0.1]
+                },
+                "design_suggestions": {
+                    "name": "설계 제안",
+                    "criteria": [
+                        "현황 분석이 정확하고 포괄적인가?",
+                        "설계 컨셉이 명확하고 구체적인가?",
+                        "공간 구성안이 실현 가능한가?",
+                        "실행 계획이 단계별로 제시되었는가?",
+                        "전체적인 일관성과 논리성이 있는가?"
+                    ],
+                    "weights": [0.2, 0.3, 0.25, 0.15, 0.1]
+                },
+                "accessibility_analysis": {
+                    "name": "접근성 평가",
+                    "criteria": [
+                        "교통, 보행, 시설, 장애인 접근성이 모두 평가되었는가?",
+                        "5점 척도로 객관적인 점수가 산출되었는가?",
+                        "개선 방안이 구체적으로 제시되었는가?",
+                        "점수 산출 근거가 명확한가?",
+                        "실행 가능한 개선 로드맵이 있는가?"
+                    ],
+                    "weights": [0.25, 0.2, 0.25, 0.15, 0.15]
+                },
+                "zoning_verification": {
+                    "name": "법규 검증",
+                    "criteria": [
+                        "용도지역, 건축법규, 특별법이 모두 검토되었는가?",
+                        "법적 위험요소가 정확하게 식별되었는가?",
+                        "위험도별 분류가 적절한가?",
+                        "대응방안이 구체적으로 제시되었는가?",
+                        "법령 조항과 근거가 명확한가?"
+                    ],
+                    "weights": [0.25, 0.25, 0.15, 0.2, 0.15]
+                },
+                "capacity_estimation": {
+                    "name": "수용력 추정",
+                    "criteria": [
+                        "물리적, 법적, 사회적, 경제적 수용력이 모두 분석되었는가?",
+                        "정량적 계산과 수치가 포함되었는가?",
+                        "최적 개발 규모가 제시되었는가?",
+                        "단계별 개발 방안이 구체적인가?",
+                        "계산 과정과 근거가 명확한가?"
+                    ],
+                    "weights": [0.3, 0.25, 0.2, 0.15, 0.1]
+                },
+                "feasibility_analysis": {
+                    "name": "사업성 평가",
+                    "criteria": [
+                        "시장성, 수익성, 위험성, 자금조달성이 모두 평가되었는가?",
+                        "각 기준별 1-5점 평가가 객관적인가?",
+                        "종합 점수 산출이 적절한가?",
+                        "Go/No-Go 결정 근거가 명확한가?",
+                        "투자 권고안이 실용적인가?"
+                    ],
+                    "weights": [0.3, 0.2, 0.2, 0.15, 0.15]
+                }
             }
             
-            criteria = validation_criteria.get(block_type, validation_criteria["general"])
+            # 기본 검증 기준 (일반적인 경우)
+            general_criteria = {
+                "name": "일반 분석",
+                "criteria": [
+                    "분석 완성도가 높은가?",
+                    "구체적인 수치와 결론이 있는가?",
+                    "체계적인 형식으로 구성되었는가?",
+                    "근거와 출처가 명시되었는가?",
+                    "실용적인 정보인가?"
+                ],
+                "weights": [0.2, 0.2, 0.2, 0.2, 0.2]
+            }
+            
+            # 블록별 검증 기준 선택
+            criteria_info = validation_criteria.get(block_type, general_criteria)
             
             validation_prompt = f"""
-            다음 분석 결과의 품질을 검증해주세요:
-            
-            **분석 결과:**
-            {analysis_result}
-            
-            **검증 기준:**
-            {criteria}
-            
-            다음 형식으로 검증 결과를 제시해주세요:
-            
-            ## 📊 품질 검증 결과
-            
-            ### 점수 평가 (각 항목 1-5점)
-            - **완성도**: [점수]/5 - [평가 근거]
-            - **구체성**: [점수]/5 - [평가 근거]
-            - **구조화**: [점수]/5 - [평가 근거]
-            - **신뢰성**: [점수]/5 - [평가 근거]
-            - **실용성**: [점수]/5 - [평가 근거]
-            
-            ### 종합 점수: [총점]/25
-            
-            ### 🔧 개선 사항
-            - [개선이 필요한 항목들]
-            
-            ### ✅ 우수한 부분
-            - [잘된 부분들]
-            
-            ### 📈 품질 향상 권장사항
-            - [구체적인 개선 방안들]
-            """
+다음 {criteria_info['name']} 분석 결과의 품질을 검증해주세요:
+
+**분석 결과:**
+{analysis_result}
+
+**검증 기준:**
+{chr(10).join([f"{i+1}. {criterion}" for i, criterion in enumerate(criteria_info['criteria'])])}
+
+다음 형식으로 검증 결과를 제시해주세요:
+
+## 📊 품질 검증 결과
+
+### 📋 항목별 점수 평가 (각 항목 1-5점)
+{chr(10).join([f"- **항목 {i+1}**: [점수]/5 - [간단한 평가 근거]" for i in range(len(criteria_info['criteria']))])}
+
+### 📈 종합 점수: [총점]/25점
+### 🏆 품질 등급: [우수/양호/보통/미흡/부족]
+
+### ✅ 우수한 부분
+- [잘된 부분들을 구체적으로 나열]
+
+### 🔧 개선이 필요한 부분
+- [개선이 필요한 항목들을 구체적으로 나열]
+
+### 📝 구체적인 개선 제안
+- [각 개선 항목에 대한 구체적인 제안사항]
+"""
             
             result = dspy.Predict(AnalysisQualityValidator)(
                 analysis_result=validation_prompt,
-                validation_criteria=criteria
+                validation_criteria=str(criteria_info['criteria'])
             )
             
             return {
                 "success": True,
                 "validation": result.output,
+                "block_type": block_type,
+                "criteria_info": criteria_info,
                 "model": "claude-sonnet-4-20250514 (DSPy)",
-                "method": "DSPy + AnalysisQualityValidator"
+                "method": "DSPy + Enhanced AnalysisQualityValidator"
             }
             
         except Exception as e:
             return {
                 "success": False,
                 "error": str(e),
+                "block_type": block_type,
                 "model": "claude-sonnet-4-20250514 (DSPy)",
                 "method": "DSPy + AnalysisQualityValidator"
             }
@@ -471,7 +555,7 @@ class EnhancedArchAnalyzer:
         """검증 결과에서 품질 점수 추출"""
         import re
         try:
-            # "종합 점수: [총점]/25" 패턴 찾기
+            # "종합 점수: [총점]/25점" 패턴 찾기
             score_pattern = r'종합 점수:\s*(\d+)/25'
             match = re.search(score_pattern, validation_text)
             if match:
@@ -479,6 +563,19 @@ class EnhancedArchAnalyzer:
             return None
         except:
             return None
+    
+    def _extract_quality_grade(self, validation_text):
+        """검증 결과에서 품질 등급 추출"""
+        import re
+        try:
+            # "품질 등급: [등급]" 패턴 찾기
+            grade_pattern = r'품질 등급:\s*([가-힣]+)'
+            match = re.search(grade_pattern, validation_text)
+            if match:
+                return match.group(1)
+            return "미평가"
+        except:
+            return "미평가"
     
     def analyze_blocks_with_cot(self, selected_blocks, project_info, pdf_text, block_infos, progress_callback=None):
         """블록 간 Chain of Thought 분석"""
@@ -523,6 +620,9 @@ class EnhancedArchAnalyzer:
                 )
                 
                 if result['success']:
+                    # 품질 검증 수행
+                    validation_result = self.validate_analysis_quality(result['analysis'], block_id)
+                    
                     analysis_results[block_id] = result['analysis']
                     
                     # 다음 블록을 위해 결과 누적
@@ -532,12 +632,17 @@ class EnhancedArchAnalyzer:
                         "block_id": block_id,
                         "block_name": block_info.get('name', 'Unknown'),
                         "step": i + 1,
-                        "key_insights": key_insights
+                        "key_insights": key_insights,
+                        "validation": validation_result
                     })
                     
-                    print(f"✅ {block_id} 블록 완료 - 핵심 인사이트: {len(key_insights)}개")
+                    # 품질 점수 추출
+                    quality_score = self._extract_quality_score(validation_result.get('validation', ''))
+                    quality_grade = self._extract_quality_grade(validation_result.get('validation', ''))
+                    
+                    print(f"✅ {block_id} 블록 완료 - 핵심 인사이트: {len(key_insights)}개, 품질: {quality_grade} ({quality_score}/25)")
                     if progress_callback:
-                        progress_callback(f"✅ {block_name} 블록 완료 - 핵심 인사이트: {len(key_insights)}개")
+                        progress_callback(f"✅ {block_name} 블록 완료 - 품질: {quality_grade} ({quality_score}/25)")
                 else:
                     print(f"❌ {block_id} 블록 실패: {result.get('error', '알 수 없는 오류')}")
                     if progress_callback:
@@ -677,67 +782,18 @@ class EnhancedArchAnalyzer:
 
 {formatted_prompt}
 
-## 📝 출력 형식 요구사항
-
-**반드시 다음 형식으로 결과를 제시해주세요:**
-
-### 🎯 [소제목 1]
-[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
-
-| 항목 | 내용 | 비고 |
-|------|------|------|
-| 항목1 | 내용1 | 비고1 |
-| 항목2 | 내용2 | 비고2 |
-
-**[표 해설]**
-위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
-
-### 🏢 [소제목 2]
-[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
-
-| 항목 | 내용 | 비고 |
-|------|------|------|
-| 항목1 | 내용1 | 비고1 |
-| 항목2 | 내용2 | 비고2 |
-
-**[표 해설]**
-위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
-
-### 📊 [소제목 3]
-[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
-
-| 항목 | 내용 | 비고 |
-|------|------|------|
-| 항목1 | 내용1 | 비고1 |
-| 항목2 | 내용2 | 비고2 |
-
-**[표 해설]**
-위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
-
-### 💡 [소제목 4]
-[소제목에 대한 상세한 해설 (3-5문장, 200-400자)]
-
-| 항목 | 내용 | 비고 |
-|------|------|------|
-| 항목1 | 내용1 | 비고1 |
-| 항목2 | 내용2 | 비고2 |
-
-**[표 해설]**
-위 표에 대한 상세한 해설을 4-8문장(300-600자)로 작성해주세요. 표의 내용을 분석하고 해석하며, 각 항목의 의미와 중요성을 설명해주세요.
-
-**중요**: 각 소제목 아래에는 반드시 3-5문장의 상세한 해설을 작성하고, 각 표 아래에는 반드시 4-8문장의 표 해설을 작성해주세요.
+{self._get_output_format_template()}
 """
             
             # 블록 ID에 따라 적절한 Signature 선택
-            signature_map = {
-                'basic_info': BasicInfoSignature,
+            signature_map = {                'basic_info': BasicInfoSignature,
                 'requirements': RequirementsSignature,
                 'design_suggestions': DesignSignature,
                 'accessibility_analysis': AccessibilitySignature,
                 'zoning_verification': ZoningSignature,
                 'capacity_estimation': CapacitySignature,
-                'feasibility_analysis': FeasibilitySignature,
-            }
+                'feasibility_analysis': FeasibilitySignature
+}
             
             signature_class = signature_map.get(block_id, SimpleAnalysisSignature)
             
