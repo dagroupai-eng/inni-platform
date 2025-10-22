@@ -23,6 +23,32 @@ conda --version
   "python.terminal.activateEnvInCurrentTerminal": true
 }
 
+{
+  "python.condaPath": "${env:USERPROFILE}\\miniconda3\\Scripts\\conda.exe",
+  "python.terminal.activateEnvironment": true,
+  
+  "terminal.integrated.profiles.windows": {
+    "Command Prompt": {
+      "path": "C:\\Windows\\System32\\cmd.exe",
+      "args": ["/K", "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat", "2>nul"]
+    },
+    "PowerShell with Conda": {
+      "source": "PowerShell",
+      "args": [
+        "-NoExit",
+        "-NoLogo",
+        "-Command",
+        "& {& '${env:USERPROFILE}\\miniconda3\\shell\\condabin\\conda-hook.ps1' 2>$null; if ($?) {conda activate base 2>$null}}"
+      ]
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell with Conda",
+  
+  "python.defaultInterpreterPath": "${env:USERPROFILE}\\miniconda3\\python.exe",
+  "python.terminal.activateEnvInCurrentTerminal": true
+}
+
+
 2-1. PowerShell이 기본적으로 외부 스크립트 실행을 막고 있어서 생긴 오류
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
