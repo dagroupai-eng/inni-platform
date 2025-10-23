@@ -31,11 +31,6 @@ class DesignSignature(dspy.Signature):
     input = dspy.InputField(desc="설계 방향을 제안할 문서")
     output = dspy.OutputField(desc="설계 원칙, 공간 구성안, 실행 단계를 포함한 구체적인 설계 제안")
 
-class InvestmentSignature(dspy.Signature):
-    """투자 지표 계산을 위한 Signature"""
-    input = dspy.InputField(desc="투자 지표를 계산할 문서")
-    output = dspy.OutputField(desc="비용 분석표, 수익성 지표, 투자 회수 기간을 포함한 재무 분석")
-
 class AccessibilitySignature(dspy.Signature):
     """접근성 평가를 위한 Signature"""
     input = dspy.InputField(desc="접근성을 평가할 문서")
@@ -56,26 +51,11 @@ class FeasibilitySignature(dspy.Signature):
     input = dspy.InputField(desc="사업성을 평가할 문서")
     output = dspy.OutputField(desc="시장성, 기술성, 경제성, 법규성 평가표와 종합 사업성 점수")
 
-class 도시재개발사회경제적영향분석Signature(dspy.Signature):
-    """도시 재개발 사회경제적 영향 분석을 위한 Signature"""
-    input = dspy.InputField(desc="도시 재개발 사회경제적 영향 분석을 위한 입력 데이터")
-    output = dspy.OutputField(desc="사회경제적 영향 매트릭스, 정량적 지표, 개선 방안을 포함한 종합 분석 결과")
-
 class AnalysisQualityValidator(dspy.Signature):
     """분석 결과 품질 검증을 위한 Signature"""
     analysis_result = dspy.InputField(desc="검증할 분석 결과")
     validation_criteria = dspy.InputField(desc="품질 검증 기준")
     output = dspy.OutputField(desc="품질 점수, 개선 사항, 완성도 평가를 포함한 검증 결과")
-
-class 건축요구사항분석CotSignature(dspy.Signature):
-    """건축 요구사항 분석 (CoT)을 위한 Signature"""
-    input = dspy.InputField(desc="건축 요구사항 분석 (CoT)을 위한 입력 데이터")
-    output = dspy.OutputField(desc="Chain of Thought로 건축 관련 요구사항을 분석하고 정리합니다에 따른 분석 결과")
-
-class 건축요구사항분석22Signature(dspy.Signature):
-    """건축 요구사항 분석22을 위한 Signature"""
-    input = dspy.InputField(desc="건축 요구사항 분석22을 위한 입력 데이터")
-    output = dspy.OutputField(desc="Chain of Thought로 건축 관련 요구사항을 분석하고 정리합니다에 따른 분석 결과")
 
 class EnhancedArchAnalyzer:
     """dA_AI와 동일한 방식으로 DSPy를 사용하는 건축 분석기"""
