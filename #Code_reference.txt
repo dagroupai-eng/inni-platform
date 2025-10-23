@@ -27,10 +27,8 @@ conda --version
   "python.terminal.activateEnvInCurrentTerminal": true
 }
 
-
 2-1. PowerShell이 기본적으로 외부 스크립트 실행을 막고 있어서 생긴 오류
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-
 
 3. conda 환경 생성
 3-1. 생성
@@ -68,23 +66,21 @@ streamlit run app.py
 
 
 etc. 안 잡히면: PATH 수동 등록
+Windows 환경 변수에 PATH 수동 등록
 
-Windows 환경 변수에서 사용자 Path에 아래 3개 추가 후 VS Code 재실행:
+a. Windows 키 → "환경 변수" 검색 → "시스템 환경 변수 편집" 클릭
+b. 시스템 속성 창 → 하단 "환경 변수(N)" 버튼 클릭
+c. 상단 "사용자 변수" 섹션에서
+→ "Path" 선택
+→ "편집(E)" 버튼 클릭
+
+d. "새로 만들기(N)" 버튼 클릭 후 아래 5개 추가 VS Code 재실행::
 C:\Users\<사용자명>\miniconda3
 C:\Users\<사용자명>\miniconda3\Scripts
 C:\Users\<사용자명>\miniconda3\Library\bin
+C:\Users\<사용자명>\miniconda3\Library\usr\bin
+C:\Users\<사용자명>\miniconda3\Library\mingw-w64\bin
 
-그리고 VS Code 설정(JSON)에 명시(선택):
-"python.condaPath": "C:\\Users\\<사용자명>\\miniconda3\\Scripts\\conda.exe"
-
-
-{
-  "git.ignoreMissingGitWarning": true,
-  "terminal.integrated.shell.windows": "C:\\Windows\\Sysnative\\cmd.exe",
-  "terminal.integrated.shellArgs.windows": [
-    "-NoExit",
-    "-Command",
-    "& 'C:\\Users\\da\\miniconda3\\shell\\condabin\\conda-hook.ps1'; conda activate base"
-  ]
-}
-
+e. 확인 → 확인 → 확인 (3번)
+→ 모든 프로그램 종료
+→ Windows 재시작
