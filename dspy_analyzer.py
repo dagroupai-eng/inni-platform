@@ -683,6 +683,36 @@ class EnhancedArchAnalyzer:
 
 """
         
+        # 공간 데이터 컨텍스트 추가
+        spatial_context = ""
+        project_info = cumulative_context.get('project_info', {})
+        
+        if isinstance(project_info, dict) and project_info.get('has_geo_data'):
+            spatial_data_text = project_info.get('spatial_data_context', '')
+            location_info = project_info.get('location', 'N/A')
+            
+            spatial_context = f"""
+
+### 🗺️ 실제 공간 데이터 (Shapefile)
+
+{spatial_data_text}
+
+**중요 지시사항**: 
+위 실제 공간 데이터를 근거로 분석을 수행하세요. 프로젝트 위치({location_info})와 실제 행정구역, 토지소유, 공시지가 정보를 교차 검증하세요.
+입지 선정, 법규 검증, 접근성 평가 등 모든 분석은 위 Shapefile 데이터를 참고하여 실제 존재하는 필지/구역을 기반으로 하세요.
+"""
+        
+        # 프로젝트 정보를 텍스트로 포맷팅
+        if isinstance(project_info, dict):
+            project_info_text = f"""
+- 프로젝트명: {project_info.get('project_name', 'N/A')}
+- 위치: {project_info.get('location', 'N/A')}
+- 프로젝트 목표: {project_info.get('project_goals', 'N/A')[:200]}
+- 추가 정보: {project_info.get('additional_info', 'N/A')[:200]}
+"""
+        else:
+            project_info_text = str(project_info)
+        
         # 현재 블록을 위한 특별한 컨텍스트 구성
         cot_context = f"""
 ## 🔗 블록 간 Chain of Thought 분석 컨텍스트
@@ -699,7 +729,7 @@ class EnhancedArchAnalyzer:
 - 블록 설명: {block_info.get('description', 'N/A')}
 
 ### 📄 원본 프로젝트 정보
-{cumulative_context['project_info']}
+{project_info_text}{spatial_context}
 
 ### 📄 원본 문서 내용
 {cumulative_context['pdf_text'][:3000] if cumulative_context['pdf_text'] else 'PDF 문서가 없습니다.'}

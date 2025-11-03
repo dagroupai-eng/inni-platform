@@ -27,6 +27,9 @@ st.set_page_config(
 st.title("도시 프로젝트 분석")
 st.markdown("**도시 프로젝트 문서 분석 (PDF, Excel, CSV, 텍스트, JSON 지원)**")
 
+# 페이지 네비게이션 처리
+# (st.switch_page는 사이드바에서 직접 호출하면 오류 발생 가능하므로 제거)
+
 # Session state 초기화
 if 'project_name' not in st.session_state:
     st.session_state.project_name = ""
@@ -323,6 +326,30 @@ ANTHROPIC_API_KEY=your_api_key_here
         st.success("API 키가 설정되었습니다!")
         st.info(f"API 키 길이: {len(api_key)}자")
         st.info(f"키 소스: {'Streamlit Secrets' if st.secrets.get('ANTHROPIC_API_KEY') else '환경변수'}")
+    
+    # 공간 데이터 상태 표시
+    st.markdown("---")
+    st.subheader("📍 공간 데이터 상태")
+    
+    if st.session_state.get('uploaded_gdf') is not None:
+        layer_info = st.session_state.get('uploaded_layer_info', {})
+        st.success("✅ Shapefile 로드됨")
+        st.info(f"피처 수: {layer_info.get('feature_count', 0):,}개")
+        
+        # 여러 레이어 지원
+        if st.session_state.get('geo_layers'):
+            st.caption(f"📚 {len(st.session_state.geo_layers)}개 레이어 활성화")
+        else:
+            st.caption("AI 분석에 공간 데이터가 활용됩니다")
+    elif st.session_state.get('geo_layers'):
+        st.success(f"✅ {len(st.session_state.geo_layers)}개 레이어 로드됨")
+        total_features = sum(data['info'].get('feature_count', 0) for data in st.session_state.geo_layers.values())
+        st.info(f"총 피처 수: {total_features:,}개")
+        st.caption("AI 분석에 공간 데이터가 활용됩니다")
+    else:
+        st.warning("⚠️ 공간 데이터 미업로드")
+        st.caption("정확한 분석을 위해 Mapping에서 Shapefile을 업로드하세요")
+        st.info("💡 왼쪽 사이드바에서 '3_🗺️_Mapping'을 클릭하여 이동하세요")
 
 # 메인 컨텐츠
 tab1, tab2, tab3, tab4 = st.tabs(["기본 정보 & 파일 업로드", "분석 블록 선택", "분석 실행", "결과 다운로드"])
@@ -660,6 +687,49 @@ with tab3:
             "additional_info": additional_info,
             "file_text": file_text
         }
+        
+        # 공간 데이터 통합
+        try:
+            # 다중 레이어 지원 (geo_layers 딕셔너리)
+            if st.session_state.get('geo_layers') and len(st.session_state.geo_layers) > 0:
+                from geo_data_loader import extract_spatial_context_for_ai
+                
+                # 모든 레이어의 공간 데이터 통합
+                spatial_contexts = []
+                for layer_name, layer_data in st.session_state.geo_layers.items():
+                    gdf = layer_data['gdf']
+                    info = layer_data['info']
+                    
+                    # 레이어 이름에서 타입 추론
+                    layer_type = 'general'
+                    if any(keyword in layer_name for keyword in ['행정', '시군', '읍면', '법정', 'adm']):
+                        layer_type = 'administrative'
+                    elif any(keyword in layer_name for keyword in ['공시', '가격', '지가', 'price']):
+                        layer_type = 'land_price'
+                    elif any(keyword in layer_name for keyword in ['소유', '토지', 'owner']):
+                        layer_type = 'ownership'
+                    
+                    spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
+                    spatial_contexts.append(f"**레이어: {layer_name}**\n{spatial_text}")
+                
+                if spatial_contexts:
+                    project_info["spatial_data_context"] = "\n\n---\n\n".join(spatial_contexts)
+                    project_info["has_geo_data"] = True
+                    st.info("📍 공간 데이터가 AI 분석에 포함됩니다")
+            
+            # 기존 단일 레이어 지원 (하위 호환성)
+            elif st.session_state.get('uploaded_gdf') is not None:
+                from geo_data_loader import extract_spatial_context_for_ai
+                gdf = st.session_state.uploaded_gdf
+                layer_type = st.session_state.get('layer_type', 'general')
+                
+                spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
+                project_info["spatial_data_context"] = spatial_text
+                project_info["has_geo_data"] = True
+                st.info("📍 공간 데이터가 AI 분석에 포함됩니다")
+        except Exception as e:
+            st.warning(f"공간 데이터 통합 중 오류: {e}")
+            project_info["has_geo_data"] = False
         
         # 블록 정보 수집
         example_blocks = get_example_blocks()

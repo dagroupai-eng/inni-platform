@@ -39,6 +39,8 @@
 
 - 위치 정보 표시 및 시각화
 - 지리적 데이터 분석
+- **Shapefile 업로드**: 도시공간데이터포털 Shapefile 직접 업로드 및 시각화
+- 좌표계 자동 변환 및 데이터 검증
 
 ### 블록 생성기
 
@@ -331,10 +333,16 @@ streamlit run app.py
 #### 지도 분석 기능
 
 1. 왼쪽 사이드바에서 **"Mapping"** 클릭
-2. 지도 분석 기능:
+2. **샘플 데이터 지도** 탭:
    - 위치 정보 시각화
    - 지리적 데이터 분석
-3. 지도에서 프로젝트 위치 및 정보 확인
+   - 예산 히트맵 및 타임라인 지도
+3. **Shapefile 업로드** 탭:
+   - 도시공간데이터포털에서 ZIP 파일 다운로드
+   - ZIP 파일 업로드 (행정구역, 토지소유정보 등)
+   - 자동 좌표계 변환 및 검증
+   - 지도에서 시각화 및 원본 데이터 확인
+4. 지도에서 프로젝트 위치 및 정보 확인
 
 #### 블록 생성기 사용법
 
@@ -448,6 +456,18 @@ streamlit run app.py --logger.level debug
 - **Streamlit**: 웹 앱 프레임워크
 - **Plotly**: 데이터 시각화
 - **PyMuPDF**: PDF 처리
+- **GeoPandas**: Shapefile 처리 및 공간 데이터 분석
+- **도시공간데이터포털**: 공간 데이터 제공
+
+## 📚 추가 자료
+
+### Shapefile 통합 기능 상세 가이드
+
+Shapefile 업로드 및 분석 기능에 대한 자세한 안내는 다음 문서를 참조하세요:
+
+- **[SHAPEFILE_INTEGRATION_GUIDE.md](SHAPEFILE_INTEGRATION_GUIDE.md)**: 통합 가이드 문서
+- **도시공간데이터포털**: https://www.citydata.go.kr
+- **GeoPandas 문서**: https://geopandas.org/
 
 ---
 
