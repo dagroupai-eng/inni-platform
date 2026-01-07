@@ -173,11 +173,6 @@ class DesignSignature(dspy.Signature):
     input = dspy.InputField(desc="설계 방향을 제안할 문서")
     output = dspy.OutputField(desc="설계 원칙, 공간 구성안, 실행 단계를 포함한 구체적인 설계 제안")
 
-class InvestmentSignature(dspy.Signature):
-    """투자 지표 계산을 위한 Signature"""
-    input = dspy.InputField(desc="투자 지표를 계산할 문서")
-    output = dspy.OutputField(desc="비용 분석표, 수익성 지표, 투자 회수 기간을 포함한 재무 분석")
-
 class AccessibilitySignature(dspy.Signature):
     """접근성 평가를 위한 Signature"""
     input = dspy.InputField(desc="접근성을 평가할 문서")
@@ -197,11 +192,6 @@ class FeasibilitySignature(dspy.Signature):
     """사업성 평가를 위한 Signature"""
     input = dspy.InputField(desc="사업성을 평가할 문서")
     output = dspy.OutputField(desc="시장성, 기술성, 경제성, 법규성 평가표와 종합 사업성 점수")
-
-class 도시재개발사회경제적영향분석Signature(dspy.Signature):
-    """도시 재개발 사회경제적 영향 분석을 위한 Signature"""
-    input = dspy.InputField(desc="도시 재개발 사회경제적 영향 분석을 위한 입력 데이터")
-    output = dspy.OutputField(desc="사회경제적 영향 매트릭스, 정량적 지표, 개선 방안을 포함한 종합 분석 결과")
 
 class AnalysisQualityValidator(dspy.Signature):
     """분석 결과 품질 검증을 위한 Signature"""

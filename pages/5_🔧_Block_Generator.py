@@ -141,10 +141,26 @@ def remove_dspy_signature(block_id, signature_name):
         
         import re
         
-        # Signature 클래스 제거 (개선된 정규식 패턴)
-        # 클래스 정의부터 다음 클래스 정의나 빈 줄 2개까지 매칭 (non-greedy)
-        signature_pattern = rf'class {re.escape(signature_name)}\(dspy\.Signature\):.*?(?=\nclass |\n\n\n|\Z)'
-        content = re.sub(signature_pattern, '', content, flags=re.DOTALL)
+        # Signature 클래스 제거 (더 강력한 방법)
+        lines = content.split('\n')
+        new_lines = []
+        skip_lines = False
+        
+        for i, line in enumerate(lines):
+            # 클래스 정의 라인 찾기
+            if line.strip().startswith(f'class {signature_name}(dspy.Signature):'):
+                skip_lines = True
+                continue
+            # 다음 클래스나 빈 줄을 만나면 스킵 중지
+            elif skip_lines and (line.strip().startswith('class ') or (line.strip() == '' and i < len(lines) - 1 and lines[i+1].strip().startswith('class '))):
+                skip_lines = False
+                if line.strip().startswith('class '):
+                    new_lines.append(line)
+            # 스킵 중이 아닌 경우에만 라인 추가
+            elif not skip_lines:
+                new_lines.append(line)
+        
+        content = '\n'.join(new_lines)
         
         # 연속된 빈 줄 정리 (3개 이상 -> 2개로)
         content = re.sub(r'\n{3,}', '\n\n', content)
@@ -270,24 +286,48 @@ def main():
     with col1:
         st.header("새 블록 생성")
         
-        # 단계 업데이트 버튼 (폼 밖에 위치)
-        if st.button("단계 필드 새로고침", help="단계 개수를 변경한 후 이 버튼을 클릭하세요"):
+        # 단계 개수 선택 (폼 밖에서 처리)
+        st.markdown("**단계 개수 설정**")
+        num_steps = st.number_input(
+            "단계 개수", 
+            min_value=1, 
+            max_value=10, 
+            value=3, 
+            key="num_steps",
+            help="분석에 필요한 단계의 개수를 선택하세요"
+        )
+        
+        # 블록 생성기 리셋 버튼 (폼 밖에 위치)
+        if st.button("🔄 블록 생성기 리셋", help="모든 입력값을 초기화하고 기본 설정으로 돌아갑니다"):
+            # 리셋 플래그 설정
+            st.session_state['form_reset'] = True
             st.rerun()
         
         # 블록 정보 입력 폼
         with st.form("block_creation_form"):
+            # 리셋 플래그 확인 및 처리
+            reset_form = st.session_state.get('form_reset', False)
+            if reset_form:
+                st.session_state['form_reset'] = False
+                # 모든 폼 관련 세션 상태 초기화
+                for key in list(st.session_state.keys()):
+                    if key.startswith(('step_', 'block_', 'role_', 'instructions_', 'end_goal_', 'output_format_', 'required_items_', 'constraints_', 'quality_standards_', 'evaluation_criteria_', 'scoring_system_', 'custom_id_', 'num_steps')):
+                        del st.session_state[key]
+            
             # 블록 이름
             block_name = st.text_input(
                 "블록 이름",
                 placeholder="예: 도시 재개발 사회경제적 영향 분석",
-                help="블록의 표시 이름을 입력하세요."
+                help="블록의 표시 이름을 입력하세요.",
+                value="" if reset_form else None
             )
             
             # 블록 설명
             block_description = st.text_area(
                 "블록 설명",
                 placeholder="예: 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가합니다",
-                help="블록의 기능을 설명하는 간단한 문장을 입력하세요."
+                help="블록의 기능을 설명하는 간단한 문장을 입력하세요.",
+                value="" if reset_form else None
             )
             
             category_prompt = "새 카테고리 입력"
@@ -316,7 +356,8 @@ def main():
                 "역할 (Role)",
                 placeholder="도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다",
                 height=80,
-                help="AI가 수행할 전문가 역할을 정의해주세요."
+                help="AI가 수행할 전문가 역할을 정의해주세요.",
+                value="" if reset_form else None
             )
             
             # Instructions (지시)
@@ -324,21 +365,12 @@ def main():
                 "지시 (Instructions)",
                 placeholder="제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다",
                 height=80,
-                help="AI에게 수행해야 할 작업의 구체적인 지시사항을 작성해주세요."
+                help="AI에게 수행해야 할 작업의 구체적인 지시사항을 작성해주세요.",
+                value="" if reset_form else None
             )
             
             # Steps (단계)
             st.markdown("**단계 (Steps)**")
-            
-            # 단계 개수 선택
-            num_steps = st.number_input(
-                "단계 개수", 
-                min_value=1, 
-                max_value=10, 
-                value=3, 
-                key="num_steps",
-                help="분석에 필요한 단계의 개수를 선택하세요"
-            )
             
             # 단계 입력 필드들을 동적으로 생성
             steps = []
@@ -357,9 +389,10 @@ def main():
                     f"단계 {i+1}",
                     placeholder=placeholder,
                     key=f"step_{i}",
-                    help=f"단계 {i+1}의 구체적인 내용을 입력하세요"
+                    help=f"단계 {i+1}의 구체적인 내용을 입력하세요",
+                    value="" if reset_form else None
                 )
-                if step_text.strip():
+                if step_text and step_text.strip():
                     steps.append(step_text.strip())
             
             # 단계 미리보기
@@ -377,7 +410,8 @@ def main():
                 "최종 목표 (End Goal)",
                 placeholder="도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다",
                 height=80,
-                help="이 분석을 통해 달성하고자 하는 최종 목표를 명시해주세요."
+                help="이 분석을 통해 달성하고자 하는 최종 목표를 명시해주세요.",
+                value="" if reset_form else None
             )
             
             # Narrowing (구체화/제약 조건)
@@ -388,38 +422,40 @@ def main():
             with col_narrowing1:
                 output_format = st.text_input(
                     "출력 형식",
-                    value="표와 차트를 포함한 구조화된 보고서 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
+                    value="" if reset_form else "표와 차트를 포함한 구조화된 보고서 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수",
                     help="분석 결과의 출력 형식을 지정해주세요."
                 )
                 
                 required_items = st.text_input(
                     "필수 항목/섹션",
                     placeholder="긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항",
-                    help="분석 결과에 반드시 포함되어야 할 항목들을 나열해주세요."
+                    help="분석 결과에 반드시 포함되어야 할 항목들을 나열해주세요.",
+                    value="" if reset_form else None
                 )
                 
                 constraints = st.text_input(
                     "제약 조건",
-                    value="문서에 명시된 데이터만 사용, 추측 금지",
+                    value="" if reset_form else "문서에 명시된 데이터만 사용, 추측 금지",
                     help="분석 시 준수해야 할 제약 조건을 명시해주세요."
                 )
             
             with col_narrowing2:
                 quality_standards = st.text_input(
                     "품질 기준",
-                    value="각 결론에 근거 제시, 출처 명시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상",
+                    value="" if reset_form else "각 결론에 근거 제시, 출처 명시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상",
                     help="분석 결과의 품질 기준을 명시해주세요."
                 )
                 
                 evaluation_criteria = st.text_input(
                     "평가 기준/분석 영역",
                     placeholder="고용, 주거비, 상권 변화, 교통, 환경, 사회적 영향",
-                    help="평가나 분석의 기준이나 영역을 명시해주세요."
+                    help="평가나 분석의 기준이나 영역을 명시해주세요.",
+                    value="" if reset_form else None
                 )
                 
                 scoring_system = st.text_input(
                     "점수 체계/계산 방법",
-                    value="정량적 지표 기반 영향도 평가 + 가중치 적용 종합 점수 산출",
+                    value="" if reset_form else "정량적 지표 기반 영향도 평가 + 가중치 적용 종합 점수 산출",
                     help="평가 점수 체계나 계산 방법을 명시해주세요."
                 )
             
@@ -428,7 +464,8 @@ def main():
                 custom_id = st.text_input(
                     "커스텀 ID (선택사항)",
                     placeholder="자동 생성됩니다",
-                    help="블록의 고유 ID를 직접 지정할 수 있습니다. 비워두면 이름에서 자동 생성됩니다."
+                    help="블록의 고유 ID를 직접 지정할 수 있습니다. 비워두면 이름에서 자동 생성됩니다.",
+                    value="" if reset_form else None
                 )
                 
             
@@ -437,23 +474,23 @@ def main():
             
             if submitted:
                 # 입력 검증
-                if not block_name.strip():
+                if not block_name or not block_name.strip():
                     st.error("블록 이름을 입력해주세요.")
-                elif not block_description.strip():
+                elif not block_description or not block_description.strip():
                     st.error("블록 설명을 입력해주세요.")
                 elif not category_value:
                     st.error("카테고리를 선택하거나 입력해주세요.")
-                elif not role.strip():
+                elif not role or not role.strip():
                     st.error("역할(Role)을 입력해주세요.")
-                elif not instructions.strip():
+                elif not instructions or not instructions.strip():
                     st.error("지시(Instructions)를 입력해주세요.")
                 elif len(steps) == 0:
                     st.error("최소 하나의 단계를 입력해주세요.")
-                elif not end_goal.strip():
+                elif not end_goal or not end_goal.strip():
                     st.error("최종 목표(End Goal)를 입력해주세요.")
                 else:
                     # 블록 ID 생성
-                    if custom_id.strip():
+                    if custom_id and custom_id.strip():
                         block_id = custom_id.strip()
                     else:
                         block_id = generate_block_id(block_name)
@@ -468,17 +505,17 @@ def main():
                     else:
                         # narrowing 객체 구성
                         narrowing = {}
-                        if output_format.strip():
+                        if output_format and output_format.strip():
                             narrowing['output_format'] = output_format.strip()
-                        if required_items.strip():
+                        if required_items and required_items.strip():
                             narrowing['required_items'] = required_items.strip()
-                        if constraints.strip():
+                        if constraints and constraints.strip():
                             narrowing['constraints'] = constraints.strip()
-                        if quality_standards.strip():
+                        if quality_standards and quality_standards.strip():
                             narrowing['quality_standards'] = quality_standards.strip()
-                        if evaluation_criteria.strip():
+                        if evaluation_criteria and evaluation_criteria.strip():
                             narrowing['evaluation_criteria'] = evaluation_criteria.strip()
-                        if scoring_system.strip():
+                        if scoring_system and scoring_system.strip():
                             narrowing['scoring_system'] = scoring_system.strip()
                         
                         # 새 블록 생성 (RISEN 구조)

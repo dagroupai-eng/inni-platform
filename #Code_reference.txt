@@ -27,10 +27,8 @@ conda --version
   "python.terminal.activateEnvInCurrentTerminal": true
 }
 
-
 2-1. PowerShell이 기본적으로 외부 스크립트 실행을 막고 있어서 생긴 오류
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-
 
 3. conda 환경 생성
 3-1. 생성
@@ -51,7 +49,7 @@ python --version
 6. 필요 패키지 설치
 6-1. 지오스택 패키지 설치
 conda install -c conda-forge madoka geopandas shapely pyproj -y
-6-2. pip 도구 최신화화
+6-2. pip 도구 최신화
 python -m pip install -U pip setuptools wheel
 6-3. 나머지 필요 패키지 설치
 pip install -r requirements.txt
@@ -65,26 +63,80 @@ GEMINI_API_KEY=your_gemini_api_key_here
 streamlit run app.py
 
 
+-------------------------------------------------------------------------------------
 
+Conda가 VSCode에서 인식이 되지 않을 때!!!
 
-etc. 안 잡히면: PATH 수동 등록
+1단계: 설치
+✓ miniconda 최신 버전 설치 (PATH 체크 ✓ 또는 ✗ 상관없음)
+✓ VSCode 최신 버전 설치 (PATH 체크 ✓)
+```
 
-Windows 환경 변수에서 사용자 Path에 아래 3개 추가 후 VS Code 재실행:
-C:\Users\<사용자명>\miniconda3
-C:\Users\<사용자명>\miniconda3\Scripts
-C:\Users\<사용자명>\miniconda3\Library\bin
+### 2단계: 재부팅
+```
+Windows 재시작
+```
 
-그리고 VS Code 설정(JSON)에 명시(선택):
-"python.condaPath": "C:\\Users\\<사용자명>\\miniconda3\\Scripts\\conda.exe"
+### 3단계: 첫 번째 확인
+```
+VSCode 열기 → 새 터미널 → conda --version
 
+✅ 작동하면 → 끝! 성공!
+❌ 안 되면 → 4단계로
+```
 
+### 4단계: settings.json 적용
+```
+Ctrl + Shift + P → "Preferences: Open User Settings (JSON)"
+
+아래 코드 붙여넣기:
 {
-  "git.ignoreMissingGitWarning": true,
-  "terminal.integrated.shell.windows": "C:\\Windows\\Sysnative\\cmd.exe",
-  "terminal.integrated.shellArgs.windows": [
-    "-NoExit",
-    "-Command",
-    "& 'C:\\Users\\da\\miniconda3\\shell\\condabin\\conda-hook.ps1'; conda activate base"
-  ]
+  "python.condaPath": "${env:USERPROFILE}\\miniconda3\\Scripts\\conda.exe",
+  "python.terminal.activateEnvironment": true,
+  
+  "terminal.integrated.profiles.windows": {
+    "Command Prompt": {
+      "path": "C:\\Windows\\System32\\cmd.exe",
+      "args": ["/K", "%USERPROFILE%\\miniconda3\\Scripts\\activate.bat", "2>nul"]
+    },
+    "PowerShell with Conda": {
+      "source": "PowerShell",
+      "args": [
+        "-NoExit",
+        "-NoLogo",
+        "-Command",
+        "& {& '${env:USERPROFILE}\\miniconda3\\shell\\condabin\\conda-hook.ps1' 2>$null; if ($?) {conda activate base 2>$null}}"
+      ]
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell with Conda",
+  
+  "python.defaultInterpreterPath": "${env:USERPROFILE}\\miniconda3\\python.exe",
+  "python.terminal.activateEnvInCurrentTerminal": true
 }
 
+VSCode 재시작 → conda --version
+
+✅ 작동하면 → 끝! 성공!
+❌ 안 되면 → 5단계로
+
+
+### 5단계: PATH 수동 등록 (최후의 수단)
+```
+a. Windows 키 → "환경 변수" 검색 
+   → "시스템 환경 변수 편집" 클릭
+   
+b. "환경 변수(N)" 버튼 클릭
+
+c. 사용자 변수의 "Path" 선택 → "편집(E)"
+
+d. "새로 만들기" 클릭 후 아래 경로들 추가:
+   C:\Users\<사용자명>\miniconda3
+   C:\Users\<사용자명>\miniconda3\Scripts
+   C:\Users\<사용자명>\miniconda3\Library\bin
+   
+e. 확인 → 확인 → 확인
+
+f. 재부팅
+
+g. VSCode 열기 → conda --version 확인
