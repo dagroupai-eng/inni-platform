@@ -158,14 +158,36 @@ def generate_midjourney_prompt(user_inputs, cot_history, image_settings):
         }
 
 def load_analysis_data():
-    """분석 데이터 로드"""
+    """분석 데이터 로드 - st.session_state에서 Document Analysis 결과를 로드"""
     try:
-        if os.path.exists('blocks.json'):
-            with open('blocks.json', 'r', encoding='utf-8') as f:
-                return json.load(f)
+        # Document Analysis 결과가 있는지 확인
+        has_analysis = (
+            st.session_state.get('analysis_results') or 
+            st.session_state.get('cot_history') or
+            st.session_state.get('project_name')
+        )
+        
+        if not has_analysis:
+            return {}
+        
+        # session_state에서 데이터 구성
+        analysis_data = {
+            'project_info': {
+                'project_name': st.session_state.get('project_name', ''),
+                'project_type': '',  # Document Analysis에서 별도로 저장하지 않음
+                'location': st.session_state.get('location', ''),
+                'owner': '',  # Document Analysis에서 별도로 저장하지 않음
+                'scale': ''  # Document Analysis에서 별도로 저장하지 않음
+            },
+            'cot_history': st.session_state.get('cot_history', []),
+            'pdf_text': st.session_state.get('pdf_text', ''),
+            'analysis_results': st.session_state.get('analysis_results', {})
+        }
+        
+        return analysis_data
     except Exception as e:
         st.error(f"데이터 로드 오류: {e}")
-    return {}
+        return {}
 
 def main():
     st.title("Midjourney 프롬프트 생성기")

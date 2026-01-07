@@ -2,6 +2,35 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 
+# dspy_analyzer 안전한 import 처리
+try:
+    from dspy_analyzer import PROVIDER_CONFIG, get_api_key
+    DSPY_ANALYZER_AVAILABLE = True
+except ImportError as e:
+    DSPY_ANALYZER_AVAILABLE = False
+    PROVIDER_CONFIG = {}
+    get_api_key = None
+    st.error("⚠️ 필수 모듈이 설치되지 않았습니다.")
+    st.error(f"오류: {str(e)}")
+    st.warning("""
+    **해결 방법:**
+    
+    1. `install.bat`을 실행하여 모든 의존성을 설치하세요.
+    2. 또는 다음 명령을 실행하세요:
+       ```
+       python -m pip install dspy-ai PyMuPDF python-docx geopandas
+       ```
+    3. 설치 후 앱을 다시 시작하세요.
+    """)
+    st.stop()
+except Exception as e:
+    DSPY_ANALYZER_AVAILABLE = False
+    PROVIDER_CONFIG = {}
+    get_api_key = None
+    st.error(f"⚠️ 모듈 로드 중 오류가 발생했습니다: {str(e)}")
+    st.warning("앱을 다시 시작하거나 `install.bat`을 실행해보세요.")
+    st.stop()
+
 # 환경변수 로드 (안전하게 처리)
 try:
     load_dotenv()
@@ -52,24 +81,63 @@ st.sidebar.header("시스템 상태")
 
 # Streamlit secrets와 환경변수 모두 확인
 
-# Streamlit secrets에서 먼저 확인
-api_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+# API 제공자 선택 (세션 상태 초기화)
+if 'llm_provider' not in st.session_state:
+    st.session_state.llm_provider = 'gemini'
 
-if not api_key:
-    st.sidebar.error("ANTHROPIC_API_KEY가 설정되지 않았습니다!")
-    st.sidebar.info("다음 중 하나의 방법으로 API 키를 설정해주세요:")
-    st.sidebar.code("""
-# 방법 1: .streamlit/secrets.toml 파일에 추가
-[secrets]
-ANTHROPIC_API_KEY = "your_api_key_here"
+# API 제공자 선택 (dspy_analyzer가 사용 가능한 경우에만)
+if DSPY_ANALYZER_AVAILABLE and PROVIDER_CONFIG:
+    st.sidebar.subheader("🤖 AI 모델 선택")
+    provider_options = {
+        provider: config.get('display_name', provider.title())
+        for provider, config in PROVIDER_CONFIG.items()
+    }
+    selected_provider = st.sidebar.selectbox(
+        "사용할 AI 모델:",
+        options=list(provider_options.keys()),
+        format_func=lambda x: provider_options[x],
+        key='llm_provider',
+        help="분석에 사용할 AI 모델을 선택합니다."
+    )
 
-# 방법 2: .env 파일에 추가
-ANTHROPIC_API_KEY=your_api_key_here
-    """, language="toml")
+    # 선택된 제공자 정보 표시
+    provider_config = PROVIDER_CONFIG.get(selected_provider, {})
+    provider_name = provider_config.get('display_name', selected_provider)
+    model_name = provider_config.get('model', 'unknown')
+    api_key_env = provider_config.get('api_key_env', '')
+
+    st.sidebar.caption(f"모델: {model_name}")
+
+    # 선택된 제공자의 API 키 확인
+    if get_api_key:
+        api_key = get_api_key(selected_provider)
+    else:
+        api_key = None
 else:
-    st.sidebar.success("API 키가 설정되었습니다!")
-    st.sidebar.info(f"API 키 길이: {len(api_key)}자")
-    st.sidebar.info(f"키 소스: {'Streamlit Secrets' if st.secrets.get('ANTHROPIC_API_KEY') else '환경변수'}")
+    selected_provider = None
+    provider_name = "N/A"
+    model_name = "N/A"
+    api_key_env = ""
+    api_key = None
+
+if DSPY_ANALYZER_AVAILABLE:
+    if not api_key:
+        st.sidebar.error(f"{provider_name} API 키가 설정되지 않았습니다!")
+        st.sidebar.info(f"{api_key_env}를 설정해주세요.")
+        st.sidebar.code(f"""
+# .streamlit/secrets.toml 또는 .env 파일에 추가
+{api_key_env} = "your_api_key_here"
+        """, language="toml")
+    else:
+        st.sidebar.success(f"✅ {provider_name} API 키 설정됨")
+        st.sidebar.info(f"키 길이: {len(api_key)}자")
+        try:
+            key_source = 'Streamlit Secrets' if st.secrets.get(api_key_env) else '환경변수'
+        except:
+            key_source = '환경변수'
+        st.sidebar.caption(f"소스: {key_source}")
+else:
+    st.sidebar.warning("⚠️ AI 모델 기능을 사용할 수 없습니다.")
 
 # 사용법 안내
 st.sidebar.header("사용법")
@@ -83,3 +151,4 @@ st.sidebar.markdown("""
 # 푸터
 st.markdown("---")
 st.markdown("**Urban ArchInsight** - 도시 교육을 위한 AI 분석 도구")
+

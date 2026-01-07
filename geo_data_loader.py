@@ -1,17 +1,35 @@
-import geopandas as gpd
+try:
+    import geopandas as gpd
+    GEOPANDAS_AVAILABLE = True
+except ImportError:
+    GEOPANDAS_AVAILABLE = False
+    gpd = None
+
 import pandas as pd
 import streamlit as st
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import os
 import zipfile
 import io
-import pyproj
+
+try:
+    import pyproj
+    PYPROJ_AVAILABLE = True
+except ImportError:
+    PYPROJ_AVAILABLE = False
+    pyproj = None
 
 
 class GeoDataLoader:
     """도시공간데이터 Shapefile을 로드하고 처리하는 클래스"""
     
     def __init__(self):
+        if not GEOPANDAS_AVAILABLE:
+            raise ImportError(
+                "geopandas가 설치되지 않았습니다. "
+                "conda를 사용하여 설치하세요: conda install -c conda-forge geopandas "
+                "또는 pip를 사용하세요: pip install geopandas"
+            )
         # 한국 좌표계 정의 (CRS)
         self.korean_crs = {
             'GRS80': 'EPSG:5186',  # GRS80(EPSG:5186) - 가장 일반적
@@ -176,6 +194,227 @@ class GeoDataLoader:
             print(f"DataFrame 변환 중 오류: {str(e)}")
             # 변환 실패 시 빈 DataFrame 반환
             return pd.DataFrame()
+    
+    def create_folium_map_multilayer(self, geo_layers_dict: Dict[str, gpd.GeoDataFrame]) -> Optional[Any]:
+        """
+        여러 GeoDataFrame을 하나의 Folium 지도로 합칩니다.
+        
+        Args:
+            geo_layers_dict: {'레이어명': GeoDataFrame} 형식의 딕셔너리
+        
+        Returns:
+            Folium Map 객체 또는 None
+        """
+        try:
+            import folium
+        except ImportError:
+            return None
+        
+        try:
+            if not geo_layers_dict:
+                return None
+            
+            # 모든 레이어의 경계 계산
+            all_bounds = []
+            for gdf in geo_layers_dict.values():
+                bounds = gdf.total_bounds
+                all_bounds.append(bounds)
+            
+            # 전체 경계 계산
+            min_x = min(b[0] for b in all_bounds)
+            min_y = min(b[1] for b in all_bounds)
+            max_x = max(b[2] for b in all_bounds)
+            max_y = max(b[3] for b in all_bounds)
+            
+            center_lat = (min_y + max_y) / 2
+            center_lon = (min_x + max_x) / 2
+            
+            # Folium 지도 생성
+            m = folium.Map(
+                location=[center_lat, center_lon],
+                zoom_start=10,
+                tiles='OpenStreetMap'
+            )
+            
+            # 각 레이어 추가
+            colors = ['#3388ff', '#ff3388', '#33ff88', '#ff8833', '#8833ff', '#33ffaa']
+            color_idx = 0
+            
+            # 대용량 데이터 처리를 위한 최대 피처 수 제한
+            MAX_FEATURES_PER_LAYER = 10000  # 레이어당 최대 피처 수
+            
+            for layer_name, gdf in geo_layers_dict.items():
+                # 대용량 레이어는 샘플링
+                original_count = len(gdf)
+                if original_count > MAX_FEATURES_PER_LAYER:
+                    # 랜덤 샘플링 (균등하게 분포)
+                    gdf = gdf.sample(n=MAX_FEATURES_PER_LAYER, random_state=42)
+                    print(f"⚠️ {layer_name}: {original_count:,}개 피처 중 {MAX_FEATURES_PER_LAYER:,}개만 표시합니다.")
+                
+                # Geometry 타입에 따라 다르게 처리
+                geom_types = gdf.geometry.geom_type.unique()
+                color = colors[color_idx % len(colors)]
+                color_idx += 1
+                
+                for geom_type in geom_types:
+                    gdf_subset = gdf[gdf.geometry.geom_type == geom_type]
+                    
+                    if geom_type in ['Polygon', 'MultiPolygon']:
+                        def make_style(color_val):
+                            return lambda feature: {
+                                'fillColor': color_val,
+                                'color': color_val,
+                                'weight': 2,
+                                'fillOpacity': 0.3,
+                            }
+                        folium.GeoJson(
+                            gdf_subset.to_json(),
+                            name=f"{layer_name} ({geom_type})",
+                            style_function=make_style(color),
+                            tooltip=folium.GeoJsonTooltip(
+                                fields=[col for col in gdf_subset.columns if col != 'geometry'][:5],
+                                aliases=[col for col in gdf_subset.columns if col != 'geometry'][:5],
+                                sticky=True
+                            )
+                        ).add_to(m)
+                    
+                    elif geom_type in ['LineString', 'MultiLineString']:
+                        def make_line_style(color_val):
+                            return lambda feature: {
+                                'color': color_val,
+                                'weight': 3,
+                            }
+                        folium.GeoJson(
+                            gdf_subset.to_json(),
+                            name=f"{layer_name} ({geom_type})",
+                            style_function=make_line_style(color),
+                            tooltip=folium.GeoJsonTooltip(
+                                fields=[col for col in gdf_subset.columns if col != 'geometry'][:5],
+                                aliases=[col for col in gdf_subset.columns if col != 'geometry'][:5],
+                            )
+                        ).add_to(m)
+                    
+                    elif geom_type in ['Point', 'MultiPoint']:
+                        # Point를 Marker로 추가 (첫 1000개만)
+                        for idx, row in gdf_subset.head(1000).iterrows():
+                            popup_text = "<br>".join([
+                                f"<b>{col}:</b> {row[col]}" 
+                                for col in row.index 
+                                if col != 'geometry' and pd.notna(row[col])
+                            ])
+                            folium.Marker(
+                                location=[row.geometry.y, row.geometry.x],
+                                popup=folium.Popup(popup_text, max_width=300),
+                                icon=folium.Icon(color='red', icon='info-sign')
+                            ).add_to(m)
+            
+            # 레이어 컨트롤 추가
+            folium.LayerControl().add_to(m)
+            
+            # 전체 경계에 맞춰 줌 조정
+            m.fit_bounds([[min_y, min_x], [max_y, max_x]])
+            
+            return m
+            
+        except Exception as e:
+            print(f"Folium 다중 레이어 지도 생성 중 오류: {str(e)}")
+            return None
+    
+    def create_folium_map(self, gdf: gpd.GeoDataFrame, layer_name: str = "Layer") -> Optional[Any]:
+        """
+        GeoDataFrame을 Folium 지도로 변환합니다.
+        Polygon, LineString, Point 등 모든 geometry 타입을 지원합니다.
+        
+        Args:
+            gdf: GeoDataFrame
+            layer_name: 레이어 이름
+        
+        Returns:
+            Folium Map 객체 또는 None (folium이 없을 경우)
+        """
+        try:
+            import folium
+            from folium import plugins
+        except ImportError:
+            return None
+        
+        try:
+            # 중심점 계산
+            bounds = gdf.total_bounds
+            center_lat = (bounds[1] + bounds[3]) / 2
+            center_lon = (bounds[0] + bounds[2]) / 2
+            
+            # Folium 지도 생성
+            m = folium.Map(
+                location=[center_lat, center_lon],
+                zoom_start=10,
+                tiles='OpenStreetMap'
+            )
+            
+            # Geometry 타입에 따라 다르게 처리
+            geom_types = gdf.geometry.geom_type.unique()
+            
+            for geom_type in geom_types:
+                gdf_subset = gdf[gdf.geometry.geom_type == geom_type]
+                
+                if geom_type in ['Polygon', 'MultiPolygon']:
+                    # Polygon을 GeoJson으로 추가
+                    folium.GeoJson(
+                        gdf_subset.to_json(),
+                        name=f"{layer_name} ({geom_type})",
+                        style_function=lambda feature: {
+                            'fillColor': '#3388ff',
+                            'color': '#3388ff',
+                            'weight': 2,
+                            'fillOpacity': 0.3,
+                        },
+                        tooltip=folium.GeoJsonTooltip(
+                            fields=[col for col in gdf_subset.columns if col != 'geometry'][:5],
+                            aliases=[col for col in gdf_subset.columns if col != 'geometry'][:5],
+                            sticky=True
+                        )
+                    ).add_to(m)
+                
+                elif geom_type in ['LineString', 'MultiLineString']:
+                    # LineString을 GeoJson으로 추가
+                    folium.GeoJson(
+                        gdf_subset.to_json(),
+                        name=f"{layer_name} ({geom_type})",
+                        style_function=lambda feature: {
+                            'color': '#ff3388',
+                            'weight': 3,
+                        },
+                        tooltip=folium.GeoJsonTooltip(
+                            fields=[col for col in gdf_subset.columns if col != 'geometry'][:5],
+                            aliases=[col for col in gdf_subset.columns if col != 'geometry'][:5],
+                        )
+                    ).add_to(m)
+                
+                elif geom_type in ['Point', 'MultiPoint']:
+                    # Point를 Marker로 추가 (첫 1000개만)
+                    for idx, row in gdf_subset.head(1000).iterrows():
+                        popup_text = "<br>".join([
+                            f"<b>{col}:</b> {row[col]}" 
+                            for col in row.index 
+                            if col != 'geometry' and pd.notna(row[col])
+                        ])
+                        folium.Marker(
+                            location=[row.geometry.y, row.geometry.x],
+                            popup=folium.Popup(popup_text, max_width=300),
+                            icon=folium.Icon(color='red', icon='info-sign')
+                        ).add_to(m)
+            
+            # 레이어 컨트롤 추가
+            folium.LayerControl().add_to(m)
+            
+            # 전체 경계에 맞춰 줌 조정
+            m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+            
+            return m
+            
+        except Exception as e:
+            print(f"Folium 지도 생성 중 오류: {str(e)}")
+            return None
     
     def get_layer_info(self, gdf: gpd.GeoDataFrame) -> Dict[str, Any]:
         """
@@ -383,3 +622,169 @@ LAYER_TYPE_MAPPING = {
     '건물': 'building'
 }
 
+
+def filter_facilities_within_radius(center_lat: float, center_lon: float, 
+                                   radius_km: float, facilities_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    중심점으로부터 반경 내에 있는 시설 필터링
+    
+    Args:
+        center_lat: 중심점 위도
+        center_lon: 중심점 경도
+        radius_km: 반경 (km)
+        facilities_gdf: 시설 GeoDataFrame
+    
+    Returns:
+        필터링된 GeoDataFrame
+    """
+    try:
+        # 중심점 생성
+        from shapely.geometry import Point
+        center_point = Point(center_lon, center_lat)
+        center_gdf = gpd.GeoDataFrame([1], geometry=[center_point], crs='EPSG:4326')
+        
+        # 메트릭 좌표계로 변환 (거리 계산을 위해)
+        if facilities_gdf.crs != 'EPSG:3857':
+            facilities_proj = facilities_gdf.to_crs('EPSG:3857')
+            center_proj = center_gdf.to_crs('EPSG:3857')
+        else:
+            facilities_proj = facilities_gdf
+            center_proj = center_gdf
+        
+        # 반경을 미터로 변환
+        radius_m = radius_km * 1000
+        
+        # 중심점에서 반경 내의 시설 필터링
+        center_geom = center_proj.geometry.iloc[0]
+        facilities_proj['distance'] = facilities_proj.geometry.distance(center_geom)
+        filtered = facilities_proj[facilities_proj['distance'] <= radius_m].copy()
+        
+        # 원래 좌표계로 변환
+        if filtered.crs != 'EPSG:4326':
+            filtered = filtered.to_crs('EPSG:4326')
+        
+        return filtered
+        
+    except Exception as e:
+        print(f"반경 내 시설 필터링 중 오류: {str(e)}")
+        return gpd.GeoDataFrame()
+
+
+def create_candidate_map_with_facilities(candidate_sites: List[Dict[str, Any]], 
+                                       facilities_gdf: Optional[gpd.GeoDataFrame] = None,
+                                       radius_km: float = 5.0):
+    """
+    후보지와 반경 내 시설을 표시하는 Folium 지도 생성
+    
+    Args:
+        candidate_sites: 후보지 리스트 [{'name': '후보지 1', 'lat': 37.5, 'lon': 129.0, 'score': 85}]
+        facilities_gdf: 시설 GeoDataFrame (선택사항)
+        radius_km: 반경 (km, 기본값 5km)
+    
+    Returns:
+        Folium Map 객체
+    """
+    try:
+        import folium
+        
+        if not candidate_sites:
+            return None
+        
+        # 중심점 계산
+        center_lat = sum(site['lat'] for site in candidate_sites) / len(candidate_sites)
+        center_lon = sum(site['lon'] for site in candidate_sites) / len(candidate_sites)
+        
+        # Folium 지도 생성
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=12,
+            tiles='OpenStreetMap'
+        )
+        
+        # 후보지 마커 추가
+        for site in candidate_sites:
+            name = site.get('name', '후보지')
+            lat = site.get('lat')
+            lon = site.get('lon')
+            score = site.get('score', 0)
+            
+            # 점수에 따른 색상
+            if score >= 80:
+                color = 'green'
+                icon = 'star'
+            elif score >= 60:
+                color = 'blue'
+                icon = 'info-sign'
+            else:
+                color = 'orange'
+                icon = 'flag'
+            
+            # 마커 추가
+            popup_text = f"<b>{name}</b><br>"
+            popup_text += f"위도: {lat:.6f}<br>"
+            popup_text += f"경도: {lon:.6f}<br>"
+            if score > 0:
+                popup_text += f"종합 점수: {score}점"
+            
+            folium.Marker(
+                location=[lat, lon],
+                popup=folium.Popup(popup_text, max_width=300),
+                icon=folium.Icon(color=color, icon=icon, prefix='fa')
+            ).add_to(m)
+            
+            # 반경 5km 원 추가
+            folium.Circle(
+                location=[lat, lon],
+                radius=radius_km * 1000,  # 미터로 변환
+                popup=f"{name} 반경 {radius_km}km",
+                color=color,
+                fill=True,
+                fillColor=color,
+                fillOpacity=0.1,
+                weight=2
+            ).add_to(m)
+        
+        # 시설 표시 (facilities_gdf가 있는 경우)
+        if facilities_gdf is not None and not facilities_gdf.empty:
+            facilities_layer = folium.FeatureGroup(name='반경 5km 내 시설')
+            
+            for site in candidate_sites:
+                lat = site.get('lat')
+                lon = site.get('lon')
+                
+                # 반경 내 시설 필터링
+                nearby_facilities = filter_facilities_within_radius(
+                    lat, lon, radius_km, facilities_gdf
+                )
+                
+                # 시설 마커 추가
+                for idx, facility in nearby_facilities.head(50).iterrows():  # 최대 50개
+                    facility_name = facility.get('name', '시설') if 'name' in facility else '시설'
+                    facility_info = "<br>".join([
+                        f"<b>{col}:</b> {facility[col]}" 
+                        for col in facility.index 
+                        if col != 'geometry' and pd.notna(facility[col])
+                    ][:5])
+                    
+                    folium.Marker(
+                        location=[facility.geometry.y, facility.geometry.x],
+                        popup=folium.Popup(facility_info, max_width=300),
+                        icon=folium.Icon(color='gray', icon='building', prefix='fa')
+                    ).add_to(facilities_layer)
+            
+            facilities_layer.add_to(m)
+        
+        # 레이어 컨트롤 추가
+        folium.LayerControl().add_to(m)
+        
+        # 후보지 범위에 맞춰 줌 조정
+        if len(candidate_sites) > 0:
+            lats = [s['lat'] for s in candidate_sites]
+            lons = [s['lon'] for s in candidate_sites]
+            m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
+        
+        return m
+        
+    except Exception as e:
+        print(f"후보지 지도 생성 중 오류: {str(e)}")
+        return None

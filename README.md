@@ -4,12 +4,55 @@
 
 ## 목차
 
+- [빠른 시작 (자동 설치)](#빠른-시작-자동-설치)
 - [프로젝트 소개](#프로젝트-소개)
 - [주요 기능](#주요-기능)
 - [설치 가이드](#설치-가이드)
 - [사용 방법](#사용-방법)
 - [문제 해결](#문제-해결)
 - [지원](#지원)
+
+---
+
+## 빠른 시작 (자동 설치)
+
+> **가장 쉬운 방법!** 자동 설치 스크립트를 사용하면 모든 것을 자동으로 설정해줍니다.
+
+### 1단계: 프로젝트 다운로드
+
+1. 프로젝트를 다운로드하고 압축을 해제합니다
+2. 프로젝트 폴더로 이동합니다
+
+### 2단계: 자동 설치 및 실행
+
+1. 프로젝트 폴더 안의 **`.dist`** 폴더로 이동합니다
+2. **`setup_and_run.bat`** 파일을 더블 클릭합니다
+3. 스크립트가 자동으로 다음을 수행합니다:
+   - Python 설치 확인 및 자동 설치 (없는 경우)
+   - Miniconda 설치 확인 및 자동 설치 (없는 경우)
+   - Conda 환경 생성 및 설정
+   - 필요한 패키지 설치
+   - API 키 설정 안내
+   - Streamlit 앱 자동 실행
+
+### 3단계: API 키 입력
+
+스크립트 실행 중 API 키를 입력하라는 메시지가 나타나면:
+1. [Google AI Studio](https://aistudio.google.com/)에서 API 키를 발급받습니다
+2. Get API Key를 클릭하여 API 키를 생성합니다
+3. 생성된 API 키를 입력합니다
+4. Enter 키를 누릅니다
+
+### 완료!
+
+설치가 완료되면 브라우저가 자동으로 열리고 앱이 실행됩니다.
+
+**참고:**
+- 설치 과정은 10-30분 정도 소요될 수 있습니다
+- 인터넷 연결이 필요합니다
+- 관리자 권한이 필요할 수 있습니다 (Python/Miniconda 설치 시)
+
+**문제가 발생하면?** 아래의 [설치 가이드](#설치-가이드)를 참조하거나 [문제 해결](#문제-해결) 섹션을 확인하세요.
 
 ---
 
@@ -20,7 +63,7 @@
 ### 주요 특징
 
 - **블록 기반 분석**: 재사용 가능한 분석 블록으로 체계적 분석
-- **AI 기반 처리**: Claude Sonnet 4 모델을 사용한 고품질 분석
+- **AI 기반 처리**: Google Gemini 2.5 Pro 모델을 사용한 고품질 분석
 - **블록 생성기**: 사용자 정의 분석 블록 생성 및 관리
 - **시각화**: 지도 기반 데이터 분석 및 시각화
 
@@ -32,7 +75,7 @@
 
 - **문서 업로드**: 다양한 PDF, Excel, CSV, 텍스트, JSON 등 문서 분석 지원
 - **블록 기반 분석**: 선택한 분석 블록으로 체계적 분석
-- **AI 기반 처리**: Claude Sonnet 4 모델을 사용한 Chain of Thought 분석
+- **AI 기반 처리**: Google Gemini 2.5 Pro 모델을 사용한 Chain of Thought 분석
 - **구조화된 결과**: 분석 블록별 맞춤 결과 제공
 
 ### 지도 분석
@@ -229,14 +272,14 @@ streamlit --version
 
 #### 6-1. API 키 발급
 
-**Anthropic API 키 발급:**
+**Gemini API 키 발급:**
 
-1. **웹브라우저**에서 [https://console.anthropic.com/](https://console.anthropic.com/) 접속
-2. **계정 생성** 또는 **로그인**
-3. **API Keys** 섹션으로 이동
-4. **"Create Key"** 클릭
-5. **키 이름** 입력 (예: "Block Based Analyzer")
-6. **생성된 API 키** 복사 (sk-ant-로 시작하는 긴 문자열)
+1. **웹브라우저**에서 [https://aistudio.google.com/](https://aistudio.google.com/) 접속
+2. **Google 계정**으로 로그인
+3. **Get API Key** 버튼 클릭
+4. **Create API Key** 선택 (새 프로젝트 생성 또는 기존 프로젝트 선택)
+5. **생성된 API 키** 복사
+6. **참고**: Google AI Studio API 키는 무료로 사용할 수 있으며, Vertex AI보다 설정이 간단합니다.
 
 #### 6-2. .streamlit/secrets.toml 파일 생성
 
@@ -245,10 +288,10 @@ streamlit --version
 3. 다음 내용 입력:
 
 ```toml
-ANTHROPIC_API_KEY = "your_anthropic_api_key_here"
+GEMINI_API_KEY = "your_gemini_api_key_here"
 ```
 
-1. `your_anthropic_api_key_here` 부분을 실제 API 키로 교체
+1. `your_gemini_api_key_here` 부분을 실제 API 키로 교체
 
 #### 6-3. .env 파일 생성
 
@@ -256,10 +299,10 @@ ANTHROPIC_API_KEY = "your_anthropic_api_key_here"
 2. 다음 내용 입력:
 
 ```env
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-1. `your_anthropic_api_key_here` 부분을 실제 API 키로 교체
+1. `your_gemini_api_key_here` 부분을 실제 API 키로 교체
 2. 파일 저장
 
 ### 7단계: 앱 실행
@@ -366,14 +409,14 @@ streamlit run app.py
 - 컴퓨터 재시작 후 다시 시도
 - 수동으로 PATH에 추가: `C:\Users\[사용자명]\miniconda3\Scripts`
 
-#### 2. "ANTHROPIC_API_KEY가 설정되지 않았습니다" 오류
+#### 2. "GEMINI_API_KEY가 설정되지 않았습니다" 오류
 
 **해결방법:**
 
 ```bash
 # .env 파일 다시 생성 (Windows PowerShell)
 @"
-ANTHROPIC_API_KEY=실제_API_키_여기에_입력
+GEMINI_API_KEY=실제_API_키_여기에_입력
 "@ | Out-File -FilePath ".env" -Encoding UTF8
 
 # 또는 메모장으로 직접 생성
@@ -452,7 +495,7 @@ streamlit run app.py --logger.level debug
 
 ## 🙏 감사의 말
 
-- **Anthropic**: Claude AI 모델 제공
+- **Google**: Gemini AI 모델 제공
 - **Streamlit**: 웹 앱 프레임워크
 - **Plotly**: 데이터 시각화
 - **PyMuPDF**: PDF 처리

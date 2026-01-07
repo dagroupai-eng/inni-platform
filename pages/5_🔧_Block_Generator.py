@@ -2,6 +2,8 @@ import streamlit as st
 import json
 import os
 from datetime import datetime
+from pathlib import Path
+from prompt_processor import load_blocks as load_blocks_from_processor
 
 def generate_dspy_signature(block_id, block_name, block_description):
     """블록 정보를 바탕으로 DSPy Signature 코드를 생성합니다."""
@@ -27,76 +29,125 @@ def generate_dspy_signature(block_id, block_name, block_description):
 def update_dspy_analyzer(block_id, signature_code, signature_name):
     """dspy_analyzer.py 파일에 새로운 Signature를 추가합니다."""
     
-    # dspy_analyzer.py 파일 경로
-    analyzer_file = 'dspy_analyzer.py'
+    # dspy_analyzer.py 파일 경로 (명시적 경로 지정)
+    current_file = Path(__file__)
+    system_dir = current_file.parent.parent  # system/pages -> system
+    analyzer_file = system_dir / 'dspy_analyzer.py'
     
     try:
         # 기존 파일 읽기
-        with open(analyzer_file, 'r', encoding='utf-8') as f:
+        with open(str(analyzer_file), 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # Signature 클래스들을 찾을 위치 (SimpleAnalysisSignature 다음)
-        insertion_point = content.find('class EnhancedArchAnalyzer:')
+        # 마지막 Signature 클래스를 찾아서 그 다음에 삽입
+        import re
+        # 모든 Signature 클래스 정의 찾기 (더 정확한 패턴)
+        # class로 시작하고 Signature로 끝나는 클래스 정의 찾기
+        signature_pattern = r'^class\s+\w+Signature\(dspy\.Signature\):'
+        signature_matches = list(re.finditer(signature_pattern, content, re.MULTILINE))
         
-        if insertion_point == -1:
-            st.error("dspy_analyzer.py 파일에서 적절한 삽입 위치를 찾을 수 없습니다.")
-            return False
+        if signature_matches:
+            # 마지막 Signature 클래스 찾기
+            last_match = signature_matches[-1]
+            last_match_start = last_match.start()
+            
+            # 마지막 Signature 클래스의 끝을 찾기 (다음 클래스 정의나 EnhancedArchAnalyzer까지)
+            # 현재 위치부터 EnhancedArchAnalyzer까지 검색
+            enhanced_analyzer_pos = content.find('\nclass EnhancedArchAnalyzer:', last_match_start)
+            if enhanced_analyzer_pos == -1:
+                enhanced_analyzer_pos = content.find('class EnhancedArchAnalyzer:', last_match_start)
+            
+            if enhanced_analyzer_pos > last_match_start:
+                # 마지막 Signature 클래스와 EnhancedArchAnalyzer 사이의 위치
+                insertion_point = enhanced_analyzer_pos
+                
+                # 빈 줄 확인 및 조정
+                # insertion_point 이전의 공백/줄바꿈 확인
+                before_insertion = content[:insertion_point].rstrip()
+                # 마지막 줄바꿈 이후의 위치로 조정
+                insertion_point = len(before_insertion)
+                
+                # 이미 빈 줄이 있는지 확인
+                after_point = content[insertion_point:]
+                if not after_point.startswith('\n\n'):
+                    # 빈 줄 2개가 없으면 추가 (삽입 시 \n\n을 추가하므로 여기서는 확인만)
+                    pass
+            else:
+                # EnhancedArchAnalyzer를 찾을 수 없으면 마지막 Signature 다음에 삽입
+                # 마지막 Signature 클래스의 전체 내용 찾기
+                next_class_pattern = r'^class\s+\w+(?:Signature\(dspy\.Signature\)|ArchAnalyzer):'
+                next_match = re.search(next_class_pattern, content[last_match.end():], re.MULTILINE)
+                if next_match:
+                    insertion_point = last_match.end() + next_match.start()
+                else:
+                    insertion_point = last_match.end()
+        else:
+            # Signature 클래스를 찾을 수 없으면 EnhancedArchAnalyzer 앞에 삽입
+            insertion_point = content.find('class EnhancedArchAnalyzer:')
+            if insertion_point == -1:
+                st.error("dspy_analyzer.py 파일에서 적절한 삽입 위치를 찾을 수 없습니다.")
+                st.error("'class EnhancedArchAnalyzer:' 클래스를 찾을 수 없습니다. 파일 구조를 확인해주세요.")
+                return False
         
-        # 새로운 Signature 코드 삽입
+        # 새로운 Signature 코드 삽입 (빈 줄 2개 포함)
         new_content = content[:insertion_point] + signature_code + '\n\n' + content[insertion_point:]
         
-        # signature_map에 새 블록 추가
-        signature_map_pattern = r'signature_map = \{([^}]+)\}'
-        import re
-        match = re.search(signature_map_pattern, new_content, re.DOTALL)
-        
-        if match:
-            # 기존 signature_map 내용
-            map_content = match.group(1)
-            
-            # 기존 내용에서 마지막 쉼표 확인 및 추가
-            map_content_stripped = map_content.rstrip()
-            if not map_content_stripped.endswith(','):
-                # 마지막 항목에 쉼표가 없으면 추가
-                map_content_stripped += ','
-            
-            # 새 블록 추가 (항상 쉼표 포함)
-            new_map_entry = f"                '{block_id}': {signature_name},"
-            updated_map_content = map_content_stripped + '\n' + new_map_entry + '\n'
-            
-            # signature_map 업데이트
-            new_content = re.sub(
-                signature_map_pattern,
-                f'signature_map = {{{updated_map_content}}}',
-                new_content,
-                flags=re.DOTALL
-            )
+        # 참고: signature_map은 _build_signature_map() 메서드에서 동적으로 생성되므로
+        # 하드코딩된 부분을 수정할 필요가 없습니다. 새로 생성된 Signature 클래스는
+        # globals()를 통해 자동으로 발견되어 매핑됩니다.
         
         # 파일에 저장
-        with open(analyzer_file, 'w', encoding='utf-8') as f:
-            f.write(new_content)
+        try:
+            with open(str(analyzer_file), 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            
+            # 생성된 Signature 코드 검증 (기본적인 문법 체크)
+            if signature_name not in new_content:
+                st.warning(f"⚠️ 생성된 Signature 클래스 '{signature_name}'가 파일에 올바르게 추가되었는지 확인이 필요합니다.")
+                st.warning("파일 저장은 완료되었지만, Signature 클래스 정의를 확인해주세요.")
+                return False
+            
+            return True
+            
+        except IOError as e:
+            st.error(f"파일 저장 중 오류 발생: {e}")
+            st.error(f"파일 경로: {analyzer_file}")
+            st.error("파일 쓰기 권한을 확인해주세요.")
+            return False
         
-        return True
-        
+    except FileNotFoundError:
+        st.error(f"dspy_analyzer.py 파일을 찾을 수 없습니다: {analyzer_file}")
+        st.error("파일 경로를 확인해주세요.")
+        return False
     except Exception as e:
         st.error(f"dspy_analyzer.py 파일 업데이트 중 오류 발생: {e}")
+        import traceback
+        st.error("상세 오류 정보:")
+        st.code(traceback.format_exc())
         return False
 
 def remove_dspy_signature(block_id, signature_name):
     """dspy_analyzer.py 파일에서 Signature를 제거합니다."""
     
-    analyzer_file = 'dspy_analyzer.py'
+    # dspy_analyzer.py 파일 경로 (명시적 경로 지정)
+    current_file = Path(__file__)
+    system_dir = current_file.parent.parent  # system/pages -> system
+    analyzer_file = system_dir / 'dspy_analyzer.py'
     
     try:
         # 기존 파일 읽기
-        with open(analyzer_file, 'r', encoding='utf-8') as f:
+        with open(str(analyzer_file), 'r', encoding='utf-8') as f:
             content = f.read()
         
         import re
         
-        # Signature 클래스 제거
-        signature_pattern = rf'class {signature_name}\(dspy\.Signature\):[^}}]+}}\n\n'
+        # Signature 클래스 제거 (개선된 정규식 패턴)
+        # 클래스 정의부터 다음 클래스 정의나 빈 줄 2개까지 매칭 (non-greedy)
+        signature_pattern = rf'class {re.escape(signature_name)}\(dspy\.Signature\):.*?(?=\nclass |\n\n\n|\Z)'
         content = re.sub(signature_pattern, '', content, flags=re.DOTALL)
+        
+        # 연속된 빈 줄 정리 (3개 이상 -> 2개로)
+        content = re.sub(r'\n{3,}', '\n\n', content)
         
         # signature_map에서 해당 블록 제거
         signature_map_pattern = r'signature_map = \{([^}]+)\}'
@@ -126,7 +177,7 @@ def remove_dspy_signature(block_id, signature_name):
             )
         
         # 파일에 저장
-        with open(analyzer_file, 'w', encoding='utf-8') as f:
+        with open(str(analyzer_file), 'w', encoding='utf-8') as f:
             f.write(content)
         
         return True
@@ -135,21 +186,17 @@ def remove_dspy_signature(block_id, signature_name):
         st.error(f"dspy_analyzer.py 파일에서 Signature 제거 중 오류 발생: {e}")
         return False
 
-def load_blocks():
-    """blocks.json 파일에서 블록 데이터를 로드합니다."""
-    try:
-        with open('blocks.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {"blocks": []}
-    except Exception as e:
-        st.error(f"블록 데이터 로드 중 오류 발생: {e}")
-        return {"blocks": []}
+# load_blocks 함수는 prompt_processor에서 import하여 사용
 
 def save_blocks(blocks_data):
     """blocks.json 파일에 블록 데이터를 저장합니다."""
+    # blocks.json 파일 경로 (명시적 경로 지정)
+    current_file = Path(__file__)
+    system_dir = current_file.parent.parent  # system/pages -> system
+    blocks_file = system_dir / 'blocks.json'
+    
     try:
-        with open('blocks.json', 'w', encoding='utf-8') as f:
+        with open(str(blocks_file), 'w', encoding='utf-8') as f:
             json.dump(blocks_data, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
@@ -176,9 +223,13 @@ def main():
     st.title("분석 블록 생성기")
     st.markdown("---")
     
-    # 기존 블록 로드
-    blocks_data = load_blocks()
-    existing_blocks = blocks_data.get("blocks", [])
+    # 기존 블록 로드 (prompt_processor의 함수 사용)
+    existing_blocks = load_blocks_from_processor()  # 리스트 반환
+    existing_categories = sorted({
+        block.get("category")
+        for block in existing_blocks
+        if isinstance(block, dict) and block.get("category")
+    })
     
     # 사이드바에 기존 블록 목록 표시
     with st.sidebar:
@@ -187,6 +238,7 @@ def main():
             for i, block in enumerate(existing_blocks):
                 with st.expander(f"{block.get('name', 'Unknown')}"):
                     st.write(f"**ID:** {block.get('id', 'N/A')}")
+                    st.write(f"**카테고리:** {block.get('category', '미지정')}")
                     st.write(f"**설명:** {block.get('description', 'N/A')}")
                     if st.button(f"삭제", key=f"delete_{i}"):
                         # 삭제할 블록 정보
@@ -199,7 +251,7 @@ def main():
                         
                         # 블록 삭제
                         existing_blocks.pop(i)
-                        blocks_data["blocks"] = existing_blocks
+                        blocks_data = {"blocks": existing_blocks}
                         
                         if save_blocks(blocks_data):
                             # DSPy Signature도 제거
@@ -237,6 +289,24 @@ def main():
                 placeholder="예: 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가합니다",
                 help="블록의 기능을 설명하는 간단한 문장을 입력하세요."
             )
+            
+            category_prompt = "새 카테고리 입력"
+            category_options = [category_prompt] + existing_categories
+            default_category_index = 1 if len(category_options) > 1 else 0
+            category_choice = st.selectbox(
+                "카테고리",
+                options=category_options,
+                index=default_category_index,
+                help="기존 카테고리를 선택하거나 새 카테고리를 입력하세요."
+            )
+            if category_choice == category_prompt:
+                category_value = st.text_input(
+                    "새 카테고리",
+                    placeholder="예: Phase 1 · 후보지 분석",
+                    help="블록을 묶을 새 카테고리를 직접 입력하세요."
+                ).strip()
+            else:
+                category_value = category_choice.strip()
             
             # RISEN 구조 입력
             st.subheader("RISEN 프롬프트 구조")
@@ -371,6 +441,8 @@ def main():
                     st.error("블록 이름을 입력해주세요.")
                 elif not block_description.strip():
                     st.error("블록 설명을 입력해주세요.")
+                elif not category_value:
+                    st.error("카테고리를 선택하거나 입력해주세요.")
                 elif not role.strip():
                     st.error("역할(Role)을 입력해주세요.")
                 elif not instructions.strip():
@@ -409,29 +481,26 @@ def main():
                         if scoring_system.strip():
                             narrowing['scoring_system'] = scoring_system.strip()
                         
-                        # 간단한 프롬프트 템플릿 생성 (blocks.json과 동일한 구조)
-                        prompt_template = "**역할 (Role):** {role}\n\n**지시 (Instructions):** {instructions}\n\n**반드시 다음 단계를 순서대로 수행하세요:**\n{steps_formatted}\n\n**최종 목표 (End Goal):** {end_goal}\n\n**구체화/제약 조건 (Narrowing):**\n- **출력 형식:** {narrowing_output_format}\n- **분류 기준:** {narrowing_classification_criteria}\n- **평가 척도:** {narrowing_evaluation_scale}\n- **제약 조건:** {narrowing_constraints}\n- **품질 기준:** {narrowing_quality_standards}\n\n**중요:** 위의 단계들을 순서대로 수행하여 분석 결과를 제시하세요.\n\n**분석할 문서 내용:**\n{pdf_text}"
-                        
                         # 새 블록 생성 (RISEN 구조)
                         new_block = {
                             "id": block_id,
                             "name": final_name,
                             "description": block_description,
+                            "category": category_value,
                             "role": role.strip(),
                             "instructions": instructions.strip(),
                             "steps": steps,
                             "end_goal": end_goal.strip(),
                             "narrowing": narrowing,
-                            "prompt": prompt_template,
                             "created_at": datetime.now().isoformat(),
                             "created_by": "user"
                         }
                         
                         # 블록 추가
                         existing_blocks.append(new_block)
-                        blocks_data["blocks"] = existing_blocks
                         
-                        # 저장
+                        # 저장 (딕셔너리 형식으로 변환)
+                        blocks_data = {"blocks": existing_blocks}
                         if save_blocks(blocks_data):
                             # DSPy Signature 자동 생성
                             signature_code, signature_name = generate_dspy_signature(
@@ -442,10 +511,15 @@ def main():
                             if update_dspy_analyzer(block_id, signature_code, signature_name):
                                 st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
                                 st.success(f"DSPy Signature '{signature_name}'도 자동으로 생성되었습니다!")
+                                st.info("💡 새로 생성한 블록을 사용하려면 Streamlit 페이지를 새로고침하세요.")
                                 st.balloons()
                             else:
                                 st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
-                                st.warning("DSPy Signature 자동 생성에 실패했습니다. 수동으로 추가해주세요.")
+                                st.warning("⚠️ DSPy Signature 자동 생성에 실패했습니다.")
+                                st.warning("다음 단계를 수행해주세요:")
+                                st.warning("1. dspy_analyzer.py 파일을 확인하여 Signature 클래스가 올바르게 추가되었는지 확인")
+                                st.warning("2. Streamlit 페이지를 새로고침하여 모듈을 리로드")
+                                st.warning("3. 그래도 작동하지 않으면 수동으로 Signature를 추가해주세요")
                             
                             # 생성된 블록 정보 표시
                             with st.expander("생성된 블록 정보", expanded=True):

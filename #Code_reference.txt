@@ -59,7 +59,7 @@ pip install -r requirements.txt
 streamlit --version
 
 7. API 키 파일 생성
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 
 8. app 실행행
 streamlit run app.py

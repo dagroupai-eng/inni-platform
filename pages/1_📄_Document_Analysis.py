@@ -1,13 +1,34 @@
 import streamlit as st
 import os
 import re
+import json
+import hashlib
+from typing import Optional, Dict, List, Any, Tuple
+from collections import Counter
 from dotenv import load_dotenv
 from file_analyzer import UniversalFileAnalyzer
-from dspy_analyzer import EnhancedArchAnalyzer
+from dspy_analyzer import EnhancedArchAnalyzer, PROVIDER_CONFIG, get_api_key, get_current_provider
 from prompt_processor import load_blocks, load_custom_blocks
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
+try:
+    from geo_data_loader import GeoDataLoader, validate_shapefile_data
+    GEO_LOADER_AVAILABLE = True
+except ImportError as e:
+    GEO_LOADER_AVAILABLE = False
+    GeoDataLoader = None
+    validate_shapefile_data = None
+
+try:  # pragma: no cover
+    import streamlit_folium as st_folium
+except ImportError:  # pragma: no cover
+    st_folium = None
+
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover
+    pd = None
 
 # 환경변수 로드 (안전하게 처리)
 try:
@@ -33,21 +54,837 @@ st.markdown("**도시 프로젝트 문서 분석 (PDF, Excel, CSV, 텍스트, JS
 # Session state 초기화
 if 'project_name' not in st.session_state:
     st.session_state.project_name = ""
+if 'location' not in st.session_state:
+    st.session_state.location = ""
+if 'latitude' not in st.session_state:
+    st.session_state.latitude = ""
+if 'longitude' not in st.session_state:
+    st.session_state.longitude = ""
+if 'project_goals' not in st.session_state:
+    st.session_state.project_goals = ""
+if 'additional_info' not in st.session_state:
+    st.session_state.additional_info = ""
 if 'uploaded_file' not in st.session_state:
     st.session_state.uploaded_file = None
 if 'analysis_results' not in st.session_state:
     st.session_state.analysis_results = {}
+
 if 'selected_blocks' not in st.session_state:
     st.session_state.selected_blocks = []
 if 'pdf_text' not in st.session_state:
     st.session_state.pdf_text = ""
 if 'pdf_uploaded' not in st.session_state:
     st.session_state.pdf_uploaded = False
+# 공간 데이터 초기화 (Mapping 페이지에서 업로드된 Shapefile 저장용)
+if 'geo_layers' not in st.session_state:
+    st.session_state.geo_layers = {}
+if 'uploaded_gdf' not in st.session_state:
+    st.session_state.uploaded_gdf = None
+if 'uploaded_layer_info' not in st.session_state:
+    st.session_state.uploaded_layer_info = None
+if 'preprocessed_summary' not in st.session_state:
+    st.session_state.preprocessed_summary = ""
+if 'preprocessed_text' not in st.session_state:
+    st.session_state.preprocessed_text = ""
+if 'preprocessing_meta' not in st.session_state:
+    st.session_state.preprocessing_meta = {}
+if 'preprocessing_options' not in st.session_state:
+    st.session_state.preprocessing_options = {
+        "clean_whitespace": True,
+        "collapse_blank_lines": True,
+        "limit_chars": 6000,
+        "include_keywords": True,
+        "keyword_count": 12,
+        "include_numeric_sentences": True,
+        "numeric_sentence_count": 5
+    }
+if 'use_preprocessed_text' not in st.session_state:
+    st.session_state.use_preprocessed_text = False
+if 'llm_temperature' not in st.session_state:
+    st.session_state.llm_temperature = 0.2
+if 'llm_max_tokens' not in st.session_state:
+    st.session_state.llm_max_tokens = 16000
+if 'cot_session' not in st.session_state:
+    st.session_state.cot_session = None
+if 'cot_plan' not in st.session_state:
+    st.session_state.cot_plan = []
+if 'cot_current_index' not in st.session_state:
+    st.session_state.cot_current_index = 0
+if 'llm_provider' not in st.session_state:
+    st.session_state.llm_provider = 'gemini'
+if 'cot_results' not in st.session_state:
+    st.session_state.cot_results = {}
+if 'cot_citations' not in st.session_state:
+    st.session_state.cot_citations = {}
+if 'cot_progress_messages' not in st.session_state:
+    st.session_state.cot_progress_messages = []
+if 'cot_history' not in st.session_state:
+    st.session_state.cot_history = []
+if 'cot_analyzer' not in st.session_state:
+    st.session_state.cot_analyzer = None
+if 'cot_running_block' not in st.session_state:
+    st.session_state.cot_running_block = None
+if 'cot_feedback_inputs' not in st.session_state:
+    st.session_state.cot_feedback_inputs = {}
+if 'reference_documents' not in st.session_state:
+    st.session_state.reference_documents = []
+if 'reference_combined_text' not in st.session_state:
+    st.session_state.reference_combined_text = ""
+if 'reference_signature' not in st.session_state:
+    st.session_state.reference_signature = None
+
+DEFAULT_FIXED_PROGRAM = {
+    "phase1_program_intro": "",
+    "phase1_program_education": "",
+    "phase1_program_sports": "",
+    "phase1_program_convention": "",
+    "phase1_program_wellness": "",
+    "phase1_program_other": ""
+}
+
+for key, value in DEFAULT_FIXED_PROGRAM.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+def build_fixed_program_markdown() -> str:
+    return "\n".join([
+        "## 고정 프로그램 사양 (삼척 스포츠아카데미)",
+        "",
+        st.session_state.get("phase1_program_intro", "").strip(),
+        "",
+        "### 🏫 교육 시설",
+        st.session_state.get("phase1_program_education", "").strip(),
+        "",
+        "### 🏃 스포츠 지원시설",
+        st.session_state.get("phase1_program_sports", "").strip(),
+        "",
+        "### 🏨 컨벤션 시설",
+        st.session_state.get("phase1_program_convention", "").strip(),
+        "",
+        "### 🏥 재활/웰니스",
+        st.session_state.get("phase1_program_wellness", "").strip(),
+        "",
+        "### 🏛️ 기타 시설",
+        st.session_state.get("phase1_program_other", "").strip()
+    ])
+
+def save_analysis_result(block_id, analysis_result, project_info=None):
+    """개별 블록 분석 결과를 JSON 파일로 저장"""
+    from datetime import datetime
+    import json
+    import os
+    
+    analysis_folder = "analysis_results"
+    os.makedirs(analysis_folder, exist_ok=True)
+    
+    # 파일명: block_{block_id}_{timestamp}.json
+    filename = f"block_{block_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    filepath = os.path.join(analysis_folder, filename)
+    
+    block_record = {
+        "block_id": block_id,
+        "analysis_result": analysis_result,
+        "saved_timestamp": datetime.now().isoformat(),
+        "project_info": project_info or {
+            "project_name": st.session_state.get('project_name', ''),
+            "location": st.session_state.get('location', '')
+        }
+    }
+    
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(block_record, f, ensure_ascii=False, indent=2)
+        return filepath
+    except Exception as e:
+        st.error(f"분석 결과 저장 실패 ({block_id}): {e}")
+        return None
+
+def load_saved_analysis_results():
+    """analysis_results 폴더에서 저장된 모든 블록 결과를 로드"""
+    import json
+    import os
+    import glob
+    from datetime import datetime
+    
+    analysis_folder = "analysis_results"
+    if not os.path.exists(analysis_folder):
+        return {}
+    
+    # block_{block_id}_*.json 패턴의 파일 찾기
+    pattern = os.path.join(analysis_folder, "block_*.json")
+    files = glob.glob(pattern)
+    
+    if not files:
+        return {}
+    
+    # 블록별로 최신 파일만 선택
+    block_latest = {}
+    for filepath in files:
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                block_id = data.get('block_id')
+                if block_id:
+                    saved_time = datetime.fromisoformat(data.get('saved_timestamp', ''))
+                    if block_id not in block_latest or saved_time > block_latest[block_id]['time']:
+                        block_latest[block_id] = {
+                            'result': data.get('analysis_result', ''),
+                            'time': saved_time,
+                            'file': filepath
+                        }
+        except Exception as e:
+            continue
+    
+    # block_id를 키로 하는 딕셔너리로 변환
+    return {block_id: info['result'] for block_id, info in block_latest.items()}
+
+def get_cot_analyzer() -> Optional[EnhancedArchAnalyzer]:
+    """CoT Analyzer를 가져오거나 생성합니다. Provider 변경 시 재생성합니다."""
+    try:
+        current_provider = get_current_provider()
+        
+        # Provider가 변경되었거나 analyzer가 없으면 재생성
+        last_provider = st.session_state.get('_last_analyzer_provider')
+        if (last_provider != current_provider) or ('cot_analyzer' not in st.session_state):
+            # 기존 analyzer 제거
+            if 'cot_analyzer' in st.session_state:
+                del st.session_state.cot_analyzer
+            # 새 analyzer 생성 (예외 처리)
+            try:
+                analyzer = EnhancedArchAnalyzer()
+                # 초기화 오류가 있는지 확인
+                if hasattr(analyzer, '_init_error'):
+                    init_error = analyzer._init_error
+                    st.error(f"분석기 초기화 실패: {init_error}")
+                    st.info("💡 **해결 방법**:")
+                    provider_config = PROVIDER_CONFIG.get(current_provider, {})
+                    api_key_env = provider_config.get('api_key_env', '')
+                    display_name = provider_config.get('display_name', current_provider)
+                    
+                    if current_provider == 'gemini':
+                        st.info("1. Google AI Studio API 키 확인:")
+                        st.code(f"   .streamlit/secrets.toml 또는 환경변수에 {api_key_env} 설정", language=None)
+                        st.info("2. API 키 형식 확인: AIza...로 시작하는 문자열")
+                        st.info("3. Google AI Studio에서 API 키 생성: https://aistudio.google.com/app/apikey")
+                    else:
+                        st.info(f"1. {display_name} API 키 확인:")
+                        st.code(f"   .streamlit/secrets.toml 또는 환경변수에 {api_key_env} 설정", language=None)
+                        st.info("2. API 키가 올바르게 설정되었는지 확인")
+                        st.info("3. Streamlit 앱을 재시작해보세요")
+                    return None
+                
+                st.session_state.cot_analyzer = analyzer
+                st.session_state._last_analyzer_provider = current_provider
+            except Exception as e:
+                import traceback
+                error_detail = traceback.format_exc()
+                st.error(f"분석기 초기화 실패: {str(e)}")
+                with st.expander("🔍 상세 오류 정보", expanded=False):
+                    st.code(error_detail, language='python')
+                st.info("💡 **해결 방법**:")
+                provider_config = PROVIDER_CONFIG.get(current_provider, {})
+                api_key_env = provider_config.get('api_key_env', '')
+                display_name = provider_config.get('display_name', current_provider)
+                
+                if current_provider == 'gemini':
+                    st.info("1. Google AI Studio API 키 확인:")
+                    st.code(f"   .streamlit/secrets.toml 또는 환경변수에 {api_key_env} 설정", language=None)
+                    st.info("2. API 키 형식 확인: AIza...로 시작하는 문자열")
+                    st.info("3. Google AI Studio에서 API 키 생성: https://aistudio.google.com/app/apikey")
+                else:
+                    st.info(f"1. {display_name} API 키 확인:")
+                    st.code(f"   .streamlit/secrets.toml 또는 환경변수에 {api_key_env} 설정", language=None)
+                    st.info("2. API 키가 올바르게 설정되었는지 확인")
+                    st.info("3. Streamlit 앱을 재시작해보세요")
+                return None
+        else:
+            analyzer = st.session_state.cot_analyzer
+        
+        # analyzer가 None인지 확인
+        if analyzer is None:
+            st.error("분석기가 초기화되지 않았습니다. 페이지를 새로고침하세요.")
+            return None
+        
+        # analyzer에 초기화 오류가 있는지 확인
+        if hasattr(analyzer, '_init_error'):
+            st.error(f"분석기 초기화 오류: {analyzer._init_error}")
+            st.info("💡 위의 오류 메시지를 확인하고 API 키 설정을 확인하세요.")
+            return None
+        
+        return analyzer
+    except Exception as e:
+        st.error(f"분석기 가져오기 실패: {str(e)}")
+        return None
+
+def parse_result_into_sections(text: str) -> List[Dict[str, str]]:
+    """
+    분석 결과 텍스트를 섹션별로 파싱합니다.
+    
+    Args:
+        text: 분석 결과 텍스트
+        
+    Returns:
+        섹션 리스트 (각 섹션은 {'title': str, 'content': str} 형태)
+    """
+    if not text:
+        return [{'title': '', 'content': text}]
+    
+    sections = []
+    lines = text.split('\n')
+    current_section = {'title': '', 'content': ''}
+    
+    # 섹션 헤더 패턴 (##, ###, #### 등)
+    section_pattern = re.compile(r'^(#{1,6})\s+(.+)$')
+    
+    for line in lines:
+        match = section_pattern.match(line.strip())
+        if match:
+            # 이전 섹션 저장
+            if current_section['content'].strip():
+                sections.append(current_section)
+            
+            # 새 섹션 시작
+            level = len(match.group(1))
+            title = match.group(2).strip()
+            # 이모지나 특수문자 제거 (탭 이름에 사용하기 위해)
+            clean_title = re.sub(r'[🔗📋⚠️✅❌⏳🟡⚪📊📘📈🏫🏃🏨🏥🏛️]', '', title).strip()
+            current_section = {'title': clean_title, 'content': line + '\n'}
+        else:
+            current_section['content'] += line + '\n'
+    
+    # 마지막 섹션 저장
+    if current_section['content'].strip():
+        sections.append(current_section)
+    
+    # 섹션이 없으면 전체를 하나의 섹션으로
+    if not sections:
+        return [{'title': '', 'content': text}]
+    
+    return sections
+
+def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
+    """
+    단계별 분석 세션 상태를 초기화합니다.
+
+    Args:
+        preserve_existing_results: True이면 기존 분석 결과를 유지합니다.
+    """
+    st.session_state.cot_session = None
+    st.session_state.cot_plan = []
+    st.session_state.cot_current_index = 0
+    st.session_state.cot_results = {}
+    st.session_state.cot_progress_messages = []
+    st.session_state.cot_analyzer = None
+    st.session_state.cot_running_block = None
+    if not preserve_existing_results:
+        st.session_state.analysis_results = {}
+        st.session_state.cot_citations = {}
+        st.session_state.cot_history = []
+        st.session_state.cot_feedback_inputs = {}
+        # Phase 1 관련 개별 블록 결과 초기화
+        st.session_state.pop('phase1_requirements_structured', None)
+        st.session_state.pop('phase1_data_inventory', None)
+        st.session_state.pop('phase1_facility_program_report', None)
+        st.session_state.pop('phase1_facility_area_reference', None)
+        st.session_state.pop('phase1_facility_area_calculation', None)
+        st.session_state.pop('phase1_requirements_cot_history', None)
+        st.session_state.pop('phase1_3_requirements_text', None)
+        st.session_state.pop('phase1_3_requirements_loaded', None)
+        st.session_state.pop('phase1_3_selected_site', None)
+        st.session_state.pop('phase1_3_selected_site_name', None)
+
+def reset_all_state() -> None:
+    """
+    모든 세션 상태를 완전히 초기화합니다.
+    프로젝트 정보, 파일, 분석 결과, CoT 상태, 공간 데이터 등 모든 것을 초기화합니다.
+    """
+    # 프로젝트 기본 정보 초기화
+    st.session_state.project_name = ""
+    st.session_state.location = ""
+    st.session_state.project_goals = ""
+    st.session_state.additional_info = ""
+    
+    # 파일 관련 초기화
+    st.session_state.uploaded_file = None
+    st.session_state.pdf_text = ""
+    st.session_state.pdf_uploaded = False
+    
+    # 분석 결과 초기화
+    st.session_state.analysis_results = {}
+    st.session_state.selected_blocks = []
+    
+    # CoT 관련 초기화
+    st.session_state.cot_session = None
+    st.session_state.cot_plan = []
+    st.session_state.cot_current_index = 0
+    st.session_state.cot_results = {}
+    st.session_state.cot_progress_messages = []
+    st.session_state.cot_analyzer = None
+    st.session_state.cot_running_block = None
+    st.session_state.cot_history = []
+    st.session_state.cot_feedback_inputs = {}
+    
+    # 전처리 관련 초기화
+    st.session_state.preprocessed_summary = ""
+    st.session_state.preprocessed_text = ""
+    st.session_state.preprocessing_meta = {}
+    st.session_state.use_preprocessed_text = False
+    st.session_state.preprocessing_options = {
+        "clean_whitespace": True,
+        "collapse_blank_lines": True,
+        "limit_chars": 6000,
+        "include_keywords": True,
+        "keyword_count": 12,
+        "include_numeric_sentences": True,
+        "numeric_sentence_count": 5
+    }
+    
+    # 공간 데이터 초기화
+    st.session_state.geo_layers = {}
+    st.session_state.uploaded_gdf = None
+    st.session_state.uploaded_layer_info = None
+    
+    # 참고 문서 초기화
+    st.session_state.reference_documents = []
+    st.session_state.reference_combined_text = ""
+    st.session_state.reference_signature = None
+    
+    # Phase 1 관련 개별 블록 결과 초기화
+    phase1_keys = [
+        'phase1_requirements_structured',
+        'phase1_data_inventory',
+        'phase1_facility_program_report',
+        'phase1_facility_area_reference',
+        'phase1_facility_area_calculation',
+        'phase1_requirements_cot_history',
+        'phase1_3_requirements_text',
+        'phase1_3_requirements_loaded',
+        'phase1_3_selected_site',
+        'phase1_3_selected_site_name',
+        'phase1_felo_data',
+        'phase1_candidate_geo_layers',
+        'phase1_candidate_sites',
+        'phase1_candidate_filtered',
+        'phase1_selected_sites',
+        'phase1_candidate_felo_text',
+        'phase1_candidate_felo_sections',
+        'phase1_parse_result',
+    ]
+    for key in phase1_keys:
+        st.session_state.pop(key, None)
+    
+    # 고정 프로그램 데이터 초기화
+    for key in DEFAULT_FIXED_PROGRAM.keys():
+        st.session_state[key] = ""
+
+def ensure_preprocessing_options_structure(options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """전처리 옵션 딕셔너리를 기본값과 병합합니다."""
+    defaults: Dict[str, Any] = {
+        "clean_whitespace": True,
+        "collapse_blank_lines": True,
+        "limit_chars": 6000,
+        "include_keywords": True,
+        "keyword_count": 12,
+        "include_numeric_sentences": True,
+        "numeric_sentence_count": 5,
+        "include_intro_snippet": True,
+        "intro_snippet_chars": 500
+    }
+    merged = defaults.copy()
+    if options:
+        for key, value in options.items():
+            if key in defaults and value is not None:
+                merged[key] = value
+    return merged
+
+def preprocess_analysis_text(raw_text: str, options: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]]:
+    """
+    분석 입력 텍스트를 전처리하고 요약 정보를 반환합니다.
+
+    Args:
+        raw_text: 원본 텍스트
+        options: 전처리 옵션
+
+    Returns:
+        (정제된 텍스트, 요약 문자열, 통계 정보 딕셔너리)
+    """
+    if not raw_text:
+        return "", "", {}
+    
+    import re
+    
+    opts = ensure_preprocessing_options_structure(options)
+    text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+    
+    if opts.get("clean_whitespace", True):
+        text = re.sub(r"[ \t]+", " ", text)
+    
+    if opts.get("collapse_blank_lines", True):
+        text = re.sub(r"\n{3,}", "\n\n", text)
+    
+    cleaned_text = text.strip()
+    limit_chars = opts.get("limit_chars")
+    if isinstance(limit_chars, int) and limit_chars > 0:
+        cleaned_text = cleaned_text[:limit_chars]
+    
+    # 단어 및 통계 계산
+    word_pattern = re.compile(r"[A-Za-z가-힣0-9]{2,}")
+    original_words = word_pattern.findall(raw_text)
+    processed_words = word_pattern.findall(cleaned_text)
+    
+    # 키워드 계산
+    keyword_summary = ""
+    keyword_total = 0
+    if opts.get("include_keywords", True) and processed_words:
+        keywords = Counter(word.lower() for word in processed_words)
+        keyword_count = max(1, int(opts.get("keyword_count", 10)))
+        common_keywords = keywords.most_common(keyword_count)
+        if common_keywords:
+            keyword_total = len(common_keywords)
+            keyword_summary = ", ".join(f"{word}({count})" for word, count in common_keywords)
+    
+    # 주요 수치 문장 추출
+    numeric_summary_lines: List[str] = []
+    if opts.get("include_numeric_sentences", True):
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", cleaned_text)
+        numeric_sentences = [s.strip() for s in sentences if any(ch.isdigit() for ch in s)]
+        numeric_limit = max(1, int(opts.get("numeric_sentence_count", 5)))
+        for sentence in numeric_sentences[:numeric_limit]:
+            numeric_summary_lines.append(f"- {sentence}")
+    
+    intro_snippet = ""
+    if opts.get("include_intro_snippet", True) and cleaned_text:
+        intro_chars = max(100, int(opts.get("intro_snippet_chars", 500)))
+        intro_snippet = cleaned_text[:intro_chars]
+    
+    summary_sections: List[str] = []
+    if intro_snippet:
+        summary_sections.append(f"**요약 스니펫:**\n{intro_snippet}...")
+    if keyword_summary:
+        summary_sections.append(f"**핵심 키워드 Top {keyword_total}:** {keyword_summary}")
+    if numeric_summary_lines:
+        summary_sections.append("**주요 수치 문장:**\n" + "\n".join(numeric_summary_lines))
+    
+    summary_text = "\n\n".join(summary_sections).strip()
+    
+    stats = {
+        "original_chars": len(raw_text),
+        "processed_chars": len(cleaned_text),
+        "original_words": len(original_words),
+        "processed_words": len(processed_words),
+        "keyword_summary": keyword_summary,
+        "keyword_total": keyword_total
+    }
+    
+    return cleaned_text, summary_text, stats
+
+def get_phase1_candidate_sites():
+    return st.session_state.get('phase1_candidate_sites', [])
+
+def _safe_numeric(value, multiplier: float = 1.0):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) * multiplier
+    text = str(value).strip()
+    if not text:
+        return None
+    text_clean = re.sub(r'[^0-9.\-]', '', text.replace(',', ''))
+    if not text_clean:
+        return None
+    try:
+        return float(text_clean) * multiplier
+    except ValueError:
+        return None
+
+def _parse_area_to_m2(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    if "ha" in text.lower():
+        base = _safe_numeric(text)
+        return base * 10000 if base is not None else None
+    if "만" in text and "평" in text:
+        match = re.search(r'(\d+)', text.replace(',', ''))
+        if match:
+            return int(match.group(1)) * 10000 * 3.3058
+    if "평" in text:
+        base = _safe_numeric(text)
+        return base * 3.3058 if base is not None else None
+    return _safe_numeric(text)
+
+def _normalize_candidate_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    name = entry.get("name") or entry.get("site_name") or entry.get("candidate_name")
+    if not name:
+        return None
+    lat = _safe_numeric(entry.get("lat") or entry.get("latitude"))
+    lon = _safe_numeric(entry.get("lon") or entry.get("lng") or entry.get("longitude"))
+    area_m2 = _parse_area_to_m2(entry.get("area_m2") or entry.get("site_area") or entry.get("area_sq_m"))
+    slope = _safe_numeric(entry.get("slope_percent") or entry.get("slope"))
+    road_distance = _safe_numeric(entry.get("road_distance_m") or entry.get("road_distance"))
+    facilities = entry.get("existing_facilities") or entry.get("nearby_facilities")
+    try:
+        facilities = int(facilities)
+    except (TypeError, ValueError):
+        facilities = 0
+    expansion = entry.get("expansion_potential") or entry.get("expandability") or ""
+    notes = entry.get("notes") or entry.get("summary") or entry.get("comment") or ""
+    land_use = entry.get("land_use") or entry.get("zoning") or ""
+    candidate = {
+        "name": name,
+        "lat": lat,
+        "lon": lon,
+        "area_m2": area_m2,
+        "slope_percent": slope,
+        "land_use": land_use,
+        "road_distance_m": road_distance,
+        "existing_facilities": facilities,
+        "expansion_potential": expansion,
+        "notes": notes
+    }
+    essential_fields = ["lat", "lon", "area_m2"]
+    if any(candidate[field] is None for field in essential_fields):
+        return None
+    return candidate
+
+def parse_candidate_sites_from_text(raw_text: str):
+    if not raw_text:
+        return []
+    possible_texts = []
+    json_pattern = re.compile(r'```json\s*(\[\s*\{.*?\}\s*\])\s*```', re.DOTALL)
+    match = json_pattern.search(raw_text)
+    if match:
+        possible_texts.append(match.group(1))
+    bracket_match = re.search(r'(\[\s*\{.*\}\s*\])', raw_text, re.DOTALL)
+    if bracket_match:
+        possible_texts.append(bracket_match.group(1))
+    possible_texts.append(raw_text)
+    for text in possible_texts:
+        try:
+            data = json.loads(text)
+            if isinstance(data, list):
+                normalized = []
+                for entry in data:
+                    normalized_entry = _normalize_candidate_entry(entry)
+                    if normalized_entry:
+                        normalized.append(normalized_entry)
+                if normalized:
+                    return normalized
+        except Exception:
+            continue
+    return []
+
+def parse_felo_candidate_blocks(raw_text: str):
+    """Felo 형식의 후보지 텍스트 블록을 파싱하여 후보지 목록으로 변환"""
+    if not raw_text:
+        return []
+
+    # 방법 1: 정규식으로 "후보지 X - " 패턴 찾기 (가장 안정적)
+    candidate_pattern = r'후보지\s*([A-Z가-힣]+)\s*[-–—]\s*(.+?)(?=(?:🅰️|🅱️|🅲️|🅳️|🅴️|🅵️|🅶️|🅷️|🅸️|🅹️|후보지\s*[A-Z가-힣]+\s*[-–—])|$)'
+    matches = list(re.finditer(candidate_pattern, raw_text, re.DOTALL))
+    
+    sections = []
+    if matches:
+        for match in matches:
+            candidate_id = match.group(1).strip()  # A, B, C, D, E 등
+            content = match.group(2).strip()  # 나머지 전체 내용
+            
+            sections.append({
+                "id": candidate_id,
+                "header": f"후보지 {candidate_id}",
+                "content": [line.strip() for line in content.splitlines() if line.strip()]
+            })
+
+    parsed_candidates = []
+    for section in sections:
+        candidate_id = section.get("id", "")
+        header = section["header"]
+        content_list = section["content"]
+        content_text = "\n".join(content_list)
+
+        def extract_numeric_value(pattern, text, average=False, unit_multiplier=1.0):
+            match = re.search(pattern, text)
+            if not match:
+                return None
+            numbers = re.findall(r'[\d.,]+', match.group(0))
+            if not numbers:
+                return None
+            values = []
+            for num in numbers:
+                try:
+                    values.append(float(num.replace(',', '')))
+                except ValueError:
+                    continue
+            if not values:
+                return None
+            if average and len(values) >= 2:
+                return sum(values) / len(values)
+            return values[0] * unit_multiplier
+
+        area_line = next((line for line in content_list if "면적" in line), "")
+        slope_line = next((line for line in content_list if "경사" in line), "")
+        ic_line = next((line for line in content_list if "IC" in line or "IC 거리" in line), "")
+        facility_line = next((line for line in content_list if "핵심 체육시설" in line or "체육시설" in line), "")
+        constraint_line = next((line for line in content_list if line.startswith("제약")), "")
+        total_score_line = next((line for line in content_list if "총점" in line), "")
+        summary_lines = [line for line in content_list if line.startswith("요약")]
+
+        area_m2 = extract_numeric_value(r"면적[^0-9]*([\d,\.]+)", area_line)
+        slope_percent = extract_numeric_value(r"경사[^0-9]*([\d,\.]+(?:\s*-\s*[\d,\.]+)?)", slope_line, average=True)
+        road_distance_m = extract_numeric_value(r"(IC 거리|IC)[^0-9]*([\d,\.]+)", ic_line)
+        facility_distance_m = extract_numeric_value(r"핵심 체육시설[^0-9]*([\d,\.]+)", facility_line)
+        score_value = extract_numeric_value(r"총점[^0-9]*([\d,\.]+)", total_score_line)
+        confidence_match = re.search(r"데이터\s*신뢰도[^0-9]*([\d\.]+)/([\d\.]+)", total_score_line)
+        data_confidence = None
+        if confidence_match:
+            try:
+                numerator = float(confidence_match.group(1))
+                denominator = float(confidence_match.group(2))
+                if denominator > 0:
+                    data_confidence = numerator / denominator
+            except ValueError:
+                data_confidence = None
+
+        land_use = ""
+        land_use_match = re.search(r"면적[^()]*\((.*?)\)", area_line)
+        if land_use_match:
+            land_use = land_use_match.group(1)
+
+        summary_text = ""
+        if summary_lines:
+            summary_text = " ".join(summary_lines)
+        else:
+            summary_text = constraint_line
+
+        notes = []
+        if constraint_line:
+            notes.append(constraint_line)
+        if summary_text:
+            notes.append(summary_text)
+        if facility_line:
+            notes.append(facility_line)
+
+        # 후보지 이름 생성 (예: "교동·성남동 일원")
+        location_name = ""
+        first_line = content_list[0] if content_list else ""
+        if first_line and not any(key in first_line for key in ["면적", "경사", "IC", "제약", "총점"]):
+            location_name = first_line
+        
+        display_name = f"후보지 {candidate_id}"
+        if location_name:
+            display_name = f"{candidate_id} - {location_name}"
+        
+        candidate = {
+            "name": display_name,
+            "title": header,
+            "area_m2": area_m2,
+            "slope_percent": slope_percent,
+            "road_distance_m": road_distance_m,
+            "facility_distance_m": facility_distance_m,
+            "existing_facilities": None,
+            "expansion_potential": "보통",
+            "land_use": land_use,
+            "notes": "\n".join(filter(None, notes)),
+            "score": score_value,
+            "confidence": data_confidence,
+            "summary": summary_text,
+            "raw_block": content_text
+        }
+        parsed_candidates.append(candidate)
+
+    return parsed_candidates
+
+def ensure_pandas_available(feature_name: str) -> bool:
+    """
+    pandas 의존 기능을 사용할 수 있는지 확인.
+    설치되어 있지 않으면 안내 메시지를 출력하고 False 반환.
+    """
+    if pd is not None:
+        return True
+    
+    session_flag = "_pandas_warning_shown"
+    if not st.session_state.get(session_flag):
+        st.error(
+            f"📦 `{feature_name}` 기능을 사용하려면 pandas 라이브러리가 필요합니다. "
+            "명령어 `pip install pandas` 또는 requirements 설치를 완료해주세요."
+        )
+        st.session_state[session_flag] = True
+    return False
 
 # 블록들을 JSON 파일에서 로드
 def get_example_blocks():
     """blocks.json에서 예시 블록들을 로드합니다."""
     return load_blocks()
+
+BLOCK_CATEGORY_MAP: Dict[str, str] = {
+    "basic_info": "기본 정보 & 요구사항",
+    "requirements": "기본 정보 & 요구사항",
+    "project_requirements_parsing": "기본 정보 & 요구사항",
+    "phase1_requirements_structuring": "Phase 1 · 요구사항 정리",
+    "phase1_data_inventory": "Phase 1 · 요구사항 정리",
+    "phase1_candidate_generation": "Phase 1 · 후보지 분석",
+    "phase1_candidate_evaluation": "Phase 1 · 후보지 분석",
+    "essential_gis_data_analysis": "Phase 1 · 후보지 분석",
+    "site_selection_analysis": "Phase 1 · 후보지 분석",
+    "phase1_facility_program": "Phase 1 · 프로그램 설계",
+    "phase1_facility_area_reference": "Phase 1 · 프로그램 설계",
+    "phase1_facility_area_calculation": "Phase 1 · 프로그램 설계",
+    "spatial_program_estimation": "Phase 1 · 프로그램 설계",
+    "masterplan_scenario_generation": "Phase 1 · 프로그램 설계",
+    "masterplan_layout_alternatives": "Phase 1 · 프로그램 설계",
+    "design_suggestions": "현황 분석 & 검증",
+    "accessibility_analysis": "현황 분석 & 검증",
+    "zoning_verification": "현황 분석 & 검증",
+    "capacity_estimation": "현황 분석 & 검증",
+    "feasibility_analysis": "사업성 & 운영 전략",
+    "business_model_development": "사업성 & 운영 전략",
+    "market_research_analysis": "사업성 & 운영 전략",
+    "revenue_model_design": "사업성 & 운영 전략",
+    "operational_efficiency_strategy": "사업성 & 운영 전략",
+    "persona_scenario_analysis": "사용자 경험 & 스토리텔링",
+    "storyboard_generation": "사용자 경험 & 스토리텔링",
+    "customer_journey_mapping": "사용자 경험 & 스토리텔링",
+}
+
+CATEGORY_DISPLAY_ORDER: List[str] = [
+    "기본 정보 & 요구사항",
+    "Phase 1 · 요구사항 정리",
+    "Phase 1 · 후보지 분석",
+    "Phase 1 · 프로그램 설계",
+    "현황 분석 & 검증",
+    "사업성 & 운영 전략",
+    "사용자 경험 & 스토리텔링",
+    "기타",
+]
+
+def resolve_block_category(block: Dict[str, Any]) -> str:
+    if not isinstance(block, dict):
+        return "기타"
+    category = block.get("category")
+    if category:
+        return category
+    block_id = block.get("id")
+    return BLOCK_CATEGORY_MAP.get(block_id, "기타")
+
+def group_blocks_by_category(blocks: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for block in blocks:
+        category = resolve_block_category(block)
+        grouped.setdefault(category, []).append(block)
+    return grouped
+
+def iter_categories_in_order(grouped_blocks: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+    def _sort_key(category: str):
+        if category in CATEGORY_DISPLAY_ORDER:
+            return (CATEGORY_DISPLAY_ORDER.index(category), category)
+        return (len(CATEGORY_DISPLAY_ORDER), category)
+    return sorted(grouped_blocks.keys(), key=_sort_key)
 
 def create_word_document(project_name, analysis_results):
     """분석 결과를 Word 문서로 생성합니다."""
@@ -297,6 +1134,983 @@ def clean_text_for_pdf(text):
     
     return text.strip()
 
+def _extract_first_number(text, pattern, default=None, transform=None):
+    if not text:
+        return default
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+        return default
+    value_text = match.group(1)
+    try:
+        value = float(value_text.replace(',', '').replace(' ', ''))
+    except ValueError:
+        return default
+    return transform(value) if transform else value
+
+def _parse_area_requirement(structured_text):
+    default_area = 330000
+    if not structured_text:
+        return default_area
+    # ㎡ 단위 우선 탐색
+    area = _extract_first_number(structured_text, r'([\d,]+)\s*㎡', default=None)
+    if area:
+        return int(area)
+    # "만 평" 형태 탐색
+    match = re.search(r'(\d+)\s*만\s*평', structured_text)
+    if match:
+        area_pyong = int(match.group(1)) * 10000
+        return int(area_pyong * 3.3058)
+    # 일반 "평" 형태 탐색
+    match = re.search(r'([\d,]+)\s*평', structured_text)
+    if match:
+        area_pyong = float(match.group(1).replace(',', ''))
+        return int(area_pyong * 3.3058)
+    return default_area
+
+def _parse_slope_requirement(structured_text):
+    return _extract_first_number(structured_text, r'경사도[^0-9]*([\d.]+)\s*%', default=5.0)
+
+def _parse_road_requirement(structured_text):
+    return _extract_first_number(structured_text, r'도로[^0-9]*([\d,]+)\s*km', default=None, transform=lambda v: int(v * 1000))
+
+def _parse_priority_weights(structured_text):
+    default_weights = {
+        "접근성": 30,
+        "연계성": 25,
+        "확장성": 20,
+        "경제성": 15,
+        "공공성": 10
+    }
+    if not structured_text:
+        return default_weights
+    pattern = r'([가-힣A-Za-z]+)\s*\((\d+)%\)'
+    matches = re.findall(pattern, structured_text)
+    found = {}
+    for name, perc in matches:
+        try:
+            value = int(perc)
+        except ValueError:
+            continue
+        for key in default_weights.keys():
+            if key in name:
+                found[key] = value
+                break
+    return {**default_weights, **found}
+
+def derive_phase1_defaults():
+    structured_text = st.session_state.get('phase1_requirements_structured', '')
+    defaults = {
+        "min_area": _parse_area_requirement(structured_text),
+        "max_slope": _parse_slope_requirement(structured_text),
+        "max_road_distance": _parse_road_requirement(structured_text) or 1000,
+        "weights": _parse_priority_weights(structured_text)
+    }
+    return defaults
+
+def filter_candidate_sites(min_area, max_slope, max_road_distance, include_expansion, sites=None):
+    if sites is None:
+        sites = get_phase1_candidate_sites()
+    if not sites:
+        return []
+    filtered = []
+    for site in sites:
+        area_m2 = site.get("area_m2")
+        slope_percent = site.get("slope_percent")
+        road_distance = site.get("road_distance_m")
+        if area_m2 is None or area_m2 < min_area:
+            continue
+        if slope_percent is None or slope_percent > max_slope:
+            continue
+        if road_distance is None or road_distance > max_road_distance:
+            continue
+        if include_expansion and site.get("expansion_potential") not in ["우수", "보통", "높음", "중간"]:
+            continue
+        filtered.append(site)
+    return filtered
+
+# Phase 1.3에서 AI가 생성한 시설 목록을 사용하므로 하드코딩된 FACILITY_LIBRARY는 제거됨
+
+def render_phase1_1(project_name, location, project_goals, additional_info):
+    st.markdown("### Mission 1 · Phase 1.1 — 요구사항 정리")
+    st.caption("🟨 학생 입력 → 🟦 자체 프로그램\n\n1) 고정 프로그램 사양 확인\n2) 학생이 워크시트 내용을 자유롭게 입력하고\n3) 프로그램이 구조화된 요구사항 요약(블록 1)과 데이터 체크리스트(블록 2)를 생성합니다.")
+
+    with st.expander("📋 고정 프로그램 사양 (삼척 스포츠아카데미)", expanded=False):
+        st.write("아래 항목은 학생이 직접 수정할 수 있으며, 블록 1과 블록 2 실행 시 함께 전달됩니다.")
+        st.text_area(
+            "도입 설명",
+            key="phase1_program_intro",
+            height=80,
+            placeholder="예: 삼척 스포츠아카데미의 핵심 방향성과 기본 요구사항을 간단히 입력하세요.",
+            help="프로그램 전반에 대한 소개나 주의사항을 입력하세요."
+        )
+        st.markdown("#### 🏫 교육 시설")
+        st.text_area(
+            "교육 시설 항목",
+            key="phase1_program_education",
+            height=120,
+            placeholder="- 학교: 국제학교(중/고)와 국내 고등학교 (학년 당 약 100명 정원)\n- 부대시설: 식당, 생활관, 강당 등\n- 참고 사례: 제주 국제학교 및 서울체육고등학교",
+            help="교육 시설 관련 요구사항을 자유롭게 입력하세요."
+        )
+        st.markdown("#### 🏃 스포츠 지원시설")
+        st.text_area(
+            "스포츠 지원시설 항목",
+            key="phase1_program_sports",
+            height=140,
+            placeholder="- 핵심종목: 테니스, 양궁, 배드민턴, 펜싱\n- 추가종목: 아이스하키, 컬링 등\n- 확장종목: 러닝마라톤, 야구, 축구 등\n- 확장 전략: 단계적 확대 계획",
+            help="핵심/추가/확장 종목 등을 입력하세요."
+        )
+        st.markdown("#### 🏨 컨벤션 시설")
+        st.text_area(
+            "컨벤션 시설 항목",
+            key="phase1_program_convention",
+            height=100,
+            placeholder="- 200실 규모 호텔\n- 국제 컨벤션 홀\n- 선수/방문객 편의 리테일 시설",
+            help="호텔, 컨벤션, 리테일 등 방문객 관련 시설을 입력하세요."
+        )
+        st.markdown("#### 🏥 재활/웰니스")
+        st.text_area(
+            "재활/웰니스 항목",
+            key="phase1_program_wellness",
+            height=100,
+            placeholder="- 스포츠 의학·재활센터\n- 웰니스 프로그램 및 기업 입주시설",
+            help="재활센터, 웰니스 프로그램 등의 요구사항을 입력하세요."
+        )
+        st.markdown("#### 🏛️ 기타 시설")
+        st.text_area(
+            "기타 시설 항목",
+            key="phase1_program_other",
+            height=120,
+            placeholder="- 주민 개방시설\n- 국제 캠프장, 축제 관련 시설 등",
+            help="그 밖에 포함하고 싶은 기타 시설을 입력하세요."
+        )
+
+    with st.expander("단계 1-1-1 · 프로젝트 요구사항 워크시트 입력", expanded=not st.session_state.get('phase1_requirements_structured')):
+        st.markdown(
+            """**워크시트 입력 템플릿**
+
+    **1. 프로젝트 목표 (필수)**  
+    우리가 만들고 싶은 아카데미는? (최소 1가지 이상 작성)  
+    □ 엘리트 선수를 키워서 해외 진출시키는 곳  
+    □ 지역 주민도 함께 즐길 수 있는 개방된 공간  
+    □ 사계절 운영 가능한 복합시설  
+    □ 기타: _________________________________  
+    □ 기타: _________________________________  
+    → 우리 팀 핵심: "_______________________"  
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+
+    **2. 규모**  
+    - 학생 수: 약 _____명 (필수)  
+    💡 TIP: 100-300명 사이가 일반적  
+    - 면적: 대략 _____만 평 (선택)  
+    💡 TIP: 모르면 비워두세요  
+    - 예산: _____억 (선택)  
+    💡 TIP: "모르겠음" 또는 "제약 없음" 선택 가능  
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+
+    **3. 제약조건 (선택)**  
+    우리 프로젝트에서 꼭 고려해야 할 제약은?  
+    아래 예시 참고해서 자유롭게 작성:  
+    - 삼척시의 인구가 적어서 지역만으로는 학생 모집이 어려움  
+    - 겨울에 관광객이 적어서 수익이 떨어질 수 있음  
+    - 산지가 많아서 평평한 땅이 부족함  
+    우리 팀 제약:  
+    □ _________________________________  
+    □ _________________________________  
+    □ _________________________________  
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+
+    **4. 우선순위 (필수 - 최소 3개 선택)**  
+    무엇이 가장 중요한가? 번호를 매겨보세요.  
+    [  ] 교통 접근성 (고속도로, 역, 공항)  
+    [  ] 기존 체육시설과의 연계  
+    [  ] 확장 가능성  
+    [  ] 경제성 (저렴한 토지)  
+    [  ] 주민 접근성  
+    [  ] 좋은 경관/환경  
+    [  ] 기타: _____________  
+    💡 TIP:  
+    - 1, 2, 3... 순서대로 번호 매기기  
+    - 최소 3개는 선택해주세요  
+    - "왜 이게 중요한가?" 간단히 메모해도 좋아요  
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+
+    **5. 핵심 가치 (필수)**  
+    이 아카데미를 한 문장으로 표현하면?  
+    예시:  
+    - "세계 무대로 가는 지름길"  
+    - "지역과 함께 성장하는 스포츠 허브"  
+    - "데이터로 만드는 차세대 스포츠 교육"  
+    → _________________________________________"""
+        )
+        st.text_area(
+            "워크시트 전체 내용을 입력하세요",
+            key="phase1_requirements_text",
+            placeholder="예) 수용 인원, 목표 면적, 운영 목표, 제약조건 등을 자유롭게 정리해주세요.",
+            height=220,
+            help="학생들이 정리한 요구사항 워크시트 전체 내용을 붙여넣으세요."
+        )
+        col_input_actions = st.columns([1, 1])
+        with col_input_actions[1]:
+            if st.button("입력 초기화", key="reset_phase1_requirements"):
+                st.session_state['phase1_requirements_text'] = ""
+                st.session_state.pop('phase1_requirements_structured', None)
+                st.session_state.pop('phase1_data_inventory', None)
+                st.session_state.pop('phase1_requirements_cot_history', None)
+                st.rerun()
+
+    with st.expander("단계 1-1-2 · 블록 1 실행 (요구사항 파싱)", expanded=not st.session_state.get('phase1_requirements_structured')):
+        requirements_input = st.session_state.get('phase1_requirements_text', '')
+        fixed_program_markdown = build_fixed_program_markdown()
+        if not requirements_input.strip():
+            st.info("먼저 워크시트 내용을 입력해주세요.")
+        else:
+            with st.form("phase1_block1_run_form"):
+                submitted_block1 = st.form_submit_button("블록 1 실행 / 재실행", type="primary")
+            if submitted_block1:
+                try:
+                    with st.spinner("블록 1을 실행 중입니다..."):
+                        analyzer = get_cot_analyzer()
+                        all_blocks = get_example_blocks()
+                        block_map = {block.get('id'): block for block in all_blocks}
+                        block_id = "phase1_requirements_structuring"
+                        if block_id not in block_map:
+                            st.error("blocks.json에서 `phase1_requirements_structuring` 블록을 찾을 수 없습니다.")
+                        else:
+                            project_context = {
+                                "project_name": project_name or "미정",
+                                "location": location or "미정",
+                                "project_goals": project_goals or "",
+                                "additional_info": additional_info or "",
+                                "mission_phase": "Mission 1 · Phase 1.1"
+                            }
+                            combined_input = "\n\n".join([
+                                fixed_program_markdown,
+                                "---",
+                                "### 학생 요구사항 워크시트 입력",
+                                requirements_input
+                            ])
+                            result = analyzer.analyze_blocks_with_cot(
+                                [block_id],
+                                project_context,
+                                combined_input,
+                                {block_id: block_map[block_id]}
+                            )
+                            if result.get("success"):
+                                analysis_results = result.get("analysis_results", {})
+                                step_result = analysis_results.get(block_id, "")
+                                st.session_state['phase1_requirements_structured'] = step_result
+                                
+                                # analysis_results에도 저장하고 자동 저장
+                                st.session_state.analysis_results[block_id] = step_result
+                                project_info = {
+                                    "project_name": st.session_state.get('project_name', ''),
+                                    "location": st.session_state.get('location', '')
+                                }
+                                save_analysis_result(block_id, step_result, project_info)
+                                
+                                st.session_state['phase1_requirements_cot_history'] = result.get("cot_history", [])
+                                st.session_state.pop('phase1_data_inventory', None)
+                                st.success("블록 1 결과가 생성되었습니다.")
+                            else:
+                                st.error(f"블록 1 실행 실패: {result.get('error', '알 수 없는 오류')}")
+                except Exception as e:
+                    st.error(f"블록 1 실행 중 오류가 발생했습니다: {e}")
+        if st.session_state.get('phase1_requirements_structured'):
+            st.markdown("#### 📘 블록 1 결과")
+            st.markdown(st.session_state['phase1_requirements_structured'])
+            st.download_button(
+                label="📥 요구사항 구조화 결과 다운로드",
+                data=st.session_state['phase1_requirements_structured'],
+                file_name="phase1_requirements_structuring.txt",
+                mime="text/plain",
+                key="download_phase1_structured"
+            )
+
+    with st.expander("단계 1-1-3 · 블록 2 실행 (필요 데이터 목록)", expanded=bool(st.session_state.get('phase1_requirements_structured')) and not st.session_state.get('phase1_data_inventory')):
+        if not st.session_state.get('phase1_requirements_structured'):
+            st.info("블록 1 결과를 먼저 확인한 뒤, 블록 2를 실행하세요.")
+        else:
+            with st.form("phase1_block2_run_form"):
+                submitted_block2 = st.form_submit_button("블록 2 실행 / 재실행", type="primary")
+            if submitted_block2:
+                requirements_input = st.session_state.get('phase1_requirements_text', '')
+                fixed_program_markdown = build_fixed_program_markdown()
+                if not requirements_input.strip():
+                    st.warning("워크시트 내용을 다시 입력한 뒤 실행해주세요.")
+                else:
+                    try:
+                        with st.spinner("블록 2를 실행 중입니다..."):
+                            analyzer = get_cot_analyzer()
+                            all_blocks = get_example_blocks()
+                            block_map = {block.get('id'): block for block in all_blocks}
+                            block_id = "phase1_data_inventory"
+                            if block_id not in block_map:
+                                st.error("blocks.json에서 `phase1_data_inventory` 블록을 찾을 수 없습니다.")
+                            else:
+                                project_context = {
+                                    "project_name": project_name or "미정",
+                                    "location": location or "미정",
+                                    "project_goals": project_goals or "",
+                                    "additional_info": additional_info or "",
+                                    "mission_phase": "Mission 1 · Phase 1.1"
+                                }
+                                combined_input = "\n\n".join([
+                                    fixed_program_markdown,
+                                    "---",
+                                    "### 학생 요구사항 워크시트 입력",
+                                    requirements_input
+                                ])
+                                result = analyzer.analyze_blocks_with_cot(
+                                    [block_id],
+                                    project_context,
+                                    combined_input,
+                                    {block_id: block_map[block_id]}
+                                )
+                                if result.get("success"):
+                                    analysis_results = result.get("analysis_results", {})
+                                    step_result = analysis_results.get(block_id, "")
+                                    st.session_state['phase1_data_inventory'] = step_result
+                                    
+                                    # analysis_results에도 저장하고 자동 저장
+                                    st.session_state.analysis_results[block_id] = step_result
+                                    project_info = {
+                                        "project_name": st.session_state.get('project_name', ''),
+                                        "location": st.session_state.get('location', '')
+                                    }
+                                    save_analysis_result(block_id, step_result, project_info)
+                                    
+                                    st.success("블록 2 결과가 생성되었습니다.")
+                                else:
+                                    st.error(f"블록 2 실행 실패: {result.get('error', '알 수 없는 오류')}")
+                    except Exception as e:
+                        st.error(f"블록 2 실행 중 오류가 발생했습니다: {e}")
+        if st.session_state.get('phase1_data_inventory'):
+            st.markdown("#### 📊 블록 2 결과")
+            st.markdown(st.session_state['phase1_data_inventory'])
+            st.download_button(
+                label="📥 데이터 체크리스트 다운로드",
+                data=st.session_state['phase1_data_inventory'],
+                file_name="phase1_data_inventory.txt",
+                mime="text/plain",
+                key="download_phase1_data_inventory"
+            )
+
+    if st.session_state.get('phase1_requirements_structured') and st.session_state.get('phase1_data_inventory'):
+        with st.expander("📤 Felo AI 전달 데이터 정리", expanded=False):
+            st.markdown("""
+            **이 데이터는 Felo AI로 전달하여 후보지를 추출하는 데 사용됩니다.**
+            
+            아래 내용을 복사하여 Felo AI에 전달하세요.
+            """)
+
+            fixed_program = "\n".join([
+                build_fixed_program_markdown(),
+                "",
+                "## 입지 선정 목표",
+                "삼척 스포츠아카데미의 최적 입지와 규모를 선정하고, 관련 프로그램을 확정",
+                "",
+                "## 활용 데이터",
+                "- 입지 특징",
+                "- GIS 공간 데이터",
+                "- 교육발전특구 법규",
+                "- 접근성 분석",
+                "- 도시재생 잠재력 데이터",
+                "",
+                "## 최종 목표",
+                "시각화된 데이터 기반의 입지 선정 근거 마련"
+            ])
+
+            block1_result = st.session_state.get('phase1_requirements_structured', '')
+            block2_result = st.session_state.get('phase1_data_inventory', '')
+
+            felo_data = f"""{fixed_program}
+
+        ---
+
+        ## 요구사항 구조화 결과 (블록 1)
+
+        {block1_result}
+
+        ---
+
+        ## Felo AI 분석 요청사항
+
+        위 요구사항과 데이터 목록을 바탕으로 삼척시 내 최적 후보지를 추출해주세요.
+
+        ### 분석 조건
+        - 입지 특징 분석
+        - GIS 공간 데이터 활용
+        - 교육발전특구 법규 검토
+        - 접근성 평가
+        - 도시재생 잠재력 평가
+
+        ### 출력 형식
+        - 후보지 목록 (위치, 면적, 경사도, 도로 접근성 등)
+        - 각 후보지별 평가 점수
+        - 시각화된 지도 데이터
+        """
+
+            st.session_state['phase1_felo_data'] = felo_data
+
+            st.text_area(
+                "Felo AI 전달 데이터 (복사하여 사용)",
+                value=felo_data,
+                height=400,
+                key="felo_data_display",
+                help="전체 내용을 복사하여 Felo AI에 전달하세요."
+            )
+
+            st.download_button(
+                label="📥 Felo AI 전달 데이터 다운로드",
+                data=felo_data,
+                file_name="felo_ai_input_data.txt",
+                mime="text/plain",
+                key="download_felo_data"
+            )
+
+            st.info("💡 이 데이터를 Felo AI에 전달하면 후보지 추출 결과를 받을 수 있습니다.")
+
+def render_phase1_2(project_name, location, project_goals, additional_info):
+    st.markdown("### Mission 1 · Phase 1.2 — 후보지 탐색 & 검토")
+
+    # 1. 🗺️ 후보지 공간 데이터 (Shapefile 업로드)
+    with st.expander("🗺️ 후보지 공간 데이터 (Shapefile 업로드)", expanded=False):
+        st.caption("Felo 또는 외부 분석에서 받은 후보지 Shapefile(ZIP)을 업로드하면 지도에서 시각화할 수 있습니다.")
+        uploaded_shapefiles = st.file_uploader(
+            "Shapefile ZIP 업로드 (복수 선택 가능)",
+            type=["zip"],
+            accept_multiple_files=True,
+            key="phase1_candidate_shapefiles"
+        )
+
+        if uploaded_shapefiles:
+            if not GEO_LOADER_AVAILABLE or GeoDataLoader is None:
+                st.error("⚠️ GeoDataLoader를 사용할 수 없습니다. geopandas가 설치되지 않았습니다.")
+                st.info("""
+                **설치 방법:**
+                
+                1. **conda 사용 (권장):**
+                   ```
+                   conda install -c conda-forge geopandas
+                   ```
+                
+                2. **pip 사용:**
+                   ```
+                   pip install geopandas shapely pyproj
+                   ```
+                
+                3. **install.bat 실행:**
+                   프로젝트 루트에서 `install.bat`을 실행하면 자동으로 설치됩니다.
+                """)
+            else:
+                loader = GeoDataLoader()
+                loaded = 0
+                errors = []
+                with st.spinner(f"{len(uploaded_shapefiles)}개 파일 처리 중..."):
+                    for uploaded in uploaded_shapefiles:
+                        layer_name = uploaded.name.replace(".zip", "").replace(".ZIP", "")
+                        result = loader.load_shapefile_from_zip(uploaded.getvalue(), encoding="cp949")
+                        if result.get("success"):
+                            validation = validate_shapefile_data(result["gdf"])
+                        if validation.get("valid", False):
+                            st.session_state['phase1_candidate_geo_layers'][layer_name] = {
+                                "gdf": result["gdf"],
+                                "info": result
+                            }
+                            loaded += 1
+                        else:
+                            issues = ", ".join(validation.get("issues", []))
+                            errors.append(f"⚠️ {layer_name}: {issues or '데이터 검증 실패'}")
+                    else:
+                        errors.append(f"❌ {layer_name}: {result.get('error', '알 수 없는 오류')}")
+            if loaded:
+                st.success(f"✅ {loaded}개 레이어를 불러왔습니다.")
+            for err in errors:
+                st.warning(err)
+
+        if st.session_state.get('phase1_candidate_geo_layers'):
+            st.markdown("##### 업로드된 레이어")
+            for layer_name, layer_data in list(st.session_state['phase1_candidate_geo_layers'].items()):
+                with st.expander(f"📂 {layer_name}", expanded=False):
+                    info = layer_data.get("info", {})
+                    st.write(f"- 피처 수: {info.get('feature_count', 0):,}개")
+                    st.write(f"- 좌표계: {info.get('crs', 'Unknown')}")
+                    st.write(f"- 컬럼 수: {len(info.get('columns', []))}개")
+                    if st.button("레이어 삭제", key=f"phase1_candidate_layer_delete_{layer_name}"):
+                        del st.session_state['phase1_candidate_geo_layers'][layer_name]
+                        st.rerun()
+
+            if st.session_state.get('phase1_candidate_geo_layers'):
+                if GEO_LOADER_AVAILABLE and GeoDataLoader is not None:
+                    loader = GeoDataLoader()
+                    st.markdown("##### 지도 시각화")
+                    geo_layers_dict = {
+                        lname: ldata["gdf"]
+                        for lname, ldata in st.session_state['phase1_candidate_geo_layers'].items()
+                    }
+                    folium_map = None
+                    if st_folium:
+                        try:
+                            folium_map = loader.create_folium_map_multilayer(geo_layers_dict)
+                        except Exception as map_error:  # pragma: no cover
+                            st.warning(f"Folium 지도를 생성하는 중 오류가 발생했습니다: {map_error}")
+                            folium_map = None
+                    if folium_map and st_folium:
+                        st_folium.st_folium(folium_map, width=1100, height=540)
+                    else:
+                        if pd is None:
+                            st.warning("pandas가 설치되어 있지 않아 간단 지도를 표시할 수 없습니다.")
+                            st.info("`pip install pandas`를 실행한 뒤 다시 시도해주세요.")
+                        else:
+                            fallback_frames = []
+                            for gdf in geo_layers_dict.values():
+                                df_for_map = loader.gdf_to_dataframe_for_map(gdf)
+                                if not df_for_map.empty:
+                                    fallback_frames.append(df_for_map.head(500))
+                            if fallback_frames:
+                                fallback_df = pd.concat(fallback_frames, ignore_index=True)
+                                st.map(fallback_df, size=20)
+                            else:
+                                st.info("표시 가능한 좌표 데이터가 없습니다. `pip install streamlit-folium folium` 설치 후 다시 시도하세요.")
+
+    # 2. 🗒️ Felo 후보지 텍스트 붙여넣기
+    with st.expander("🗒️ Felo 후보지 텍스트 붙여넣기", expanded=False):
+        st.caption("Felo AI에서 받은 후보지 요약을 그대로 붙여넣으면 자동으로 표준화됩니다.")
+        st.session_state['phase1_candidate_felo_text'] = st.text_area(
+            "Felo 후보지 텍스트",
+            value=st.session_state.get('phase1_candidate_felo_text', ''),
+            height=260,
+            placeholder="예) 🅰️ 후보지 A - 교동·성남동 일원 ...",
+            key="phase1_candidate_felo_text_area"
+        )
+        col_felo_actions = st.columns([1, 1])
+        with col_felo_actions[0]:
+            if st.button("텍스트 파싱", key="phase1_parse_felo_blocks"):
+                felo_text = st.session_state.get('phase1_candidate_felo_text', '')
+                parsed = parse_felo_candidate_blocks(felo_text)
+                if parsed:
+                    st.session_state['phase1_candidate_sites'] = parsed
+                    st.session_state['phase1_candidate_filtered'] = None
+                    st.session_state['phase1_selected_sites'] = [entry["name"] for entry in parsed]
+                    st.session_state['phase1_candidate_felo_sections'] = parsed
+                    st.session_state['phase1_parse_result'] = f"{len(parsed)}개 파싱 완료"
+                    st.rerun()
+                else:
+                    st.warning("입력된 텍스트에서 후보지를 찾을 수 없습니다. 형식을 확인해주세요.")
+        
+        # 파싱 결과 표시 (rerun 후에도 보이도록)
+        if st.session_state.get('phase1_parse_result'):
+            st.success(st.session_state['phase1_parse_result'])
+            parsed_sites = st.session_state.get('phase1_candidate_sites', [])
+            if parsed_sites:
+                st.write("**파싱된 후보지:**")
+                for idx, site in enumerate(parsed_sites, 1):
+                    st.write(f"{idx}. {site.get('name', 'N/A')}")
+        with col_felo_actions[1]:
+            if st.button("입력 초기화", key="phase1_reset_felo_blocks"):
+                st.session_state['phase1_candidate_felo_text'] = ""
+                st.session_state['phase1_candidate_felo_sections'] = []
+                st.session_state.pop('phase1_candidate_sites', None)
+                st.session_state.pop('phase1_candidate_filtered', None)
+                st.rerun()
+
+    # 3. 📍 후보지 목록
+    candidate_sites = st.session_state.get('phase1_candidate_sites', [])
+    
+    if not candidate_sites:
+        st.info("후보지 데이터가 없습니다. Shapefile을 업로드하거나 Felo 텍스트를 붙여넣어주세요.")
+        return
+    
+    st.markdown("#### 📍 후보지 목록")
+    if pd is not None:
+        df_sites = pd.DataFrame(candidate_sites)
+        df_display = df_sites.rename(columns={
+            "name": "후보지",
+            "area_m2": "면적(㎡)",
+            "slope_percent": "경사도(%)",
+            "land_use": "토지용도",
+            "road_distance_m": "도로거리(m)",
+            "existing_facilities": "주변 체육시설(개소)",
+            "expansion_potential": "확장 잠재력",
+            "facility_distance_m": "핵심시설 거리(m)",
+            "score": "총점(점)",
+            "confidence": "데이터 신뢰도",
+            "notes": "메모"
+        })
+        st.dataframe(df_display, use_container_width=True)
+        
+        # 지도 표시
+        lat_series = df_sites.get("lat")
+        lon_series = df_sites.get("lon")
+        if lat_series is not None and lon_series is not None:
+            if lat_series.notnull().any() and lon_series.notnull().any():
+                st.markdown("##### 🗺️ 후보지 지도")
+                map_df = df_sites[['lat', 'lon']].copy()
+                st.map(map_df, size=40, zoom=11)
+    else:
+        st.warning("pandas가 설치되지 않아 후보지 목록을 표시할 수 없습니다.")
+        st.info("`pip install pandas`를 실행한 뒤 다시 시도해주세요.")
+
+def render_phase1_3(project_name, location, project_goals, additional_info):
+    st.markdown("### Mission 1 · Phase 1.3 — 프로그램 확정")
+    
+    # Step 1: 요구사항 불러오기
+    with st.expander("📄 1단계 · 요구사항 불러오기", expanded=not st.session_state.get('phase1_3_requirements_loaded')):
+        st.caption("Phase 1.1에서 자동으로 불러오거나, 직접 요구사항 텍스트를 붙여넣으세요.")
+        
+        col_req_source = st.columns([1, 1])
+        with col_req_source[0]:
+            if st.session_state.get('phase1_requirements_structured'):
+                st.success("✅ Phase 1.1 요구사항이 있습니다.")
+                if st.button("Phase 1.1 요구사항 사용", key="phase1_3_use_phase1_requirements"):
+                    st.session_state['phase1_3_requirements_text'] = st.session_state['phase1_requirements_structured']
+                    st.session_state['phase1_3_requirements_loaded'] = True
+                    st.rerun()
+            else:
+                st.info("Phase 1.1을 먼저 완료하거나 오른쪽에서 직접 입력하세요.")
+        
+        with col_req_source[1]:
+            manual_req_text = st.text_area(
+                "요구사항 텍스트 직접 입력",
+                height=150,
+                placeholder="요구사항 텍스트를 붙여넣으세요...",
+                key="phase1_3_manual_requirements_input"
+            )
+            if st.button("입력한 요구사항 사용", key="phase1_3_use_manual_requirements"):
+                if manual_req_text.strip():
+                    st.session_state['phase1_3_requirements_text'] = manual_req_text
+                    st.session_state['phase1_3_requirements_loaded'] = True
+                    st.success("요구사항을 불러왔습니다.")
+                    st.rerun()
+                else:
+                    st.warning("요구사항 텍스트를 입력해주세요.")
+        
+        if st.session_state.get('phase1_3_requirements_text'):
+            st.markdown("##### 불러온 요구사항")
+            st.text_area(
+                "현재 요구사항",
+                value=st.session_state['phase1_3_requirements_text'],
+                height=200,
+                disabled=True,
+                key="phase1_3_requirements_display"
+            )
+    
+    if not st.session_state.get('phase1_3_requirements_loaded'):
+        st.info("⬆️ 요구사항을 먼저 불러와주세요.")
+        return
+    
+    requirements_text = st.session_state.get('phase1_3_requirements_text', '')
+    
+    # Step 2: 후보지 선택
+    with st.expander("📍 2단계 · 후보지 선택", expanded=not st.session_state.get('phase1_3_selected_site')):
+        st.caption("Phase 1.2에서 검토한 후보지 중 하나를 선택하세요.")
+        
+        candidate_sites = st.session_state.get('phase1_candidate_sites', [])
+        if not candidate_sites:
+            st.warning("Phase 1.2에서 후보지를 먼저 입력해주세요.")
+        else:
+            site_options = [site.get('name', f"후보지 {i+1}") for i, site in enumerate(candidate_sites)]
+            selected_site_name = st.selectbox(
+                "최종 선택 후보지",
+                options=site_options,
+                key="phase1_3_site_selector"
+            )
+            
+            if st.button("선택 확정", key="phase1_3_confirm_site"):
+                selected_idx = site_options.index(selected_site_name)
+                st.session_state['phase1_3_selected_site'] = candidate_sites[selected_idx]
+                st.session_state['phase1_3_selected_site_name'] = selected_site_name
+                st.success(f"'{selected_site_name}'을(를) 선택했습니다.")
+                st.rerun()
+        
+        if st.session_state.get('phase1_3_selected_site'):
+            selected = st.session_state['phase1_3_selected_site']
+            st.info(f"**선택된 후보지**: {st.session_state.get('phase1_3_selected_site_name', 'N/A')}")
+            col_site_info = st.columns(3)
+            col_site_info[0].metric("면적", f"{selected.get('area_m2', 0):,.0f}㎡")
+            col_site_info[1].metric("경사도", f"{selected.get('slope_percent', 0):.1f}%")
+            col_site_info[2].metric("총점", f"{selected.get('score', 0):.1f}점")
+    
+    if not st.session_state.get('phase1_3_selected_site'):
+        st.info("⬆️ 후보지를 먼저 선택해주세요.")
+        return
+    
+    # Step 3: AI 블록 실행 (블록 5, 6, 7)
+    st.markdown("---")
+    st.markdown("### 🤖 AI 분석 블록")
+    
+    with st.expander("🤖 블록 5 · 시설 목록 AI 제안", expanded=not st.session_state.get('phase1_facility_program_report')):
+        st.caption("🟦 자체 프로그램 · `phase1_facility_program` 블록을 실행하여 시설 목록을 AI가 제안합니다.")
+        
+        # 학생 피드백 입력
+        student_feedback_5 = st.text_area(
+            "💬 학생 피드백 (선택사항)",
+            height=100,
+            placeholder="예: 테니스 코트를 더 많이 필요합니다 / 호텔 규모를 줄여주세요 / 주민 시설을 추가해주세요",
+            key="phase1_block5_feedback",
+            help="AI에게 추가로 요청하거나 수정할 사항이 있으면 입력하세요."
+        )
+        
+        col_block5 = st.columns([1, 1])
+        with col_block5[0]:
+            if st.button("블록 5 실행 / 재실행", key="phase1_run_facility_program"):
+                try:
+                    with st.spinner("블록 5를 실행 중입니다..."):
+                        analyzer = get_cot_analyzer()
+                        all_blocks = get_example_blocks()
+                        block_map = {block.get('id'): block for block in all_blocks}
+                        block_id = "phase1_facility_program"
+                        if block_id not in block_map:
+                            st.error("blocks.json에서 `phase1_facility_program` 블록을 찾을 수 없습니다.")
+                        else:
+                            selected_site = st.session_state.get('phase1_3_selected_site', {})
+                            site_info = f"""
+선택된 후보지: {st.session_state.get('phase1_3_selected_site_name', 'N/A')}
+- 면적: {selected_site.get('area_m2', 0):,.0f}㎡
+- 경사도: {selected_site.get('slope_percent', 0):.1f}%
+- 토지용도: {selected_site.get('land_use', 'N/A')}
+"""
+                            # 학생 피드백 추가
+                            feedback_text = ""
+                            if student_feedback_5.strip():
+                                feedback_text = f"\n\n### 학생 피드백\n{student_feedback_5}"
+                            
+                            combined_input = f"{requirements_text}\n\n---\n\n### 선택된 후보지 정보\n{site_info}{feedback_text}"
+                            
+                            project_context = {
+                                "project_name": project_name or "미정",
+                                "location": location or "미정",
+                                "project_goals": project_goals or "",
+                                "additional_info": additional_info or "",
+                                "mission_phase": "Mission 1 · Phase 1.3"
+                            }
+                            result = analyzer.analyze_blocks_with_cot(
+                                [block_id],
+                                project_context,
+                                combined_input,
+                                {block_id: block_map[block_id]}
+                            )
+                            if result.get("success"):
+                                analysis_results = result.get("analysis_results", {})
+                                step_result = analysis_results.get(block_id, "")
+                                st.session_state['phase1_facility_program_report'] = step_result
+                                
+                                # analysis_results에도 저장하고 자동 저장
+                                st.session_state.analysis_results[block_id] = step_result
+                                project_info = {
+                                    "project_name": st.session_state.get('project_name', ''),
+                                    "location": st.session_state.get('location', '')
+                                }
+                                save_analysis_result(block_id, step_result, project_info)
+                                
+                                # 블록 6, 7 결과 초기화 (재분석 시)
+                                st.session_state.pop('phase1_facility_area_reference', None)
+                                st.session_state.pop('phase1_facility_area_calculation', None)
+                                st.success("블록 5 실행 완료!")
+                                st.rerun()
+                            else:
+                                st.error(f"블록 5 실행 실패: {result.get('error', '알 수 없는 오류')}")
+                except Exception as e:
+                    st.error(f"블록 5 실행 중 오류: {e}")
+        
+        with col_block5[1]:
+            if st.button("블록 5 결과 초기화", key="phase1_reset_block5"):
+                st.session_state.pop('phase1_facility_program_report', None)
+                st.session_state.pop('phase1_facility_area_reference', None)
+                st.session_state.pop('phase1_facility_area_calculation', None)
+                st.success("블록 5 결과를 초기화했습니다.")
+                st.rerun()
+    
+    if st.session_state.get('phase1_facility_program_report'):
+        with st.expander("📄 블록 5 결과", expanded=False):
+            st.markdown(st.session_state['phase1_facility_program_report'])
+    
+    with st.expander("🤖 블록 6 · 면적 기준 조사", expanded=not st.session_state.get('phase1_facility_area_reference')):
+        st.caption("🟦 자체 프로그램 · `phase1_facility_area_reference` 블록을 실행하여 시설별 면적 기준을 AI가 조사합니다.")
+        
+        if not st.session_state.get('phase1_facility_program_report'):
+            st.info("블록 5를 먼저 실행해주세요.")
+        else:
+            # 학생 피드백 입력
+            student_feedback_6 = st.text_area(
+                "💬 학생 피드백 (선택사항)",
+                height=100,
+                placeholder="예: 국제학교 면적을 더 크게 / 호텔은 최소 규모로 / 특정 시설 제외",
+                key="phase1_block6_feedback",
+                help="블록 5 결과를 보고 수정할 사항이 있으면 입력하세요."
+            )
+            
+            col_block6 = st.columns([1, 1])
+            with col_block6[0]:
+                if st.button("블록 6 실행 / 재실행", key="phase1_run_area_reference"):
+                    try:
+                        with st.spinner("블록 6을 실행 중입니다..."):
+                            analyzer = get_cot_analyzer()
+                            all_blocks = get_example_blocks()
+                            block_map = {block.get('id'): block for block in all_blocks}
+                            block_id = "phase1_facility_area_reference"
+                            if block_id not in block_map:
+                                st.error("blocks.json에서 `phase1_facility_area_reference` 블록을 찾을 수 없습니다.")
+                            else:
+                                block5_result = st.session_state.get('phase1_facility_program_report', '')
+                                
+                                # 학생 피드백 추가
+                                feedback_text = ""
+                                if student_feedback_6.strip():
+                                    feedback_text = f"\n\n### 학생 피드백\n{student_feedback_6}"
+                                
+                                combined_input = f"{block5_result}{feedback_text}"
+                                
+                                project_context = {
+                                    "project_name": project_name or "미정",
+                                    "location": location or "미정",
+                                    "project_goals": project_goals or "",
+                                    "additional_info": additional_info or "",
+                                    "mission_phase": "Mission 1 · Phase 1.3"
+                                }
+                                result = analyzer.analyze_blocks_with_cot(
+                                    [block_id],
+                                    project_context,
+                                    combined_input,
+                                    {block_id: block_map[block_id]}
+                                )
+                                if result.get("success"):
+                                    analysis_results = result.get("analysis_results", {})
+                                    step_result = analysis_results.get(block_id, "")
+                                    st.session_state['phase1_facility_area_reference'] = step_result
+                                    
+                                    # analysis_results에도 저장하고 자동 저장
+                                    st.session_state.analysis_results[block_id] = step_result
+                                    project_info = {
+                                        "project_name": st.session_state.get('project_name', ''),
+                                        "location": st.session_state.get('location', '')
+                                    }
+                                    save_analysis_result(block_id, step_result, project_info)
+                                    
+                                    # 블록 7 결과 초기화 (재분석 시)
+                                    st.session_state.pop('phase1_facility_area_calculation', None)
+                                    st.success("블록 6 실행 완료!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"블록 6 실행 실패: {result.get('error', '알 수 없는 오류')}")
+                    except Exception as e:
+                        st.error(f"블록 6 실행 중 오류: {e}")
+            
+            with col_block6[1]:
+                if st.button("블록 6 결과 초기화", key="phase1_reset_block6"):
+                    st.session_state.pop('phase1_facility_area_reference', None)
+                    st.session_state.pop('phase1_facility_area_calculation', None)
+                    st.success("블록 6 결과를 초기화했습니다.")
+                    st.rerun()
+    
+    if st.session_state.get('phase1_facility_area_reference'):
+        with st.expander("📄 블록 6 결과", expanded=False):
+            st.markdown(st.session_state['phase1_facility_area_reference'])
+    
+    with st.expander("🤖 블록 7 · 면적 산정", expanded=not st.session_state.get('phase1_facility_area_calculation')):
+        st.caption("🟦 자체 프로그램 · `phase1_facility_area_calculation` 블록을 실행하여 시설별 면적을 자동으로 계산합니다.")
+        
+        if not st.session_state.get('phase1_facility_area_reference'):
+            st.info("블록 6을 먼저 실행해주세요.")
+        else:
+            # 학생 피드백 입력
+            student_feedback_7 = st.text_area(
+                "💬 학생 피드백 (선택사항)",
+                height=100,
+                placeholder="예: 총 면적을 더 줄여주세요 / 특정 시설의 면적 조정 / 우선순위 변경",
+                key="phase1_block7_feedback",
+                help="블록 6 결과를 보고 수정할 사항이 있으면 입력하세요."
+            )
+            
+            col_block7 = st.columns([1, 1])
+            with col_block7[0]:
+                if st.button("블록 7 실행 / 재실행", key="phase1_run_area_calculation"):
+                    try:
+                        with st.spinner("블록 7을 실행 중입니다..."):
+                            analyzer = get_cot_analyzer()
+                            all_blocks = get_example_blocks()
+                            block_map = {block.get('id'): block for block in all_blocks}
+                            block_id = "phase1_facility_area_calculation"
+                            if block_id not in block_map:
+                                st.error("blocks.json에서 `phase1_facility_area_calculation` 블록을 찾을 수 없습니다.")
+                            else:
+                                block6_result = st.session_state.get('phase1_facility_area_reference', '')
+                                
+                                # 학생 피드백 추가
+                                feedback_text = ""
+                                if student_feedback_7.strip():
+                                    feedback_text = f"\n\n### 학생 피드백\n{student_feedback_7}"
+                                
+                                combined_input = f"{block6_result}{feedback_text}"
+                                
+                                project_context = {
+                                    "project_name": project_name or "미정",
+                                    "location": location or "미정",
+                                    "project_goals": project_goals or "",
+                                    "additional_info": additional_info or "",
+                                    "mission_phase": "Mission 1 · Phase 1.3"
+                                }
+                                result = analyzer.analyze_blocks_with_cot(
+                                    [block_id],
+                                    project_context,
+                                    combined_input,
+                                    {block_id: block_map[block_id]}
+                                )
+                                if result.get("success"):
+                                    analysis_results = result.get("analysis_results", {})
+                                    step_result = analysis_results.get(block_id, "")
+                                    st.session_state['phase1_facility_area_calculation'] = step_result
+                                    
+                                    # analysis_results에도 저장하고 자동 저장
+                                    st.session_state.analysis_results[block_id] = step_result
+                                    project_info = {
+                                        "project_name": st.session_state.get('project_name', ''),
+                                        "location": st.session_state.get('location', '')
+                                    }
+                                    save_analysis_result(block_id, step_result, project_info)
+                                    
+                                    st.success("블록 7 실행 완료!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"블록 7 실행 실패: {result.get('error', '알 수 없는 오류')}")
+                    except Exception as e:
+                        st.error(f"블록 7 실행 중 오류: {e}")
+            
+            with col_block7[1]:
+                if st.button("블록 7 결과 초기화", key="phase1_reset_block7"):
+                    st.session_state.pop('phase1_facility_area_calculation', None)
+                    st.success("블록 7 결과를 초기화했습니다.")
+                    st.rerun()
+    
+    if st.session_state.get('phase1_facility_area_calculation'):
+        with st.expander("📄 블록 7 결과", expanded=False):
+            st.markdown(st.session_state['phase1_facility_area_calculation'])
+    
+    # 📄 AI 산출물 미리보기
+    st.markdown("---")
+    st.markdown("### 📄 AI 산출물 미리보기")
+    
+    for key_name, title in [
+        ('phase1_facility_program_report', "블록 5 · 시설 목록 AI 제안"),
+        ('phase1_facility_area_reference', "블록 6 · 면적 기준 조사"),
+        ('phase1_facility_area_calculation', "블록 7 · 면적 산정 결과")
+    ]:
+        if st.session_state.get(key_name):
+            with st.expander(f"📄 {title}", expanded=False):
+                report_text = st.session_state.get(key_name, "")
+                st.markdown(report_text)
+                st.download_button(
+                    label=f"📥 {title} 다운로드",
+                    data=report_text,
+                    file_name=f"{key_name}.txt",
+                    mime="text/plain",
+                    key=f"download_{key_name}"
+                )
+
 
 # 사이드바 - 설정
 with st.sidebar:
@@ -307,25 +2121,118 @@ with st.sidebar:
     from dotenv import load_dotenv
     load_dotenv()
     
-    # Streamlit secrets에서 먼저 확인
-    api_key = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+    # API 제공자 선택
+    st.subheader("🤖 AI 모델 선택")
+    provider_options = {
+        provider: config.get('display_name', provider.title())
+        for provider, config in PROVIDER_CONFIG.items()
+    }
+    selected_provider = st.selectbox(
+        "사용할 AI 모델을 선택하세요:",
+        options=list(provider_options.keys()),
+        format_func=lambda x: provider_options[x],
+        key='llm_provider',
+        help="분석에 사용할 AI 모델을 선택합니다. 각 모델별로 API 키가 필요합니다."
+    )
     
-    if not api_key:
-        st.error("ANTHROPIC_API_KEY가 설정되지 않았습니다!")
-        st.info("다음 중 하나의 방법으로 API 키를 설정해주세요:")
-        st.code("""
-# 방법 1: .streamlit/secrets.toml 파일에 추가
-[secrets]
-ANTHROPIC_API_KEY = "your_api_key_here"
+    # 선택된 제공자 정보 표시
+    provider_config = PROVIDER_CONFIG.get(selected_provider, {})
+    provider_name = provider_config.get('display_name', selected_provider)
+    model_name = provider_config.get('model', 'unknown')
+    api_key_env = provider_config.get('api_key_env', '')
+    
+    st.caption(f"모델: {model_name}")
+    
+    # 선택된 제공자의 API 키 확인 (Vertex AI는 ADC 사용, API 키 불필요)
+    api_key = get_api_key(selected_provider)
+    requires_api_key = provider_config.get('api_key_env') is not None
+    
+    if requires_api_key and not api_key:
+        st.error(f"{provider_name} API 키가 설정되지 않았습니다!")
+        st.info(f"다음 중 하나의 방법으로 {api_key_env}를 설정해주세요:")
+        
+        # API 키 설정 방법 상세 안내
+        with st.expander("📝 API 키 설정 방법 (클릭하여 펼치기)", expanded=True):
+            st.markdown("### 방법 1: .streamlit/secrets.toml 파일 사용 (권장)")
+            st.code(f"""
+# 1. 프로젝트 폴더에 .streamlit 폴더 생성 (없는 경우)
+# 2. .streamlit 폴더 안에 secrets.toml 파일 생성
+# 3. 다음 내용을 입력:
 
-# 방법 2: .env 파일에 추가
-ANTHROPIC_API_KEY=your_api_key_here
-        """, language="toml")
-        st.stop()
+[secrets]
+{api_key_env} = "your_api_key_here"
+
+# 예시:
+# {api_key_env} = "sk-ant-api03-..."
+            """, language="toml")
+            
+            st.markdown("### 방법 2: .env 파일 사용")
+            st.code(f"""
+# 1. 프로젝트 루트 폴더에 .env 파일 생성
+# 2. 다음 내용을 입력:
+
+{api_key_env}=your_api_key_here
+
+# 예시:
+# {api_key_env}=sk-ant-api03-...
+            """, language="bash")
+            
+            st.markdown("### 파일 위치 예시")
+            st.code(f"""
+프로젝트 폴더/
+├── .streamlit/
+│   └── secrets.toml  ← 방법 1: 여기에 추가
+├── .env              ← 방법 2: 여기에 추가
+└── app.py
+            """, language="plaintext")
+        
+        # 제공자별 API 키 발급 안내
+        st.markdown("**🔑 API 키 발급 안내:**")
+        if selected_provider == 'anthropic':
+            st.markdown("1. [Anthropic Console](https://console.anthropic.com/) 접속")
+            st.markdown("2. API Keys 섹션으로 이동")
+            st.markdown("3. 'Create Key' 클릭하여 새 키 생성")
+            st.markdown("4. 생성된 키 (sk-ant-로 시작)를 복사")
+        elif selected_provider == 'openai':
+            st.markdown("1. [OpenAI Platform](https://platform.openai.com/) 접속")
+            st.markdown("2. API Keys 섹션으로 이동")
+            st.markdown("3. 'Create new secret key' 클릭")
+            st.markdown("4. 생성된 키 (sk-로 시작)를 복사")
+        elif selected_provider == 'gemini':
+            st.markdown("1. [Google AI Studio](https://aistudio.google.com/) 접속")
+            st.markdown("2. Get API Key 클릭")
+            st.markdown("3. 새 프로젝트 생성 또는 기존 프로젝트 선택")
+            st.markdown("4. 생성된 API 키를 복사")
+            st.info("💡 **참고**: Google AI Studio API 키는 무료로 사용할 수 있으며, Vertex AI보다 설정이 간단합니다.")
+        elif selected_provider == 'deepseek':
+            st.markdown("1. [DeepSeek Platform](https://platform.deepseek.com/) 접속")
+            st.markdown("2. API Keys 섹션으로 이동")
+            st.markdown("3. 'Create API Key' 클릭")
+            st.markdown("4. 생성된 키를 복사")
+        
+        st.warning("⚠️ **중요**: API 키 설정 후 앱을 재시작해야 변경사항이 적용됩니다.")
     else:
-        st.success("API 키가 설정되었습니다!")
-        st.info(f"API 키 길이: {len(api_key)}자")
-        st.info(f"키 소스: {'Streamlit Secrets' if st.secrets.get('ANTHROPIC_API_KEY') else '환경변수'}")
+        # API 키가 설정된 경우
+        st.success(f"✅ {provider_name} API 키가 설정되었습니다!")
+        if api_key:
+            st.info(f"API 키 길이: {len(api_key)}자")
+        key_source = 'Streamlit Secrets' if (api_key_env and st.secrets.get(api_key_env)) else '환경변수'
+        st.info(f"키 소스: {key_source}")
+        
+        # 제공자 변경 시 DSPy 재초기화
+        if hasattr(st.session_state, '_last_llm_provider'):
+            if st.session_state._last_llm_provider != selected_provider:
+                st.info("🔄 AI 모델이 변경되었습니다. Analyzer를 재초기화합니다.")
+                # EnhancedArchAnalyzer의 초기화 상태 리셋
+                try:
+                    EnhancedArchAnalyzer.reset_lm()
+                    # 캐시된 analyzer 제거 (다음 호출 시 새로 생성됨)
+                    if 'cot_analyzer' in st.session_state:
+                        del st.session_state.cot_analyzer
+                    if '_last_analyzer_provider' in st.session_state:
+                        del st.session_state._last_analyzer_provider
+                except Exception:
+                    pass
     
     # 공간 데이터 상태 표시
     st.markdown("---")
@@ -350,44 +2257,81 @@ ANTHROPIC_API_KEY=your_api_key_here
         st.warning("⚠️ 공간 데이터 미업로드")
         st.caption("정확한 분석을 위해 Mapping에서 Shapefile을 업로드하세요")
         st.info("💡 왼쪽 사이드바에서 '3_🗺️_Mapping'을 클릭하여 이동하세요")
+    
+    # 전체 초기화 버튼
+    st.markdown("---")
+    st.subheader("🔄 세션 관리")
+    if st.button("🗑️ 전체 초기화", use_container_width=True, type="secondary"):
+        reset_all_state()
+        st.success("모든 데이터가 초기화되었습니다.")
+        st.rerun()
 
 # 메인 컨텐츠
-tab1, tab2, tab3, tab4 = st.tabs(["기본 정보 & 파일 업로드", "분석 블록 선택", "분석 실행", "결과 다운로드"])
+tab_project = tab_blocks = tab_run = tab_download = None  # type: ignore
+tab_project, tab_blocks, tab_run, tab_download = st.tabs(
+    ["기본 정보 & 파일 업로드", "분석 블록 선택", "분석 실행", "결과 다운로드"]
+)
 
-with tab1:
-    st.header("프로젝트 기본 정보")
+project_name = st.session_state.get("project_name", "")
+location = st.session_state.get("location", "")
+project_goals = st.session_state.get("project_goals", "")
+additional_info = st.session_state.get("additional_info", "")
+
+with tab_project:
+    st.header("프로젝트 기본 정보 입력")
+    st.caption("프로젝트 기본 정보는 이 탭에서 별도로 관리됩니다. 입력값은 자동 저장됩니다.")
     
-    # 프로젝트명 입력
-    project_name = st.text_input(
-        "프로젝트명", 
-        placeholder="예: 서울 도심 재생 프로젝트", 
-        help="도시 프로젝트의 이름을 입력하세요"
+    st.text_input(
+        "프로젝트명",
+        placeholder="예: 삼척 스포츠아카데미",
+        key="project_name"
     )
-    
-    # 기본 정보 입력 섹션
-    st.subheader("프로젝트 개요")
-    
-    location = st.text_input(
+    st.text_input(
         "위치/지역",
-        placeholder="예: 서울시 중구 명동 일대",
-        help="프로젝트가 진행될 도시 지역을 입력하세요"
+        placeholder="예: 강원도 삼척시 도계읍 일대",
+        key="location"
     )
     
-    # 프로젝트 목표
-    project_goals = st.text_area(
+    # 좌표 입력 (Google Maps용, 선택사항)
+    with st.expander("🗺️ 위치 좌표 입력 (Google Maps용, 선택사항)", expanded=False):
+        st.caption("Google Maps 기반 검색을 위해 위도/경도를 입력할 수 있습니다. 입력하지 않으면 지리적 데이터에서 자동으로 추출됩니다.")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.text_input(
+                "위도 (Latitude)",
+                placeholder="예: 37.5665",
+                key="latitude",
+                help="위도 값을 입력하세요 (예: 37.5665)"
+            )
+        with col2:
+            st.text_input(
+                "경도 (Longitude)",
+                placeholder="예: 126.9780",
+                key="longitude",
+                help="경도 값을 입력하세요 (예: 126.9780)"
+            )
+        if st.session_state.get('latitude') and st.session_state.get('longitude'):
+            try:
+                lat = float(st.session_state.latitude)
+                lon = float(st.session_state.longitude)
+                if -90 <= lat <= 90 and -180 <= lon <= 180:
+                    st.success(f"✅ 좌표 확인: ({lat}, {lon})")
+                else:
+                    st.warning("⚠️ 좌표 범위를 확인하세요. 위도: -90~90, 경도: -180~180")
+            except ValueError:
+                st.error("❌ 좌표는 숫자여야 합니다.")
+    
+    st.text_area(
         "프로젝트 목표",
-        placeholder="프로젝트의 목표, 비전, 기대효과를 입력하세요...",
+        placeholder="예: 국제 스포츠 아카데미 조성, 지역 경제 활성화, 교육·훈련 통합 프로그램 구축 등",
         height=80,
-        help="도시 프로젝트의 목표, 비전, 기대효과를 입력하세요"
+        key="project_goals"
     )
-    
-    # 추가 정보
-    st.subheader("추가 정보")
-    additional_info = st.text_area(
+    st.text_area(
         "추가 정보",
-        placeholder="프로젝트와 관련된 특별한 요구사항, 제약조건, 참고사항 등을 입력하세요...",
+        placeholder="특별한 제약조건이나 참고 사항이 있다면 입력하세요.",
         height=80,
-        help="프로젝트와 관련된 특별한 요구사항, 제약조건, 참고사항 등을 자유롭게 입력하세요"
+        key="additional_info"
     )
     
     st.markdown("---")
@@ -442,7 +2386,252 @@ with tab1:
         else:
             st.error(f"{file_extension.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
 
-with tab2:
+    # File Search Store 관리 섹션
+    with st.expander("📚 File Search Store 관리 (선택)", expanded=False):
+        st.caption("참고 문서를 File Search Store에 저장하여 Semantic Search를 활용할 수 있습니다.")
+        st.info("💡 **Store를 나누는 이유:**\n"
+                "- 프로젝트별로 문서를 분리 관리 (예: 서울시청_참고문서, 부산항_참고문서)\n"
+                "- 문서 카테고리별 분리 (예: 법규_Store, 선례_Store, 가이드라인_Store)\n"
+                "- 분석 시 필요한 Store만 선택적으로 사용 가능\n"
+                "- 하나의 Store에 모든 문서를 넣어도 되지만, 분리하면 관리가 더 편리합니다")
+        
+        # File Search Store 목록 조회
+        if 'file_search_stores' not in st.session_state:
+            st.session_state.file_search_stores = []
+        
+        if st.button("File Search Store 목록 새로고침", key="refresh_file_search_stores"):
+            try:
+                analyzer = EnhancedArchAnalyzer()
+                result = analyzer.list_file_search_stores()
+                if result.get('success'):
+                    stores = result.get('stores', [])
+                    st.session_state.file_search_stores = stores
+                    if stores:
+                        st.success(f"File Search Store {len(stores)}개를 찾았습니다.")
+                    else:
+                        st.info("File Search Store가 없습니다. 새 Store를 생성해주세요.")
+                else:
+                    error_msg = result.get('error', '알 수 없는 오류')
+                    st.error(f"목록 조회 실패: {error_msg}")
+            except Exception as e:
+                st.error(f"오류 발생: {str(e)}")
+        
+        # Store 목록 표시
+        if st.session_state.file_search_stores:
+            st.markdown("**File Search Stores:**")
+            for store in st.session_state.file_search_stores:
+                col1, col2, col3 = st.columns([2, 1, 1])
+                with col1:
+                    store_display = store.get('display_name', 'N/A')
+                    store_name = store.get('name', 'N/A')
+                    st.write(f"• **{store_display}**")
+                    st.caption(f"Store ID: {store_name}")
+                with col2:
+                    if st.button("📁 파일 목록", key=f"list_files_{store.get('name', '')}"):
+                        try:
+                            analyzer = EnhancedArchAnalyzer()
+                            result = analyzer.list_files_in_store(store.get('name', ''))
+                            if result.get('success'):
+                                st.session_state[f'store_files_{store.get("name", "")}'] = result
+                                st.success(f"파일 {result.get('file_count', 0)}개를 찾았습니다.")
+                                st.rerun()
+                            else:
+                                error_msg = result.get('error', '알 수 없는 오류')
+                                st.error(f"파일 목록 조회 실패: {error_msg}")
+                        except Exception as e:
+                            st.error(f"오류 발생: {str(e)}")
+                with col3:
+                    if st.button("삭제", key=f"delete_store_{store.get('name', '')}"):
+                        try:
+                            analyzer = EnhancedArchAnalyzer()
+                            result = analyzer.delete_file_search_store(store.get('name', ''))
+                            if result.get('success'):
+                                st.success(f"Store 삭제 완료: {store.get('display_name', store.get('name', ''))}")
+                                # 세션 상태에서 삭제된 Store 제거
+                                st.session_state.file_search_stores = [
+                                    s for s in st.session_state.file_search_stores 
+                                    if s.get('name') != store.get('name')
+                                ]
+                                st.rerun()
+                            else:
+                                error_msg = result.get('error', '알 수 없는 오류')
+                                st.error(f"삭제 실패: {error_msg}")
+                        except Exception as e:
+                            st.error(f"오류 발생: {str(e)}")
+                
+                # 파일 목록 표시 (확장 가능)
+                store_key = f'store_files_{store.get("name", "")}'
+                if st.session_state.get(store_key):
+                    file_result = st.session_state[store_key]
+                    if file_result.get('success'):
+                        files = file_result.get('files', [])
+                        file_count = file_result.get('file_count', 0)
+                        with st.expander(f"📁 {file_result.get('store_display_name', 'Store')} 내 파일 ({file_count}개)", expanded=False):
+                            if files:
+                                for file_info in files:
+                                    file_name = file_info.get('display_name') or file_info.get('name', 'N/A')
+                                    file_size = file_info.get('size_bytes')
+                                    file_time = file_info.get('create_time')
+                                    
+                                    size_str = ""
+                                    if file_size:
+                                        if file_size < 1024:
+                                            size_str = f"{file_size} B"
+                                        elif file_size < 1024 * 1024:
+                                            size_str = f"{file_size / 1024:.1f} KB"
+                                        else:
+                                            size_str = f"{file_size / (1024 * 1024):.1f} MB"
+                                    
+                                    time_str = ""
+                                    if file_time:
+                                        try:
+                                            from datetime import datetime
+                                            if isinstance(file_time, str):
+                                                dt = datetime.fromisoformat(file_time.replace('Z', '+00:00'))
+                                            else:
+                                                dt = file_time
+                                            time_str = dt.strftime("%Y-%m-%d %H:%M")
+                                        except:
+                                            time_str = str(file_time)
+                                    
+                                    info_parts = [file_name]
+                                    if size_str:
+                                        info_parts.append(f"({size_str})")
+                                    if time_str:
+                                        info_parts.append(f"- {time_str}")
+                                    
+                                    st.write(f"  • {' '.join(info_parts)}")
+                            else:
+                                st.info("이 Store에는 파일이 없습니다.")
+        
+        # 새 Store 생성
+        new_store_name = st.text_input("새 File Search Store 이름", key="new_file_search_store_name")
+        if st.button("File Search Store 생성", key="create_file_search_store"):
+            if new_store_name and new_store_name.strip():
+                try:
+                    analyzer = EnhancedArchAnalyzer()
+                    result = analyzer.create_file_search_store(new_store_name.strip())
+                    if result.get('success'):
+                        st.success(f"Store 생성 완료: {result.get('display_name', result.get('store_name', ''))}")
+                        # 목록 새로고침
+                        refresh_result = analyzer.list_file_search_stores()
+                        if refresh_result.get('success'):
+                            st.session_state.file_search_stores = refresh_result.get('stores', [])
+                        st.rerun()
+                    else:
+                        error_msg = result.get('error', '알 수 없는 오류')
+                        st.error(f"생성 실패: {error_msg}")
+                except Exception as e:
+                    st.error(f"오류 발생: {str(e)}")
+            else:
+                st.warning("Store 이름을 입력해주세요.")
+        
+        # 파일 업로드 (File Search Store에)
+        if st.session_state.file_search_stores:
+            selected_store = st.selectbox(
+                "파일을 업로드할 Store 선택",
+                options=[s.get('name') for s in st.session_state.file_search_stores],
+                format_func=lambda x: next((s.get('display_name') for s in st.session_state.file_search_stores if s.get('name') == x), x),
+                key="selected_file_search_store"
+            )
+            
+            file_for_store = st.file_uploader(
+                "File Search Store에 업로드할 파일",
+                type=['pdf', 'txt', 'docx', 'xlsx', 'csv', 'json', 'md'],
+                key="file_for_file_search_store"
+            )
+            
+            if file_for_store and selected_store:
+                if st.button("File Search Store에 업로드", key="upload_to_file_search_store"):
+                    try:
+                        import tempfile
+                        import os
+                        
+                        analyzer = EnhancedArchAnalyzer()
+                        
+                        # 임시 파일로 저장
+                        file_ext = file_for_store.name.split('.')[-1] if '.' in file_for_store.name else ''
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}" if file_ext else None) as tmp_file:
+                            tmp_file.write(file_for_store.getvalue())
+                            tmp_path = tmp_file.name
+                        
+                        try:
+                            with st.spinner("파일 업로드 및 인덱싱 중..."):
+                                result = analyzer.upload_to_file_search_store(
+                                    file_path=tmp_path,
+                                    store_name=selected_store,
+                                    display_name=file_for_store.name
+                                )
+                            
+                            if result.get('success'):
+                                st.success(f"파일 업로드 및 인덱싱 완료: {file_for_store.name}")
+                                # 파일 목록 캐시 초기화 (새로고침 필요)
+                                store_key = f'store_files_{selected_store}'
+                                if store_key in st.session_state:
+                                    del st.session_state[store_key]
+                            else:
+                                error_msg = result.get('error', '알 수 없는 오류')
+                                st.error(f"업로드 실패: {error_msg}")
+                        finally:
+                            # 임시 파일 정리
+                            if os.path.exists(tmp_path):
+                                try:
+                                    os.unlink(tmp_path)
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        st.error(f"오류 발생: {str(e)}")
+    
+    # 참고 URL 입력 섹션
+    st.markdown("#### 참고 URL 입력 (선택)")
+    st.caption("분석 시 참고할 웹 페이지 URL을 입력하세요. 최대 20개까지 입력 가능합니다.")
+    
+    if 'reference_urls' not in st.session_state:
+        st.session_state.reference_urls = []
+    
+    url_input = st.text_input(
+        "참고 URL 입력 (한 줄에 하나씩, 최대 20개)",
+        key="reference_url_input",
+        help="예: https://example.com/document.pdf"
+    )
+    
+    if st.button("URL 추가", key="add_reference_url"):
+        if url_input:
+            # URL 유효성 검사
+            if url_input.startswith(('http://', 'https://')):
+                if len(st.session_state.reference_urls) < 20:
+                    if url_input not in st.session_state.reference_urls:
+                        st.session_state.reference_urls.append(url_input)
+                        st.success(f"URL 추가됨: {url_input}")
+                    else:
+                        st.warning("이미 추가된 URL입니다.")
+                else:
+                    st.warning("최대 20개까지만 추가할 수 있습니다.")
+            else:
+                st.warning("올바른 URL 형식이 아닙니다. http:// 또는 https://로 시작해야 합니다.")
+    
+    if st.session_state.reference_urls:
+        st.markdown("**현재 참고 URL:**")
+        for idx, url in enumerate(st.session_state.reference_urls):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.write(f"{idx + 1}. {url}")
+            with col2:
+                if st.button("삭제", key=f"remove_url_{idx}"):
+                    st.session_state.reference_urls.pop(idx)
+                    st.rerun()
+        
+        if st.button("모든 URL 삭제", key="clear_all_urls"):
+            st.session_state.reference_urls = []
+            st.rerun()
+    
+    # 입력값 최신화
+    project_name = st.session_state.get("project_name", "")
+    location = st.session_state.get("location", "")
+    project_goals = st.session_state.get("project_goals", "")
+    additional_info = st.session_state.get("additional_info", "")
+
+with tab_blocks:
     st.header("분석 블록 선택")
     
     # 기본 정보나 파일 중 하나라도 있으면 진행
@@ -453,44 +2642,63 @@ with tab2:
         st.warning("프로젝트 기본 정보를 입력하거나 파일을 업로드해주세요.")
         st.stop()
     
-    # 예시 블록들 표시
-    st.subheader("예시 분석 블록")
     
     example_blocks = get_example_blocks()
-    for block in example_blocks:
-        block_id = block['id']
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown(f"**{block['name']}**")
-            st.caption(block['description'])
-        with col2:
-            if st.checkbox("선택", key=f"select_{block_id}"):
-                if block_id not in st.session_state['selected_blocks']:
-                    st.session_state['selected_blocks'].append(block_id)
-            else:
-                if block_id in st.session_state['selected_blocks']:
-                    st.session_state['selected_blocks'].remove(block_id)
-    
-    # 사용자 정의 블록들 표시
-    st.subheader("사용자 정의 블록")
     custom_blocks = load_custom_blocks()
+    all_blocks = example_blocks + custom_blocks
+    block_lookup = {
+        block.get('id'): block
+        for block in all_blocks
+        if isinstance(block, dict) and block.get('id')
+    }
     
-    if custom_blocks:
-        for block in custom_blocks:
-            block_id = block['id']
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown(f"**{block['name']}**")
-                st.caption(block['description'])
-            with col2:
-                if st.checkbox("선택", key=f"select_{block_id}"):
-                    if block_id not in st.session_state['selected_blocks']:
-                        st.session_state['selected_blocks'].append(block_id)
-                else:
-                    if block_id in st.session_state['selected_blocks']:
-                        st.session_state['selected_blocks'].remove(block_id)
+    grouped_blocks = group_blocks_by_category(all_blocks)
+    
+    if not grouped_blocks:
+        st.info("사용 가능한 분석 블록이 없습니다.")
     else:
-        st.info("사용자 정의 블록이 없습니다.")
+        st.subheader("블록 목록")
+        ordered_categories = iter_categories_in_order(grouped_blocks)
+        total_categories = len(ordered_categories)
+        
+        for idx, category in enumerate(ordered_categories):
+            st.markdown(f"#### 📂 {category}")
+            for block_idx, block in enumerate(grouped_blocks[category]):
+                block_id = block.get('id')
+                if not block_id:
+                    continue
+                
+                is_custom_block = (
+                    block.get('created_by') == 'user' or
+                    str(block_id).startswith('custom_')
+                )
+                
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.markdown(f"**{block.get('name', '이름 없음')}**")
+                    description = block.get('description')
+                    if description:
+                        st.caption(description)
+                    if is_custom_block:
+                        st.caption("사용자 정의 블록")
+                
+                with col2:
+                    is_selected = block_id in st.session_state['selected_blocks']
+                    # 카테고리와 인덱스를 포함하여 고유한 key 생성
+                    unique_key = f"select_{category}_{block_idx}_{block_id}"
+                    checkbox_value = st.checkbox(
+                        "선택",
+                        key=unique_key,
+                        value=is_selected
+                    )
+                    
+                    if checkbox_value and not is_selected:
+                        st.session_state['selected_blocks'].append(block_id)
+                    elif not checkbox_value and is_selected:
+                        st.session_state['selected_blocks'].remove(block_id)
+            
+            if idx < total_categories - 1:
+                st.divider()
     
     # 선택된 블록들 표시 및 순서 조정
     selected_blocks = st.session_state['selected_blocks']
@@ -501,19 +2709,17 @@ with tab2:
         import pandas as pd
         
         block_info_list = []
-        for block_id in selected_blocks:
-            block_name = "알 수 없음"
-            block_description = ""
-            for block in example_blocks + custom_blocks:
-                if block['id'] == block_id:
-                    block_name = block['name']
-                    block_description = block['description']
-                    break
+        for order, block_id in enumerate(selected_blocks, start=1):
+            block = block_lookup.get(block_id)
+            block_name = block.get('name', '알 수 없음') if block else "알 수 없음"
+            block_description = block.get('description', '') if block else ""
+            block_category = resolve_block_category(block) if block else "기타"
             block_info_list.append({
-                '순서': len(block_info_list) + 1,
+                '순서': order,
+                '카테고리': block_category,
                 '블록명': block_name,
                 '설명': block_description,
-                '블록ID': block_id
+                '블록ID': block_id 
             })
         
         # 순서 조정을 위한 데이터프레임 생성
@@ -529,7 +2735,7 @@ with tab2:
             
             # 수정 가능한 데이터 에디터로 순서 조정
             edited_df = st.data_editor(
-                df[['순서', '블록명', '설명']],
+                df[['순서', '카테고리', '블록명', '설명']],
                 use_container_width=True,
                 num_rows="fixed",
                 column_config={
@@ -539,6 +2745,10 @@ with tab2:
                         min_value=1,
                         max_value=len(block_info_list),
                         step=1
+                    ),
+                    "카테고리": st.column_config.TextColumn(
+                        "카테고리",
+                        disabled=True
                     ),
                     "블록명": st.column_config.TextColumn(
                         "블록명",
@@ -556,14 +2766,12 @@ with tab2:
             
             # 위/아래 이동 버튼들
             for i, (_, row) in enumerate(df.iterrows()):
-                st.markdown(f"**{row['블록명']}**")
+                st.markdown(f"**[{row['카테고리']}] {row['블록명']}**")
                 col_up, col_down = st.columns(2)
                 
                 with col_up:
                     if st.button("위로", key=f"up_{row['블록ID']}", disabled=(i == 0)):
-                        # 위로 이동
                         if i > 0:
-                            # session_state에서 직접 수정
                             current_blocks = st.session_state['selected_blocks']
                             current_blocks[i], current_blocks[i-1] = current_blocks[i-1], current_blocks[i]
                             st.session_state['selected_blocks'] = current_blocks
@@ -571,9 +2779,7 @@ with tab2:
                 
                 with col_down:
                     if st.button("아래로", key=f"down_{row['블록ID']}", disabled=(i == len(selected_blocks)-1)):
-                        # 아래로 이동
                         if i < len(selected_blocks) - 1:
-                            # session_state에서 직접 수정
                             current_blocks = st.session_state['selected_blocks']
                             current_blocks[i], current_blocks[i+1] = current_blocks[i+1], current_blocks[i]
                             st.session_state['selected_blocks'] = current_blocks
@@ -581,52 +2787,54 @@ with tab2:
         
         # 순서 변경사항이 있는지 확인하고 적용
         if not edited_df['순서'].equals(df['순서']):
-            # 새로운 순서로 블록 재정렬
-            new_order = edited_df.sort_values('순서')['순서'].tolist()
-            
-            # 블록ID와 순서를 매핑
-            block_id_to_order = {}
-            for i, (_, row) in enumerate(df.iterrows()):
-                block_id_to_order[row['블록ID']] = new_order[i] - 1  # 0-based index
-            
-            # 새로운 순서로 블록들 재정렬하고 session_state에 저장
-            new_blocks = sorted(st.session_state['selected_blocks'], key=lambda x: block_id_to_order[x])
-            st.session_state['selected_blocks'] = new_blocks
-            st.success("블록 순서가 업데이트되었습니다!")
-            st.rerun()
+            try:
+                sorted_indices = edited_df.sort_values('순서', kind="stable").index
+                new_blocks = [df.loc[idx, '블록ID'] for idx in sorted_indices]
+                st.session_state['selected_blocks'] = new_blocks
+                st.success("블록 순서가 업데이트되었습니다!")
+                st.rerun()
+            except Exception:
+                st.error("블록 순서를 업데이트하는 중 문제가 발생했습니다. 입력값을 확인해주세요.")
         
         # 최종 선택된 블록들 표시
         st.subheader("최종 분석 순서")
         for i, block_id in enumerate(st.session_state['selected_blocks']):
-            block_name = "알 수 없음"
-            for block in example_blocks + custom_blocks:
-                if block['id'] == block_id:
-                    block_name = block['name']
-                    break
-            st.write(f"{i+1}. {block_name}")
+            block = block_lookup.get(block_id)
+            if block:
+                category = resolve_block_category(block)
+                block_name = block.get('name', '알 수 없음')
+                st.write(f"{i+1}. [{category}] {block_name}")
+            else:
+                st.write(f"{i+1}. {block_id} (정보 없음)")
     else:
         st.warning("분석할 블록을 선택해주세요.")
 
-with tab3:
+with tab_run:
     st.header("분석 실행")
-    
-    # 기본 정보와 파일 업로드 상태 확인
     has_basic_info = any([project_name, location, project_goals, additional_info])
     has_file = st.session_state.get('pdf_uploaded', False)
-    
+
     if not has_basic_info and not has_file:
         st.warning("프로젝트 기본 정보를 입력하거나 파일을 업로드해주세요.")
         st.stop()
-    
-    if not st.session_state.get('selected_blocks'):
+
+    selected_blocks = st.session_state.get('selected_blocks', [])
+    if not selected_blocks:
         st.warning("먼저 분석 블록을 선택해주세요.")
         st.stop()
-    
-    # 입력된 정보 요약 표시
+
+    example_blocks = get_example_blocks()
+    custom_blocks = load_custom_blocks()
+    all_blocks = example_blocks + custom_blocks
+    block_lookup = {
+        block.get('id'): block
+        for block in all_blocks
+        if isinstance(block, dict) and block.get('id')
+    }
+
     st.subheader("분석 대상 정보")
-    
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("**프로젝트 정보**")
         if project_name:
@@ -634,297 +2842,458 @@ with tab3:
         if location:
             st.write(f"• 위치/지역: {location}")
         if project_goals:
-            st.write(f"• 프로젝트 목표: {project_goals[:100]}...")
+            ellipsis = "..." if len(project_goals) > 100 else ""
+            st.write(f"• 프로젝트 목표: {project_goals[:100]}{ellipsis}")
         if additional_info:
-            st.write(f"• 추가 정보: {additional_info[:100]}...")
-    
+            ellipsis = "..." if len(additional_info) > 100 else ""
+            st.write(f"• 추가 정보: {additional_info[:100]}{ellipsis}")
+
     with col2:
         st.markdown("**파일 정보**")
         if has_file:
             file_analysis = st.session_state.get('file_analysis', {})
-            # 파일명 가져오기 (session_state에서 직접 또는 uploaded_file 변수에서)
             file_name = "N/A"
-            if 'uploaded_file' in st.session_state and st.session_state['uploaded_file']:
+            if st.session_state.get('uploaded_file'):
                 file_name = st.session_state['uploaded_file'].name
             elif uploaded_file is not None:
                 file_name = uploaded_file.name
-            
             st.write(f"• 파일명: {file_name}")
             st.write(f"• 파일 유형: {file_analysis.get('file_type', 'N/A')}")
             st.write(f"• 텍스트 길이: {file_analysis.get('char_count', 0)}자")
             st.write(f"• 단어 수: {file_analysis.get('word_count', 0)}단어")
         else:
             st.write("• 파일 없음 (기본 정보만 사용)")
-    
-    st.markdown("---")
-    
-    # 블록 간 Chain of Thought 분석 (기본 활성화)
-    st.info("🔗 블록 간 Chain of Thought (CoT) 분석이 활성화되어 있습니다. 각 블록의 분석 결과가 다음 블록 분석에 누적되어 연결됩니다.")
-    
-    if st.button("분석 시작", type="primary"):
-        # DSPy 분석기 초기화
-        try:
-            analyzer = EnhancedArchAnalyzer()
-        except Exception as e:
-            st.error(f"분석기 초기화 실패: {e}")
-            st.stop()
-        
-        # 진행 상황 표시
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        selected_blocks = st.session_state['selected_blocks']
-        total_blocks = len(selected_blocks)
-        
-        # 파일 텍스트 가져오기
-        file_text = st.session_state.get('pdf_text', '') if has_file else ""
-        
-        # 프로젝트 정보 구성
-        project_info = {
-            "project_name": project_name,
-            "location": location,
-            "project_goals": project_goals,
-            "additional_info": additional_info,
-            "file_text": file_text
-        }
-        
-        # 공간 데이터 통합
-        try:
-            # 다중 레이어 지원 (geo_layers 딕셔너리)
-            if st.session_state.get('geo_layers') and len(st.session_state.geo_layers) > 0:
-                from geo_data_loader import extract_spatial_context_for_ai
-                
-                # 모든 레이어의 공간 데이터 통합
-                spatial_contexts = []
-                for layer_name, layer_data in st.session_state.geo_layers.items():
-                    gdf = layer_data['gdf']
-                    info = layer_data['info']
-                    
-                    # 레이어 이름에서 타입 추론
-                    layer_type = 'general'
-                    if any(keyword in layer_name for keyword in ['행정', '시군', '읍면', '법정', 'adm']):
-                        layer_type = 'administrative'
-                    elif any(keyword in layer_name for keyword in ['공시', '가격', '지가', 'price']):
-                        layer_type = 'land_price'
-                    elif any(keyword in layer_name for keyword in ['소유', '토지', 'owner']):
-                        layer_type = 'ownership'
-                    
-                    spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
-                    spatial_contexts.append(f"**레이어: {layer_name}**\n{spatial_text}")
-                
-                if spatial_contexts:
-                    project_info["spatial_data_context"] = "\n\n---\n\n".join(spatial_contexts)
-                    project_info["has_geo_data"] = True
-                    st.info("📍 공간 데이터가 AI 분석에 포함됩니다")
-            
-            # 기존 단일 레이어 지원 (하위 호환성)
-            elif st.session_state.get('uploaded_gdf') is not None:
-                from geo_data_loader import extract_spatial_context_for_ai
-                gdf = st.session_state.uploaded_gdf
-                layer_type = st.session_state.get('layer_type', 'general')
-                
-                spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
-                project_info["spatial_data_context"] = spatial_text
-                project_info["has_geo_data"] = True
-                st.info("📍 공간 데이터가 AI 분석에 포함됩니다")
-        except Exception as e:
-            st.warning(f"공간 데이터 통합 중 오류: {e}")
-            project_info["has_geo_data"] = False
-        
-        # 블록 정보 수집
-        example_blocks = get_example_blocks()
-        custom_blocks = load_custom_blocks()
-        block_infos = {}
-        
-        for block in example_blocks + custom_blocks:
-            if block['id'] in selected_blocks:
-                block_infos[block['id']] = block
-        
-        # 🔗 블록 간 Chain of Thought 분석 (항상 활성화)
-        status_text.text("🔗 블록 간 Chain of Thought 분석 시작...")
-        
-        # 진행 상황 표시를 위한 컨테이너 생성
-        progress_container = st.container()
-        with progress_container:
-            progress_text = st.empty()
-            progress_bar = st.progress(0)
-        
-        # 진행 상황 콜백 함수
-        def update_progress(message):
-            progress_text.text(message)
-            # 메시지에서 현재 블록 번호 추출하여 진행률 계산
-            if "블록 분석 중" in message:
-                try:
-                    # "📊 1/3 블록 분석 중" 형태에서 현재 번호 추출
-                    current = int(message.split("📊 ")[1].split("/")[0])
-                    total = int(message.split("/")[1].split(" ")[0])
-                    progress = current / total
-                    progress_bar.progress(progress)
-                except:
-                    pass
-        
-        try:
-            result = analyzer.analyze_blocks_with_cot(
-                selected_blocks, 
-                project_info, 
-                file_text, 
-                block_infos,
-                progress_callback=update_progress
-            )
-            
-            if result['success']:
-                analysis_results = result['analysis_results']
-                cot_history = result['cot_history']
-                
-                # 진행 상황 표시 정리
-                with progress_container:
-                    progress_text.text("✅ 분석 완료!")
-                    progress_bar.progress(1.0)
-                
-                # 세션 상태에 저장
-                st.session_state['analysis_results'] = analysis_results
-                st.session_state['cot_history'] = cot_history
-                
-                # 분석 완료 메시지
-                st.success(f"✅ CoT 분석 완료! {len(analysis_results)}개 블록이 연결되어 분석됨")
-                
-            else:
-                # 진행 상황 표시 정리
-                with progress_container:
-                    progress_text.text("❌ 분석 실패")
-                    progress_bar.progress(0)
-                st.error(f"CoT 분석 실패: {result.get('error', '알 수 없는 오류')}")
-                
-        except Exception as e:
-            # 진행 상황 표시 정리
-            with progress_container:
-                progress_text.text("❌ 오류 발생")
-                progress_bar.progress(0)
-            st.error(f"CoT 분석 중 오류 발생: {e}")
-            st.error("분석을 다시 시도해주세요.")
-        
-        # 기본 정보와 분석 결과를 blocks.json에 저장
-        import json
-        from datetime import datetime
-        
-        # 프로젝트 정보 구성
-        project_info = {
-            "project_name": project_name or "프로젝트",
-            "location": location or "N/A",
-            "project_goals": project_goals or "N/A",
-            "additional_info": additional_info or "N/A"
-        }
-        
-        # 분석 결과를 별도 파일에 저장
-        analysis_folder = "analysis_results"
-        
-        # analysis_results 폴더가 없으면 생성
-        if not os.path.exists(analysis_folder):
-            os.makedirs(analysis_folder)
-        
-        analysis_filename = f"analysis_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        analysis_filepath = os.path.join(analysis_folder, analysis_filename)
-        
-        analysis_data = {
-            "project_info": project_info,
-            "analysis_results": analysis_results,
-            "pdf_text": st.session_state.get('pdf_text', ''),
-            "file_analysis": st.session_state.get('file_analysis', {}),
-            "analysis_timestamp": datetime.now().isoformat(),
-            "cot_history": []  # Chain of Thought 히스토리 (향후 확장 가능)
-        }
-        
-        # 분석 결과 파일에 저장
-        try:
-            with open(analysis_filepath, 'w', encoding='utf-8') as f:
-                json.dump(analysis_data, f, ensure_ascii=False, indent=2)
-            st.success(f"분석 결과가 {analysis_filepath}에 저장되었습니다!")
-        except Exception as e:
-            st.warning(f"분석 결과 저장 실패: {e}")
-        
-        # 결과 미리보기 - 탭 형태로 표시
-        if analysis_results:
-            st.subheader("📊 분석 결과")
-            
-            # 블록별 탭 생성
-            tab_names = []
-            tab_contents = []
-            
-            for i, (block_id, result) in enumerate(analysis_results.items(), 1):
-                # 블록 이름 찾기
-                block_name = "알 수 없음"
-                
-                for block in example_blocks + custom_blocks:
-                    if block['id'] == block_id:
-                        block_name = block['name']
-                        break
-                
-                tab_names.append(f"{i}. {block_name}")
-                tab_contents.append(result)
-            
-            # 탭 생성 및 표시
-            if tab_names:
-                tabs = st.tabs(tab_names)
-                for i, tab in enumerate(tabs):
-                    with tab:
-                        # 품질 검증 결과 표시
-                        block_id = list(analysis_results.keys())[i]
-                        cot_history = st.session_state.get('cot_history', [])
-                        
-                        # 해당 블록의 검증 결과 찾기
-                        validation_result = None
-                        for history_item in cot_history:
-                            if history_item.get('block_id') == block_id:
-                                validation_result = history_item.get('validation')
-                                break
-                        
-                        # 품질 점수 및 등급 표시
-                        if validation_result and validation_result.get('success'):
-                            quality_score = None
-                            quality_grade = "미평가"
-                            
-                            validation_text = validation_result.get('validation', '')
-                            
-                            if validation_text:
-                                import re
-                                # 점수 추출
-                                score_match = re.search(r'종합 점수:\s*(\d+)/25', validation_text)
-                                if score_match:
-                                    quality_score = int(score_match.group(1))
-                                
-                                # 등급 추출
-                                grade_match = re.search(r'품질 등급:\s*([가-힣]+)', validation_text)
-                                if grade_match:
-                                    quality_grade = grade_match.group(1)
-                            
-                            # 품질 등급만 표시
-                            if quality_score:
-                                # 점수에 따른 색상 설정
-                                if quality_score >= 20:
-                                    st.success(f"🏆 품질 등급: {quality_grade}")
-                                elif quality_score >= 15:
-                                    st.info(f"📊 품질 등급: {quality_grade}")
-                                elif quality_score >= 10:
-                                    st.warning(f"⚠️ 품질 등급: {quality_grade}")
-                                else:
-                                    st.error(f"❌ 품질 등급: {quality_grade}")
-                        else:
-                            st.warning("검증 결과가 없거나 검증에 실패했습니다.")
-                        
-                        # 분석 결과 표시
-                        st.markdown(tab_contents[i])
-                        
-                        # 각 탭 하단에 블록 정보 표시
-                        with st.expander("ℹ️ 블록 정보"):
-                            block_id = list(analysis_results.keys())[i]
-                            for block in example_blocks + custom_blocks:
-                                if block['id'] == block_id:
-                                    st.write(f"**블록 ID:** {block['id']}")
-                                    st.write(f"**설명:** {block.get('description', 'N/A')}")
-                                    st.write(f"**역할:** {block.get('role', 'N/A')}")
-                                    break
+        reference_docs = st.session_state.get('reference_documents', [])
+        if reference_docs:
+            total_chars = sum(doc.get('char_count', 0) for doc in reference_docs)
+            st.write(f"• 참고 자료: {len(reference_docs)}건 ({total_chars:,}자)")
 
-with tab4:
+    st.markdown("---")
+
+    base_text_candidates: List[str] = []
+    if has_file:
+        base_text_candidates.append(st.session_state.get('pdf_text', ''))
+    reference_combined = st.session_state.get('reference_combined_text', '')
+    if reference_combined:
+        base_text_candidates.append(reference_combined)
+    base_text_candidates.extend(filter(None, [project_name, location, project_goals, additional_info]))
+    base_text_source = "\n\n".join([text for text in base_text_candidates if text]).strip()
+
+    options = ensure_preprocessing_options_structure(st.session_state.preprocessing_options)
+    with st.expander("🧹 분석 입력 전처리 & 프롬프트 강화", expanded=False):
+        colA, colB = st.columns(2)
+        options['clean_whitespace'] = colA.checkbox("공백/특수문자 정리", value=options['clean_whitespace'])
+        options['collapse_blank_lines'] = colA.checkbox("연속 빈 줄 축소", value=options['collapse_blank_lines'])
+        options['limit_chars'] = int(colA.number_input("분석 입력 최대 길이(문자)", min_value=1000, max_value=12000, value=int(options['limit_chars']), step=500))
+        options['include_intro_snippet'] = colA.checkbox("서두 스니펫 포함", value=options['include_intro_snippet'])
+        options['intro_snippet_chars'] = int(colA.number_input("스니펫 길이(문자)", min_value=200, max_value=1200, value=int(options['intro_snippet_chars']), step=100))
+        options['include_keywords'] = colB.checkbox("핵심 키워드 추출", value=options['include_keywords'])
+        options['keyword_count'] = int(colB.number_input("키워드 개수", min_value=5, max_value=30, value=int(options['keyword_count']), step=1))
+        options['include_numeric_sentences'] = colB.checkbox("주요 수치 문장 추출", value=options['include_numeric_sentences'])
+        options['numeric_sentence_count'] = int(colB.number_input("수치 문장 개수", min_value=1, max_value=20, value=int(options['numeric_sentence_count']), step=1))
+        st.session_state.preprocessing_options = options
+
+        disabled_run = not base_text_source
+        if st.button("전처리 실행", disabled=disabled_run):
+            if not base_text_source:
+                st.warning("전처리할 텍스트가 없습니다.")
+            else:
+                with st.spinner("전처리 중..."):
+                    processed_text, summary_text, stats = preprocess_analysis_text(base_text_source, options)
+                st.session_state.preprocessed_text = processed_text
+                st.session_state.preprocessed_summary = summary_text
+                st.session_state.preprocessing_meta = stats
+                st.success("전처리가 완료되었습니다. 필요 시 내용을 직접 수정할 수 있습니다.")
+                reset_step_analysis_state()
+
+        summary_text = st.session_state.get('preprocessed_summary', '')
+        processed_text = st.session_state.get('preprocessed_text', '')
+        meta = st.session_state.get('preprocessing_meta', {})
+        if summary_text:
+            st.markdown("**프롬프트 보조 요약 (편집 가능)**")
+            st.text_area("프롬프트 요약", key="preprocessed_summary", height=200)
+        if processed_text:
+            with st.expander("정제된 전체 텍스트 (편집 가능)", expanded=False):
+                st.text_area("정제된 텍스트", key="preprocessed_text", height=240)
+        if meta:
+            st.caption(f"전처리 통계: 원본 {meta.get('original_chars', 0):,}자 → 정제 {meta.get('processed_chars', 0):,}자 · 키워드 {meta.get('keyword_total', 0)}개")
+
+    prev_use_preprocessed = st.session_state.use_preprocessed_text
+    use_preprocessed = st.toggle("정제된 텍스트를 LLM 분석에 사용", value=prev_use_preprocessed)
+    if use_preprocessed != prev_use_preprocessed:
+        st.session_state.use_preprocessed_text = use_preprocessed
+        reset_step_analysis_state()
+    if use_preprocessed and not st.session_state.preprocessed_text:
+        st.warning("정제된 텍스트가 비어 있습니다. 전처리 후 다시 시도해주세요.")
+
+    analysis_text = st.session_state.preprocessed_text if (st.session_state.use_preprocessed_text and st.session_state.preprocessed_text) else base_text_source
+
+    project_info_payload = {
+        "project_name": project_name,
+        "location": location,
+        "project_goals": project_goals,
+        "additional_info": additional_info,
+        "file_text": analysis_text
+    }
+    if st.session_state.preprocessed_summary:
+        project_info_payload["preprocessed_summary"] = st.session_state.preprocessed_summary
+    if st.session_state.preprocessing_meta:
+        project_info_payload["preprocessing_meta"] = st.session_state.preprocessing_meta
+    if st.session_state.preprocessed_text:
+        project_info_payload["preprocessed_text"] = st.session_state.preprocessed_text
+    reference_docs_meta = st.session_state.get('reference_documents', [])
+    reference_combined_text = st.session_state.get('reference_combined_text', '')
+    if reference_docs_meta:
+        project_info_payload["reference_documents"] = reference_docs_meta
+    if reference_combined_text:
+        project_info_payload["reference_text"] = reference_combined_text
+    
+    # File Search Store 이름 추가
+    if st.session_state.get('file_search_stores'):
+        # 활성화된 Store 이름들 추출
+        project_info_payload["file_search_store_names"] = [
+            store.get('name') for store in st.session_state.file_search_stores
+        ]
+    
+    # 참고 URL 추가
+    if st.session_state.get('reference_urls'):
+        project_info_payload["reference_urls"] = st.session_state.reference_urls
+    
+    # 위치 좌표 추가 (Google Maps용)
+    if st.session_state.get('latitude') and st.session_state.get('longitude'):
+        try:
+            project_info_payload["latitude"] = float(st.session_state.latitude)
+            project_info_payload["longitude"] = float(st.session_state.longitude)
+        except (ValueError, TypeError):
+            pass
+
+    spatial_notice = None
+    try:
+        if st.session_state.get('geo_layers') and len(st.session_state.geo_layers) > 0:
+            from geo_data_loader import extract_spatial_context_for_ai
+            spatial_contexts = []
+            for layer_name, layer_data in st.session_state.geo_layers.items():
+                gdf = layer_data['gdf']
+                layer_type = 'general'
+                if any(keyword in layer_name for keyword in ['행정', '시군', '읍면', '법정', 'adm']):
+                    layer_type = 'administrative'
+                elif any(keyword in layer_name for keyword in ['공시', '가격', '지가', 'price']):
+                    layer_type = 'land_price'
+                elif any(keyword in layer_name for keyword in ['소유', '토지', 'owner']):
+                    layer_type = 'ownership'
+                spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
+                spatial_contexts.append(f"**레이어: {layer_name}**\n{spatial_text}")
+            if spatial_contexts:
+                project_info_payload["spatial_data_context"] = "\n\n---\n\n".join(spatial_contexts)
+                project_info_payload["has_geo_data"] = True
+                spatial_notice = f"📍 {len(spatial_contexts)}개 공간 레이어 정보가 분석에 포함됩니다."
+        elif st.session_state.get('uploaded_gdf') is not None:
+            from geo_data_loader import extract_spatial_context_for_ai
+            gdf = st.session_state.uploaded_gdf
+            layer_type = st.session_state.get('layer_type', 'general')
+            spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
+            project_info_payload["spatial_data_context"] = spatial_text
+            project_info_payload["has_geo_data"] = True
+            spatial_notice = "📍 업로드된 공간 데이터가 분석에 포함됩니다."
+    except Exception as e:
+        st.warning(f"공간 데이터 통합 중 오류: {e}")
+        project_info_payload["has_geo_data"] = False
+    if spatial_notice:
+        st.caption(spatial_notice)
+
+    if st.session_state.cot_plan and st.session_state.cot_plan != selected_blocks:
+        reset_step_analysis_state()
+
+    st.markdown("### 단계별 분석 제어")
+    control_col1, control_col2 = st.columns(2)
+    with control_col1:
+        if st.button("🔄 분석 세션 초기화", use_container_width=True):
+            reset_step_analysis_state()
+            st.success("분석 세션을 초기화했습니다.")
+    prepare_disabled = not analysis_text
+    with control_col2:
+        if st.button("🚀 단계별 분석 세션 준비", type="primary", use_container_width=True, disabled=prepare_disabled):
+            if not analysis_text:
+                st.warning("분석에 사용할 텍스트가 없습니다.")
+            else:
+                try:
+                    analyzer = get_cot_analyzer()
+                    if analyzer is None:
+                        st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
+                        st.stop()
+                    session = analyzer.initialize_cot_session(project_info_payload, analysis_text, len(selected_blocks))
+                    st.session_state.cot_session = session
+                    st.session_state.cot_plan = selected_blocks.copy()
+                    st.session_state.cot_current_index = 0
+                    st.session_state.cot_results = {}
+                    st.session_state.cot_progress_messages = []
+                    st.session_state.cot_history = []
+                    st.session_state.analysis_results = {}
+                    st.success("단계별 분석 세션이 준비되었습니다. 순서대로 블록을 실행하세요.")
+                except Exception as e:
+                    st.error(f"분석기 초기화 실패: {e}")
+
+    active_plan = st.session_state.cot_plan if st.session_state.cot_session else selected_blocks
+
+    st.markdown("### 단계 진행 현황")
+    if not active_plan:
+        st.info("분석 세션을 준비하면 단계별 진행 정보를 확인할 수 있습니다.")
+    else:
+        running_block = st.session_state.get('cot_running_block')
+        for idx, block_id in enumerate(active_plan, start=1):
+            block = block_lookup.get(block_id)
+            block_name = block.get('name', block_id) if block else block_id
+            category = resolve_block_category(block) if block else "기타"
+            if running_block == block_id:
+                status_badge = "⏳ 진행중"
+            elif block_id in st.session_state.cot_results:
+                status_badge = "✅ 완료"
+            elif st.session_state.cot_session and idx == st.session_state.cot_current_index + 1:
+                status_badge = "🟡 대기"
+            else:
+                status_badge = "⚪ 준비"
+            expander = st.expander(f"{idx}. [{category}] {block_name} · {status_badge}", expanded=(status_badge != "✅ 완료"))
+            with expander:
+                st.caption((block.get('description') if block else "설명이 없습니다.") or "설명이 없습니다.")
+                if block_id in st.session_state.cot_results:
+                    toggle_key = f"show_result_{block_id}"
+                    show_result = st.checkbox(f"분석 결과 보기 · {block_name}", key=toggle_key)
+                    if show_result:
+                        result_text = st.session_state.cot_results.get(block_id, "결과가 없습니다.")
+                        # 결과를 섹션별로 파싱하여 탭으로 표시
+                        sections = parse_result_into_sections(result_text)
+                        if len(sections) > 1:
+                            # 여러 섹션이 있으면 탭으로 표시
+                            tab_names = [f"섹션 {i+1}" if not sec.get('title') else sec['title'][:30] for i, sec in enumerate(sections)]
+                            tabs = st.tabs(tab_names)
+                            for tab, section in zip(tabs, sections):
+                                with tab:
+                                    if section.get('title'):
+                                        st.markdown(f"### {section['title']}")
+                                    st.markdown(section.get('content', ''))
+                        else:
+                            # 섹션이 하나거나 없으면 기존 방식으로 표시
+                            st.markdown(result_text)
+                        
+                        # 참고 문헌 섹션 표시
+                        citations = st.session_state.cot_citations.get(block_id, [])
+                        if citations:
+                            try:
+                                from maps_grounding_helper import format_all_citations_for_display
+                                citations_section = format_all_citations_for_display(citations)
+                                st.markdown(citations_section)
+                            except Exception as e:
+                                st.warning(f"참고 문헌 표시 오류: {e}")
+                                # 폴백: 간단한 형식으로 표시
+                                st.markdown("---\n\n## 참고 문헌\n")
+                                for i, cit in enumerate(citations, 1):
+                                    title = cit.get('title', cit.get('display_name', 'Unknown'))
+                                    uri = cit.get('uri', cit.get('file_uri', ''))
+                                    if uri:
+                                        st.markdown(f"{i}. [{title}]({uri})")
+                                    else:
+                                        st.markdown(f"{i}. {title}")
+                    st.download_button(
+                        label="결과 내려받기",
+                        data=st.session_state.cot_results.get(block_id, "").encode("utf-8"),
+                        file_name=f"{block_id}_analysis.txt",
+                        mime="text/plain",
+                        key=f"download_result_{block_id}"
+                    )
+                    feedback_state_key = f"feedback_input_{block_id}"
+                    if feedback_state_key not in st.session_state:
+                        st.session_state[feedback_state_key] = st.session_state.cot_feedback_inputs.get(block_id, "")
+                    feedback_text = st.text_area(
+                        "피드백 입력",
+                        key=feedback_state_key,
+                        height=120,
+                        placeholder="재분석 시 반영할 메모, 수정 요청, 추가 지시사항을 입력하세요."
+                    )
+                    st.session_state.cot_feedback_inputs[block_id] = feedback_text
+                    rerun_disabled = st.session_state.cot_running_block is not None or not feedback_text.strip()
+                    if st.button(
+                        "피드백 반영 재분석",
+                        key=f"rerun_btn_{block_id}",
+                        disabled=rerun_disabled,
+                        help="입력한 피드백을 반영하여 해당 블록만 다시 분석합니다."
+                    ):
+                        analyzer = get_cot_analyzer()
+                        st.session_state.cot_running_block = block_id
+                        rerun_step_index = active_plan.index(block_id) + 1 if block_id in active_plan else None
+                        progress_placeholder = st.empty()
+                        rerun_block_info = block or {"id": block_id, "name": block_id}
+
+                        def rerun_progress(message: str) -> None:
+                            progress_placeholder.info(message)
+
+                        try:
+                            with st.spinner("피드백 기반 재분석 중..."):
+                                step_result = analyzer.run_cot_step(
+                                    block_id,
+                                    rerun_block_info,
+                                    st.session_state.cot_session
+                                    if st.session_state.cot_session
+                                    else analyzer.initialize_cot_session(project_info_payload, analysis_text, len(active_plan)),
+                                    progress_callback=rerun_progress,
+                                    step_index=rerun_step_index,
+                                    feedback=feedback_text.strip()
+                                )
+                        finally:
+                            st.session_state.cot_running_block = None
+
+                        if step_result.get('success'):
+                            st.session_state.cot_session = step_result['cot_session']
+                            st.session_state.cot_results[block_id] = step_result['analysis']
+                            analysis_result = step_result['analysis']
+                            st.session_state.analysis_results[block_id] = analysis_result
+                            # Citations 저장
+                            if step_result.get('all_citations'):
+                                st.session_state.cot_citations[block_id] = step_result['all_citations']
+                            
+                            # 자동 저장
+                            project_info = {
+                                "project_name": st.session_state.get('project_name', ''),
+                                "location": st.session_state.get('location', '')
+                            }
+                            save_analysis_result(block_id, analysis_result, project_info)
+                            
+                            st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
+                            st.success(f"{block_name} 블록을 피드백에 맞춰 재분석했습니다.")
+                            st.rerun()
+                        else:
+                            st.error(f"재분석 실패: {step_result.get('error', '알 수 없는 오류')}")
+                elif status_badge == "🟡 대기":
+                    st.info("다음 실행 대상 블록입니다. 아래 버튼을 눌러 분석을 진행하세요.")
+
+    if st.session_state.cot_session and st.session_state.cot_current_index < len(st.session_state.cot_plan):
+        next_block_id = st.session_state.cot_plan[st.session_state.cot_current_index]
+        next_block = block_lookup.get(next_block_id, {"id": next_block_id})
+        next_block_name = next_block.get('name', next_block_id)
+        if st.button(
+            f"▶️ {st.session_state.cot_current_index + 1}단계 실행: {next_block_name}",
+            type="primary",
+            disabled=st.session_state.cot_running_block is not None
+        ):
+            analyzer = get_cot_analyzer()
+            if analyzer is None:
+                st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
+                st.stop()
+            progress_placeholder = st.empty()
+            st.session_state.cot_running_block = next_block_id
+
+            def step_progress(message: str) -> None:
+                st.session_state.cot_progress_messages.append(message)
+                if len(st.session_state.cot_progress_messages) > 50:
+                    st.session_state.cot_progress_messages = st.session_state.cot_progress_messages[-50:]
+                progress_placeholder.info(message)
+
+            try:
+                with st.spinner("분석 실행 중..."):
+                    step_result = analyzer.run_cot_step(
+                        next_block_id,
+                        next_block,
+                        st.session_state.cot_session,
+                        progress_callback=step_progress,
+                        step_index=st.session_state.cot_current_index + 1,
+                        feedback=st.session_state.cot_feedback_inputs.get(next_block_id, "").strip() or None
+                    )
+            finally:
+                st.session_state.cot_running_block = None
+
+            if step_result.get('success'):
+                st.session_state.cot_session = step_result['cot_session']
+                st.session_state.cot_results[next_block_id] = step_result['analysis']
+                analysis_result = step_result['analysis']
+                st.session_state.analysis_results[next_block_id] = analysis_result
+                
+                # Citations 저장
+                if step_result.get('all_citations'):
+                    st.session_state.cot_citations[next_block_id] = step_result['all_citations']
+                
+                # 자동 저장
+                project_info = {
+                    "project_name": st.session_state.get('project_name', ''),
+                    "location": st.session_state.get('location', '')
+                }
+                save_analysis_result(next_block_id, analysis_result, project_info)
+                
+                st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
+                st.session_state.cot_current_index += 1
+                st.success(f"{next_block_name} 블록 분석이 완료되었습니다.")
+                st.rerun()
+            else:
+                st.error(f"{next_block_name} 블록 분석 실패: {step_result.get('error', '알 수 없는 오류')}")
+
+    if st.session_state.cot_progress_messages:
+        with st.expander("최근 진행 메시지", expanded=False):
+            for msg in st.session_state.cot_progress_messages[-10:]:
+                st.write(msg)
+
+    if st.session_state.cot_session and st.session_state.cot_plan and st.session_state.cot_current_index >= len(st.session_state.cot_plan):
+        st.success("모든 블록에 대한 단계별 분석이 완료되었습니다.")
+
+    analysis_results_state = st.session_state.get('analysis_results', {})
+    if analysis_results_state:
+        ordered_results = {
+            block_id: analysis_results_state[block_id]
+            for block_id in selected_blocks
+            if block_id in analysis_results_state
+        }
+        if ordered_results:
+            st.subheader("📊 분석 결과 미리보기")
+            tab_blocks = list(ordered_results.keys())
+            tab_titles = []
+            for idx, block_id in enumerate(tab_blocks, start=1):
+                block = block_lookup.get(block_id)
+                block_name = block.get('name', block_id) if block else block_id
+                tab_titles.append(f"{idx}. {block_name}")
+            preview_tabs = st.tabs(tab_titles)
+            for tab, block_id in zip(preview_tabs, tab_blocks):
+                with tab:
+                    block = block_lookup.get(block_id)
+                    st.markdown("**분석 결과**")
+                    st.markdown(ordered_results[block_id])
+
+    all_blocks_completed = (
+        st.session_state.cot_plan
+        and len(st.session_state.analysis_results) >= len(st.session_state.cot_plan)
+    )
+    if all_blocks_completed:
+        if st.button("💾 분석 결과 저장", use_container_width=True):
+            from datetime import datetime
+            import json
+            analysis_folder = "analysis_results"
+            os.makedirs(analysis_folder, exist_ok=True)
+            filename = f"analysis_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            filepath = os.path.join(analysis_folder, filename)
+            ordered_results_for_save = {
+                block_id: st.session_state.analysis_results[block_id]
+                for block_id in st.session_state.cot_plan
+                if block_id in st.session_state.analysis_results
+            }
+            analysis_record = {
+                "project_info": project_info_payload,
+                "analysis_results": ordered_results_for_save,
+                "analysis_timestamp": datetime.now().isoformat(),
+                "cot_history": st.session_state.get('cot_history', []),
+                "llm_settings": {
+                    "temperature": st.session_state.llm_temperature,
+                    "max_tokens": st.session_state.llm_max_tokens
+                },
+                "use_preprocessed_text": st.session_state.use_preprocessed_text
+            }
+            if st.session_state.use_preprocessed_text:
+                analysis_record["preprocessed_text"] = st.session_state.preprocessed_text
+                analysis_record["preprocessed_summary"] = st.session_state.preprocessed_summary
+                analysis_record["preprocessing_meta"] = st.session_state.preprocessing_meta
+            try:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(analysis_record, f, ensure_ascii=False, indent=2)
+                st.success(f"분석 결과가 {filepath}에 저장되었습니다.")
+            except Exception as e:
+                st.warning(f"분석 결과 저장 실패: {e}")
+
+with tab_download:
     st.header("결과 다운로드")
     
     if not st.session_state.get('analysis_results'):
@@ -935,6 +3304,13 @@ with tab4:
     
     if analysis_results:
         st.success(f"{len(analysis_results)}개 분석 결과가 준비되었습니다.")
+        
+        # 현재 사용 중인 AI 모델 정보 표시
+        current_provider = get_current_provider()
+        provider_config = PROVIDER_CONFIG.get(current_provider, {})
+        provider_name = provider_config.get('display_name', current_provider)
+        model_name = provider_config.get('model', 'unknown')
+        st.caption(f"🤖 현재 사용 중인 AI 모델: {provider_name} ({model_name})")
         
         # Word 문서 생성
         if st.button("Word 문서 생성", type="primary"):

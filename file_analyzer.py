@@ -8,7 +8,13 @@ import io
 class UniversalFileAnalyzer:
     """다양한 파일 형식을 지원하는 범용 파일 분석기"""
     
-    def __init__(self):
+    def __init__(self, use_gemini_pdf: bool = False):
+        """
+        Args:
+            use_gemini_pdf: PDF 처리 시 Gemini 네이티브 방식을 사용할지 여부
+                           False면 PyMuPDF로 빠른 텍스트 추출만 수행
+        """
+        self.use_gemini_pdf = use_gemini_pdf
         self.supported_formats = {
             "pdf": self._analyze_pdf,
             "xlsx": self._analyze_excel,
@@ -72,6 +78,35 @@ class UniversalFileAnalyzer:
     
     def _analyze_pdf_from_bytes(self, file_bytes: bytes) -> Dict[str, Any]:
         """PDF 바이트 데이터 분석"""
+        # Gemini 네이티브 PDF 처리 사용
+        if self.use_gemini_pdf:
+            try:
+                from pdf_analyzer import extract_text_with_gemini_pdf
+                
+                result = extract_text_with_gemini_pdf(
+                    pdf_path=file_bytes,
+                    prompt="이 PDF 문서의 모든 텍스트 내용을 추출하고 구조화해주세요."
+                )
+                
+                if result.get("success"):
+                    text = result.get("text", "")
+                    return {
+                        "success": True,
+                        "file_type": "pdf",
+                        "text": text,
+                        "word_count": len(text.split()),
+                        "char_count": len(text),
+                        "preview": text[:500] + "..." if len(text) > 500 else text,
+                        "method": result.get("method", "gemini"),
+                        "model": result.get("model", "unknown")
+                    }
+                else:
+                    # Gemini 처리 실패 시 PyMuPDF로 폴백
+                    print(f"Gemini PDF 처리 실패, PyMuPDF로 폴백: {result.get('error')}")
+            except Exception as e:
+                print(f"Gemini PDF 처리 시도 중 오류, PyMuPDF로 폴백: {e}")
+        
+        # 기본 PyMuPDF 방식 (빠른 텍스트 추출)
         try:
             # 메모리에서 PDF 열기
             doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -101,7 +136,8 @@ class UniversalFileAnalyzer:
                 "page_count": page_count,
                 "word_count": len(text.split()),
                 "char_count": len(text),
-                "preview": text[:500] + "..." if len(text) > 500 else text
+                "preview": text[:500] + "..." if len(text) > 500 else text,
+                "method": "pymupdf"
             }
             
         except Exception as e:
@@ -237,6 +273,35 @@ class UniversalFileAnalyzer:
     
     def _analyze_pdf(self, file_path: str) -> Dict[str, Any]:
         """PDF 파일 분석"""
+        # Gemini 네이티브 PDF 처리 사용
+        if self.use_gemini_pdf:
+            try:
+                from pdf_analyzer import extract_text_with_gemini_pdf
+                
+                result = extract_text_with_gemini_pdf(
+                    pdf_path=file_path,
+                    prompt="이 PDF 문서의 모든 텍스트 내용을 추출하고 구조화해주세요."
+                )
+                
+                if result.get("success"):
+                    text = result.get("text", "")
+                    return {
+                        "success": True,
+                        "file_type": "pdf",
+                        "text": text,
+                        "word_count": len(text.split()),
+                        "char_count": len(text),
+                        "preview": text[:500] + "..." if len(text) > 500 else text,
+                        "method": result.get("method", "gemini"),
+                        "model": result.get("model", "unknown")
+                    }
+                else:
+                    # Gemini 처리 실패 시 PyMuPDF로 폴백
+                    print(f"Gemini PDF 처리 실패, PyMuPDF로 폴백: {result.get('error')}")
+            except Exception as e:
+                print(f"Gemini PDF 처리 시도 중 오류, PyMuPDF로 폴백: {e}")
+        
+        # 기본 PyMuPDF 방식 (빠른 텍스트 추출)
         try:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"PDF 파일을 찾을 수 없습니다: {file_path}")
@@ -267,7 +332,8 @@ class UniversalFileAnalyzer:
                 "page_count": page_count,
                 "word_count": len(text.split()),
                 "char_count": len(text),
-                "preview": text[:500] + "..." if len(text) > 500 else text
+                "preview": text[:500] + "..." if len(text) > 500 else text,
+                "method": "pymupdf"
             }
             
         except Exception as e:
