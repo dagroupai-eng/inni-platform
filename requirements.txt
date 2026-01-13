@@ -1,0 +1,59 @@
+# ---- pip-only requirements (conda로 설치한 geopandas/shapely/pyproj는 제외) ----
+# Note: geopandas, shapely, pyproj는 conda로 설치하는 것이 권장되지만, pip로도 설치 가능합니다.
+# install.bat에서 conda가 없으면 pip로 자동 설치를 시도합니다.
+
+# Core
+streamlit>=1.39.0
+python-dotenv>=1.0.1
+requests>=2.32.3
+
+# PDF
+PyMuPDF>=1.24.14
+
+# Docs
+python-docx>=1.1.2
+
+# AI/ML
+# dspy (구패키지) 제거, dspy-ai만 사용
+# Note: dspy-ai 패키지를 설치하면 'import dspy'로 사용할 수 있습니다.
+# 설치 후 'python -c "import dspy"' 명령으로 확인 가능합니다.
+dspy-ai>=3.0.3
+
+# Embeddings
+openai>=1.0.0
+google-genai>=0.2.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+pydantic>=2.0.0
+
+# Data Processing
+pandas>=2.2.2
+
+# Geo/Spatial (conda 권장, pip로도 설치 가능)
+# Note: conda가 없으면 pip로 자동 설치됩니다.
+geopandas>=0.14.0
+shapely>=2.0.0
+pyproj>=3.6.0
+# madoka는 conda 전용이므로 pip로 설치 불가 (선택적 패키지)
+
+# Excel/CSV
+openpyxl>=3.1.5
+xlrd>=2.0.1
+chardet>=5.2.0
+
+# Maps
+folium>=0.20.0
+streamlit-folium>=0.25.1
+
+# Visualization
+matplotlib>=3.9.0
+networkx>=3.3
+
+# Web Search
+duckduckgo-search>=8.1.1
+
+# TOML parsing (Python 3.11 미만 지원)
+tomli>=2.0.0; python_version < "3.11"
+
+# Build Tools
+pyinstaller>=6.10.0
