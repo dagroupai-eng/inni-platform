@@ -83,7 +83,7 @@ st.sidebar.header("시스템 상태")
 
 # API 제공자 선택 (세션 상태 초기화)
 if 'llm_provider' not in st.session_state:
-    st.session_state.llm_provider = 'gemini'
+    st.session_state.llm_provider = 'gemini_25flash'
 
 # API 제공자 선택 (dspy_analyzer가 사용 가능한 경우에만)
 if DSPY_ANALYZER_AVAILABLE and PROVIDER_CONFIG:

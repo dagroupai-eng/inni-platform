@@ -111,7 +111,7 @@ if 'cot_plan' not in st.session_state:
 if 'cot_current_index' not in st.session_state:
     st.session_state.cot_current_index = 0
 if 'llm_provider' not in st.session_state:
-    st.session_state.llm_provider = 'gemini'
+    st.session_state.llm_provider = 'gemini_25flash'
 if 'cot_results' not in st.session_state:
     st.session_state.cot_results = {}
 if 'cot_citations' not in st.session_state:

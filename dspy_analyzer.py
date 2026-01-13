@@ -135,7 +135,7 @@ def get_api_key(provider: str) -> Optional[str]:
 
 def get_current_provider() -> str:
     """
-    현재 선택된 제공자를 반환합니다. 기본값은 'gemini'입니다.
+    현재 선택된 제공자를 반환합니다. 기본값은 'gemini_25flash'입니다.
     
     Returns:
         제공자 이름
@@ -148,9 +148,9 @@ def get_current_provider() -> str:
     
     try:
         import streamlit as st
-        provider = st.session_state.get('llm_provider', env_override or 'gemini')
+        provider = st.session_state.get('llm_provider', env_override or 'gemini_25flash')
         if provider not in PROVIDER_CONFIG:
-            provider = 'gemini'
+            provider = 'gemini_25flash'
         return provider
     except Exception:
         # Streamlit이 없는 환경
