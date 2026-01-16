@@ -35,9 +35,14 @@ class WebSearchHelper:
         """API 키 초기화"""
         try:
             import streamlit as st
-            self.serper_api_key = st.secrets.get('SERPER_API_KEY') or os.environ.get('SERPER_API_KEY')
-            self.google_api_key = st.secrets.get('GOOGLE_SEARCH_API_KEY') or os.environ.get('GOOGLE_SEARCH_API_KEY')
-            self.google_cx = st.secrets.get('GOOGLE_SEARCH_CX') or os.environ.get('GOOGLE_SEARCH_CX')
+            try:
+                self.serper_api_key = st.secrets.get('SERPER_API_KEY') or os.environ.get('SERPER_API_KEY')
+                self.google_api_key = st.secrets.get('GOOGLE_SEARCH_API_KEY') or os.environ.get('GOOGLE_SEARCH_API_KEY')
+                self.google_cx = st.secrets.get('GOOGLE_SEARCH_CX') or os.environ.get('GOOGLE_SEARCH_CX')
+            except (FileNotFoundError, AttributeError, KeyError):
+                self.serper_api_key = os.environ.get('SERPER_API_KEY')
+                self.google_api_key = os.environ.get('GOOGLE_SEARCH_API_KEY')
+                self.google_cx = os.environ.get('GOOGLE_SEARCH_CX')
         except:
             self.serper_api_key = os.environ.get('SERPER_API_KEY')
             self.google_api_key = os.environ.get('GOOGLE_SEARCH_API_KEY')

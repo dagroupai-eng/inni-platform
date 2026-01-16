@@ -51,9 +51,12 @@ def get_gemini_api_key() -> Optional[str]:
         # 1. 먼저 세션 상태에서 확인 (사용자가 웹에서 입력한 키)
         if 'user_api_key_GEMINI_API_KEY' in st.session_state and st.session_state['user_api_key_GEMINI_API_KEY']:
             return st.session_state['user_api_key_GEMINI_API_KEY']
-        # 2. Streamlit secrets에서 확인
+        # 2. Streamlit secrets에서 확인 (secrets 파일이 없을 수 있으므로 안전하게 처리)
         # 3. 환경변수에서 확인
-        api_key = st.secrets.get('GEMINI_API_KEY') or os.environ.get('GEMINI_API_KEY')
+        try:
+            api_key = st.secrets.get('GEMINI_API_KEY') or os.environ.get('GEMINI_API_KEY')
+        except (FileNotFoundError, AttributeError, KeyError):
+            api_key = os.environ.get('GEMINI_API_KEY')
     except Exception:
         api_key = os.environ.get('GEMINI_API_KEY')
     

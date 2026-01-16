@@ -172,10 +172,14 @@ if DSPY_ANALYZER_AVAILABLE and PROVIDER_CONFIG:
         try:
             if current_session_key in st.session_state and st.session_state[current_session_key]:
                 key_source = '웹 입력'
-            elif st.secrets.get(api_key_env):
-                key_source = 'Streamlit Secrets'
             else:
-                key_source = '환경변수'
+                try:
+                    if st.secrets.get(api_key_env):
+                        key_source = 'Streamlit Secrets'
+                    else:
+                        key_source = '환경변수'
+                except (FileNotFoundError, AttributeError, KeyError):
+                    key_source = '환경변수'
         except:
             if current_session_key in st.session_state and st.session_state[current_session_key]:
                 key_source = '웹 입력'

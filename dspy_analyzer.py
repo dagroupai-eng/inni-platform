@@ -42,6 +42,7 @@ except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib
 
 
+# 환경변수 로드 함수
 def _load_streamlit_secrets_into_env():
     """
     Streamlit secrets.toml 값을 일반 실행 환경 변수로 주입합니다.
@@ -65,7 +66,6 @@ def _load_streamlit_secrets_into_env():
     for key, value in secrets_block.items():
         if isinstance(value, str) and not os.environ.get(key):
             os.environ[key] = value
-
 
 # 환경변수 및 secrets 로드 (안전하게 처리)
 _load_streamlit_secrets_into_env()
@@ -97,6 +97,7 @@ PROVIDER_CONFIG = {
     }
 }
 
+# API 키 가져오기 함수
 def get_api_key(provider: str) -> Optional[str]:
     """
     선택된 제공자에 맞는 API 키를 가져옵니다.
@@ -124,15 +125,19 @@ def get_api_key(provider: str) -> Optional[str]:
         if session_key in st.session_state and st.session_state[session_key]:
             return st.session_state[session_key]
         
-        # 2. Streamlit secrets에서 확인
+        # 2. Streamlit secrets에서 확인 (secrets 파일이 없을 수 있으므로 안전하게 처리)
         # 3. 환경변수에서 확인
-        api_key = st.secrets.get(api_key_env) or os.environ.get(api_key_env)
+        try:
+            api_key = st.secrets.get(api_key_env) or os.environ.get(api_key_env)
+        except (FileNotFoundError, AttributeError, KeyError):
+            api_key = os.environ.get(api_key_env)
     except Exception:
         # Streamlit이 없는 환경 (예: 스크립트 실행)
         api_key = os.environ.get(api_key_env)
     
     return api_key
 
+# 현재 제공자 가져오기 함수
 def get_current_provider() -> str:
     """
     현재 선택된 제공자를 반환합니다. 기본값은 'gemini_25flash'입니다.
