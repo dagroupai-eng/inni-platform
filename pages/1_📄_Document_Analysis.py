@@ -2386,202 +2386,6 @@ with tab_project:
         else:
             st.error(f"{file_extension.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
 
-    # File Search Store 관리 섹션
-    with st.expander("📚 File Search Store 관리 (선택)", expanded=False):
-        st.caption("참고 문서를 File Search Store에 저장하여 Semantic Search를 활용할 수 있습니다.")
-        st.info("💡 **Store를 나누는 이유:**\n"
-                "- 프로젝트별로 문서를 분리 관리 (예: 서울시청_참고문서, 부산항_참고문서)\n"
-                "- 문서 카테고리별 분리 (예: 법규_Store, 선례_Store, 가이드라인_Store)\n"
-                "- 분석 시 필요한 Store만 선택적으로 사용 가능\n"
-                "- 하나의 Store에 모든 문서를 넣어도 되지만, 분리하면 관리가 더 편리합니다")
-        
-        # File Search Store 목록 조회
-        if 'file_search_stores' not in st.session_state:
-            st.session_state.file_search_stores = []
-        
-        if st.button("File Search Store 목록 새로고침", key="refresh_file_search_stores"):
-            try:
-                analyzer = EnhancedArchAnalyzer()
-                result = analyzer.list_file_search_stores()
-                if result.get('success'):
-                    stores = result.get('stores', [])
-                    st.session_state.file_search_stores = stores
-                    if stores:
-                        st.success(f"File Search Store {len(stores)}개를 찾았습니다.")
-                    else:
-                        st.info("File Search Store가 없습니다. 새 Store를 생성해주세요.")
-                else:
-                    error_msg = result.get('error', '알 수 없는 오류')
-                    st.error(f"목록 조회 실패: {error_msg}")
-            except Exception as e:
-                st.error(f"오류 발생: {str(e)}")
-        
-        # Store 목록 표시
-        if st.session_state.file_search_stores:
-            st.markdown("**File Search Stores:**")
-            for store in st.session_state.file_search_stores:
-                col1, col2, col3 = st.columns([2, 1, 1])
-                with col1:
-                    store_display = store.get('display_name', 'N/A')
-                    store_name = store.get('name', 'N/A')
-                    st.write(f"• **{store_display}**")
-                    st.caption(f"Store ID: {store_name}")
-                with col2:
-                    if st.button("📁 파일 목록", key=f"list_files_{store.get('name', '')}"):
-                        try:
-                            analyzer = EnhancedArchAnalyzer()
-                            result = analyzer.list_files_in_store(store.get('name', ''))
-                            if result.get('success'):
-                                st.session_state[f'store_files_{store.get("name", "")}'] = result
-                                st.success(f"파일 {result.get('file_count', 0)}개를 찾았습니다.")
-                                st.rerun()
-                            else:
-                                error_msg = result.get('error', '알 수 없는 오류')
-                                st.error(f"파일 목록 조회 실패: {error_msg}")
-                        except Exception as e:
-                            st.error(f"오류 발생: {str(e)}")
-                with col3:
-                    if st.button("삭제", key=f"delete_store_{store.get('name', '')}"):
-                        try:
-                            analyzer = EnhancedArchAnalyzer()
-                            result = analyzer.delete_file_search_store(store.get('name', ''))
-                            if result.get('success'):
-                                st.success(f"Store 삭제 완료: {store.get('display_name', store.get('name', ''))}")
-                                # 세션 상태에서 삭제된 Store 제거
-                                st.session_state.file_search_stores = [
-                                    s for s in st.session_state.file_search_stores 
-                                    if s.get('name') != store.get('name')
-                                ]
-                                st.rerun()
-                            else:
-                                error_msg = result.get('error', '알 수 없는 오류')
-                                st.error(f"삭제 실패: {error_msg}")
-                        except Exception as e:
-                            st.error(f"오류 발생: {str(e)}")
-                
-                # 파일 목록 표시 (확장 가능)
-                store_key = f'store_files_{store.get("name", "")}'
-                if st.session_state.get(store_key):
-                    file_result = st.session_state[store_key]
-                    if file_result.get('success'):
-                        files = file_result.get('files', [])
-                        file_count = file_result.get('file_count', 0)
-                        with st.expander(f"📁 {file_result.get('store_display_name', 'Store')} 내 파일 ({file_count}개)", expanded=False):
-                            if files:
-                                for file_info in files:
-                                    file_name = file_info.get('display_name') or file_info.get('name', 'N/A')
-                                    file_size = file_info.get('size_bytes')
-                                    file_time = file_info.get('create_time')
-                                    
-                                    size_str = ""
-                                    if file_size:
-                                        if file_size < 1024:
-                                            size_str = f"{file_size} B"
-                                        elif file_size < 1024 * 1024:
-                                            size_str = f"{file_size / 1024:.1f} KB"
-                                        else:
-                                            size_str = f"{file_size / (1024 * 1024):.1f} MB"
-                                    
-                                    time_str = ""
-                                    if file_time:
-                                        try:
-                                            from datetime import datetime
-                                            if isinstance(file_time, str):
-                                                dt = datetime.fromisoformat(file_time.replace('Z', '+00:00'))
-                                            else:
-                                                dt = file_time
-                                            time_str = dt.strftime("%Y-%m-%d %H:%M")
-                                        except:
-                                            time_str = str(file_time)
-                                    
-                                    info_parts = [file_name]
-                                    if size_str:
-                                        info_parts.append(f"({size_str})")
-                                    if time_str:
-                                        info_parts.append(f"- {time_str}")
-                                    
-                                    st.write(f"  • {' '.join(info_parts)}")
-                            else:
-                                st.info("이 Store에는 파일이 없습니다.")
-        
-        # 새 Store 생성
-        new_store_name = st.text_input("새 File Search Store 이름", key="new_file_search_store_name")
-        if st.button("File Search Store 생성", key="create_file_search_store"):
-            if new_store_name and new_store_name.strip():
-                try:
-                    analyzer = EnhancedArchAnalyzer()
-                    result = analyzer.create_file_search_store(new_store_name.strip())
-                    if result.get('success'):
-                        st.success(f"Store 생성 완료: {result.get('display_name', result.get('store_name', ''))}")
-                        # 목록 새로고침
-                        refresh_result = analyzer.list_file_search_stores()
-                        if refresh_result.get('success'):
-                            st.session_state.file_search_stores = refresh_result.get('stores', [])
-                        st.rerun()
-                    else:
-                        error_msg = result.get('error', '알 수 없는 오류')
-                        st.error(f"생성 실패: {error_msg}")
-                except Exception as e:
-                    st.error(f"오류 발생: {str(e)}")
-            else:
-                st.warning("Store 이름을 입력해주세요.")
-        
-        # 파일 업로드 (File Search Store에)
-        if st.session_state.file_search_stores:
-            selected_store = st.selectbox(
-                "파일을 업로드할 Store 선택",
-                options=[s.get('name') for s in st.session_state.file_search_stores],
-                format_func=lambda x: next((s.get('display_name') for s in st.session_state.file_search_stores if s.get('name') == x), x),
-                key="selected_file_search_store"
-            )
-            
-            file_for_store = st.file_uploader(
-                "File Search Store에 업로드할 파일",
-                type=['pdf', 'txt', 'docx', 'xlsx', 'csv', 'json', 'md'],
-                key="file_for_file_search_store"
-            )
-            
-            if file_for_store and selected_store:
-                if st.button("File Search Store에 업로드", key="upload_to_file_search_store"):
-                    try:
-                        import tempfile
-                        import os
-                        
-                        analyzer = EnhancedArchAnalyzer()
-                        
-                        # 임시 파일로 저장
-                        file_ext = file_for_store.name.split('.')[-1] if '.' in file_for_store.name else ''
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}" if file_ext else None) as tmp_file:
-                            tmp_file.write(file_for_store.getvalue())
-                            tmp_path = tmp_file.name
-                        
-                        try:
-                            with st.spinner("파일 업로드 및 인덱싱 중..."):
-                                result = analyzer.upload_to_file_search_store(
-                                    file_path=tmp_path,
-                                    store_name=selected_store,
-                                    display_name=file_for_store.name
-                                )
-                            
-                            if result.get('success'):
-                                st.success(f"파일 업로드 및 인덱싱 완료: {file_for_store.name}")
-                                # 파일 목록 캐시 초기화 (새로고침 필요)
-                                store_key = f'store_files_{selected_store}'
-                                if store_key in st.session_state:
-                                    del st.session_state[store_key]
-                            else:
-                                error_msg = result.get('error', '알 수 없는 오류')
-                                st.error(f"업로드 실패: {error_msg}")
-                        finally:
-                            # 임시 파일 정리
-                            if os.path.exists(tmp_path):
-                                try:
-                                    os.unlink(tmp_path)
-                                except Exception:
-                                    pass
-                    except Exception as e:
-                        st.error(f"오류 발생: {str(e)}")
-    
     # 참고 URL 입력 섹션
     st.markdown("#### 참고 URL 입력 (선택)")
     st.caption("분석 시 참고할 웹 페이지 URL을 입력하세요. 최대 20개까지 입력 가능합니다.")
@@ -2879,54 +2683,7 @@ with tab_run:
     base_text_candidates.extend(filter(None, [project_name, location, project_goals, additional_info]))
     base_text_source = "\n\n".join([text for text in base_text_candidates if text]).strip()
 
-    options = ensure_preprocessing_options_structure(st.session_state.preprocessing_options)
-    with st.expander("🧹 분석 입력 전처리 & 프롬프트 강화", expanded=False):
-        colA, colB = st.columns(2)
-        options['clean_whitespace'] = colA.checkbox("공백/특수문자 정리", value=options['clean_whitespace'])
-        options['collapse_blank_lines'] = colA.checkbox("연속 빈 줄 축소", value=options['collapse_blank_lines'])
-        options['limit_chars'] = int(colA.number_input("분석 입력 최대 길이(문자)", min_value=1000, max_value=12000, value=int(options['limit_chars']), step=500))
-        options['include_intro_snippet'] = colA.checkbox("서두 스니펫 포함", value=options['include_intro_snippet'])
-        options['intro_snippet_chars'] = int(colA.number_input("스니펫 길이(문자)", min_value=200, max_value=1200, value=int(options['intro_snippet_chars']), step=100))
-        options['include_keywords'] = colB.checkbox("핵심 키워드 추출", value=options['include_keywords'])
-        options['keyword_count'] = int(colB.number_input("키워드 개수", min_value=5, max_value=30, value=int(options['keyword_count']), step=1))
-        options['include_numeric_sentences'] = colB.checkbox("주요 수치 문장 추출", value=options['include_numeric_sentences'])
-        options['numeric_sentence_count'] = int(colB.number_input("수치 문장 개수", min_value=1, max_value=20, value=int(options['numeric_sentence_count']), step=1))
-        st.session_state.preprocessing_options = options
-
-        disabled_run = not base_text_source
-        if st.button("전처리 실행", disabled=disabled_run):
-            if not base_text_source:
-                st.warning("전처리할 텍스트가 없습니다.")
-            else:
-                with st.spinner("전처리 중..."):
-                    processed_text, summary_text, stats = preprocess_analysis_text(base_text_source, options)
-                st.session_state.preprocessed_text = processed_text
-                st.session_state.preprocessed_summary = summary_text
-                st.session_state.preprocessing_meta = stats
-                st.success("전처리가 완료되었습니다. 필요 시 내용을 직접 수정할 수 있습니다.")
-                reset_step_analysis_state()
-
-        summary_text = st.session_state.get('preprocessed_summary', '')
-        processed_text = st.session_state.get('preprocessed_text', '')
-        meta = st.session_state.get('preprocessing_meta', {})
-        if summary_text:
-            st.markdown("**프롬프트 보조 요약 (편집 가능)**")
-            st.text_area("프롬프트 요약", key="preprocessed_summary", height=200)
-        if processed_text:
-            with st.expander("정제된 전체 텍스트 (편집 가능)", expanded=False):
-                st.text_area("정제된 텍스트", key="preprocessed_text", height=240)
-        if meta:
-            st.caption(f"전처리 통계: 원본 {meta.get('original_chars', 0):,}자 → 정제 {meta.get('processed_chars', 0):,}자 · 키워드 {meta.get('keyword_total', 0)}개")
-
-    prev_use_preprocessed = st.session_state.use_preprocessed_text
-    use_preprocessed = st.toggle("정제된 텍스트를 LLM 분석에 사용", value=prev_use_preprocessed)
-    if use_preprocessed != prev_use_preprocessed:
-        st.session_state.use_preprocessed_text = use_preprocessed
-        reset_step_analysis_state()
-    if use_preprocessed and not st.session_state.preprocessed_text:
-        st.warning("정제된 텍스트가 비어 있습니다. 전처리 후 다시 시도해주세요.")
-
-    analysis_text = st.session_state.preprocessed_text if (st.session_state.use_preprocessed_text and st.session_state.preprocessed_text) else base_text_source
+    analysis_text = base_text_source
 
     project_info_payload = {
         "project_name": project_name,
@@ -2935,25 +2692,12 @@ with tab_run:
         "additional_info": additional_info,
         "file_text": analysis_text
     }
-    if st.session_state.preprocessed_summary:
-        project_info_payload["preprocessed_summary"] = st.session_state.preprocessed_summary
-    if st.session_state.preprocessing_meta:
-        project_info_payload["preprocessing_meta"] = st.session_state.preprocessing_meta
-    if st.session_state.preprocessed_text:
-        project_info_payload["preprocessed_text"] = st.session_state.preprocessed_text
     reference_docs_meta = st.session_state.get('reference_documents', [])
     reference_combined_text = st.session_state.get('reference_combined_text', '')
     if reference_docs_meta:
         project_info_payload["reference_documents"] = reference_docs_meta
     if reference_combined_text:
         project_info_payload["reference_text"] = reference_combined_text
-    
-    # File Search Store 이름 추가
-    if st.session_state.get('file_search_stores'):
-        # 활성화된 Store 이름들 추출
-        project_info_payload["file_search_store_names"] = [
-            store.get('name') for store in st.session_state.file_search_stores
-        ]
     
     # 참고 URL 추가
     if st.session_state.get('reference_urls'):
@@ -3279,13 +3023,8 @@ with tab_run:
                 "llm_settings": {
                     "temperature": st.session_state.llm_temperature,
                     "max_tokens": st.session_state.llm_max_tokens
-                },
-                "use_preprocessed_text": st.session_state.use_preprocessed_text
+                }
             }
-            if st.session_state.use_preprocessed_text:
-                analysis_record["preprocessed_text"] = st.session_state.preprocessed_text
-                analysis_record["preprocessed_summary"] = st.session_state.preprocessed_summary
-                analysis_record["preprocessing_meta"] = st.session_state.preprocessing_meta
             try:
                 with open(filepath, "w", encoding="utf-8") as f:
                     json.dump(analysis_record, f, ensure_ascii=False, indent=2)
