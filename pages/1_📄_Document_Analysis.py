@@ -2216,7 +2216,11 @@ with st.sidebar:
         st.success(f"✅ {provider_name} API 키가 설정되었습니다!")
         if api_key:
             st.info(f"API 키 길이: {len(api_key)}자")
-        key_source = 'Streamlit Secrets' if (api_key_env and st.secrets.get(api_key_env)) else '환경변수'
+        # 키 소스 확인 (secrets 파일이 없을 수 있으므로 안전하게 처리)
+        try:
+            key_source = 'Streamlit Secrets' if (api_key_env and st.secrets.get(api_key_env)) else '환경변수'
+        except (FileNotFoundError, AttributeError, KeyError):
+            key_source = '환경변수'
         st.info(f"키 소스: {key_source}")
         
         # 제공자 변경 시 DSPy 재초기화
