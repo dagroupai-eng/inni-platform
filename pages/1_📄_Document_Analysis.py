@@ -2534,13 +2534,12 @@ with tab_blocks:
         df = pd.DataFrame(block_info_list)
         
         st.subheader("선택된 블록 목록 및 순서 조정")
+        st.caption("💡 순서 컬럼의 숫자를 직접 수정하거나, 오른쪽에서 행을 선택하여 화살표 버튼으로 순서를 변경할 수 있습니다.")
         
-        # 순서 조정 UI
-        col1, col2 = st.columns([2, 1])
+        # 표와 버튼을 나란히 배치
+        col_table, col_buttons = st.columns([5, 1])
         
-        with col1:
-            st.markdown("**현재 선택된 블록들:**")
-            
+        with col_table:
             # 수정 가능한 데이터 에디터로 순서 조정
             edited_df = st.data_editor(
                 df[['순서', '카테고리', '블록명', '설명']],
@@ -2568,52 +2567,73 @@ with tab_blocks:
                     )
                 }
             )
-        
-        with col2:
-            st.markdown("**빠른 순서 조정:**")
             
-            # 위/아래 이동 버튼들
-            for i, (_, row) in enumerate(df.iterrows()):
-                st.markdown(f"**[{row['카테고리']}] {row['블록명']}**")
-                col_up, col_down = st.columns(2)
-                
-                with col_up:
-                    if st.button("위로", key=f"up_{row['블록ID']}", disabled=(i == 0)):
-                        if i > 0:
-                            current_blocks = st.session_state['selected_blocks']
-                            current_blocks[i], current_blocks[i-1] = current_blocks[i-1], current_blocks[i]
-                            st.session_state['selected_blocks'] = current_blocks
-                            st.rerun()
-                
-                with col_down:
-                    if st.button("아래로", key=f"down_{row['블록ID']}", disabled=(i == len(selected_blocks)-1)):
-                        if i < len(selected_blocks) - 1:
-                            current_blocks = st.session_state['selected_blocks']
-                            current_blocks[i], current_blocks[i+1] = current_blocks[i+1], current_blocks[i]
-                            st.session_state['selected_blocks'] = current_blocks
-                            st.rerun()
+            # 순서 변경사항이 있는지 확인하고 적용 (직접 수정한 경우)
+            if not edited_df['순서'].equals(df['순서']):
+                try:
+                    sorted_indices = edited_df.sort_values('순서', kind="stable").index
+                    new_blocks = [df.loc[idx, '블록ID'] for idx in sorted_indices]
+                    st.session_state['selected_blocks'] = new_blocks
+                    st.success("블록 순서가 업데이트되었습니다!")
+                    st.rerun()
+                except Exception:
+                    st.error("블록 순서를 업데이트하는 중 문제가 발생했습니다. 입력값을 확인해주세요.")
         
-        # 순서 변경사항이 있는지 확인하고 적용
-        if not edited_df['순서'].equals(df['순서']):
-            try:
-                sorted_indices = edited_df.sort_values('순서', kind="stable").index
-                new_blocks = [df.loc[idx, '블록ID'] for idx in sorted_indices]
-                st.session_state['selected_blocks'] = new_blocks
-                st.success("블록 순서가 업데이트되었습니다!")
-                st.rerun()
-            except Exception:
-                st.error("블록 순서를 업데이트하는 중 문제가 발생했습니다. 입력값을 확인해주세요.")
-        
-        # 최종 선택된 블록들 표시
-        st.subheader("최종 분석 순서")
-        for i, block_id in enumerate(st.session_state['selected_blocks']):
-            block = block_lookup.get(block_id)
-            if block:
-                category = resolve_block_category(block)
-                block_name = block.get('name', '알 수 없음')
-                st.write(f"{i+1}. [{category}] {block_name}")
-            else:
-                st.write(f"{i+1}. {block_id} (정보 없음)")
+        with col_buttons:
+            st.markdown("")  # 상단 여백
+            st.markdown("")  # 상단 여백
+            
+            # 선택된 행 인덱스 초기화 및 유효성 검사
+            if 'selected_block_row_index' not in st.session_state:
+                st.session_state.selected_block_row_index = 0
+            
+            # 인덱스가 유효한 범위 내에 있는지 확인
+            max_index = len(block_info_list) - 1
+            if st.session_state.selected_block_row_index > max_index:
+                st.session_state.selected_block_row_index = max_index
+            if st.session_state.selected_block_row_index < 0:
+                st.session_state.selected_block_row_index = 0
+            
+            # 행 선택을 위한 selectbox
+            block_options = [f"{i+1}. {row['블록명']}" for i, row in df.iterrows()]
+            selected_row_display = st.selectbox(
+                "행 선택:",
+                options=block_options,
+                index=st.session_state.selected_block_row_index,
+                key="block_row_selector",
+                label_visibility="collapsed"
+            )
+            
+            # 선택된 인덱스 업데이트
+            selected_row_index = block_options.index(selected_row_display)
+            st.session_state.selected_block_row_index = selected_row_index
+            
+            st.markdown("")  # 여백
+            
+            # 위/아래 화살표 버튼
+            move_up_disabled = (selected_row_index == 0)
+            if st.button("⬆️", key="move_block_up", disabled=move_up_disabled, use_container_width=True, help="위로 이동"):
+                if selected_row_index > 0:
+                    current_blocks = st.session_state['selected_blocks'].copy()
+                    # 선택된 블록과 위 블록 교환
+                    current_blocks[selected_row_index], current_blocks[selected_row_index - 1] = \
+                        current_blocks[selected_row_index - 1], current_blocks[selected_row_index]
+                    st.session_state['selected_blocks'] = current_blocks
+                    st.session_state.selected_block_row_index = selected_row_index - 1
+                    st.success("블록이 위로 이동되었습니다!")
+                    st.rerun()
+            
+            move_down_disabled = (selected_row_index == len(selected_blocks) - 1)
+            if st.button("⬇️", key="move_block_down", disabled=move_down_disabled, use_container_width=True, help="아래로 이동"):
+                if selected_row_index < len(selected_blocks) - 1:
+                    current_blocks = st.session_state['selected_blocks'].copy()
+                    # 선택된 블록과 아래 블록 교환
+                    current_blocks[selected_row_index], current_blocks[selected_row_index + 1] = \
+                        current_blocks[selected_row_index + 1], current_blocks[selected_row_index]
+                    st.session_state['selected_blocks'] = current_blocks
+                    st.session_state.selected_block_row_index = selected_row_index + 1
+                    st.success("블록이 아래로 이동되었습니다!")
+                    st.rerun()
     else:
         st.warning("분석할 블록을 선택해주세요.")
 
