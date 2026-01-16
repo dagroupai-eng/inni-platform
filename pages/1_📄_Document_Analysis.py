@@ -243,9 +243,10 @@ def get_cot_analyzer() -> Optional[EnhancedArchAnalyzer]:
     try:
         current_provider = get_current_provider()
         
-        # Provider가 변경되었거나 analyzer가 없으면 재생성
+        # Provider가 변경되었거나 analyzer가 없거나 None이면 재생성
         last_provider = st.session_state.get('_last_analyzer_provider')
-        if (last_provider != current_provider) or ('cot_analyzer' not in st.session_state):
+        cot_analyzer_exists = st.session_state.get('cot_analyzer') is not None
+        if (last_provider != current_provider) or (not cot_analyzer_exists):
             # 기존 analyzer 제거
             if 'cot_analyzer' in st.session_state:
                 del st.session_state.cot_analyzer
@@ -364,23 +365,36 @@ def parse_result_into_sections(text: str) -> List[Dict[str, str]]:
 
 def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
     """
-    단계별 분석 세션 상태를 초기화합니다.
+    단계별 분석 세션 상태를 완전히 초기화합니다.
 
     Args:
         preserve_existing_results: True이면 기존 분석 결과를 유지합니다.
     """
+    # 분석기 내부 상태도 완전히 초기화
+    try:
+        EnhancedArchAnalyzer.reset_lm()
+    except Exception:
+        pass
+    
+    # 모든 세션 상태를 완전히 초기화
     st.session_state.cot_session = None
     st.session_state.cot_plan = []
     st.session_state.cot_current_index = 0
     st.session_state.cot_results = {}
     st.session_state.cot_progress_messages = []
-    st.session_state.cot_analyzer = None
     st.session_state.cot_running_block = None
+    
+    # analyzer를 완전히 삭제하여 재생성되도록 함
+    st.session_state.pop('cot_analyzer', None)
+    st.session_state.pop('_last_analyzer_provider', None)
+    
     if not preserve_existing_results:
+        # 모든 분석 결과 완전히 초기화
         st.session_state.analysis_results = {}
         st.session_state.cot_citations = {}
         st.session_state.cot_history = []
         st.session_state.cot_feedback_inputs = {}
+        
         # Phase 1 관련 개별 블록 결과 초기화
         st.session_state.pop('phase1_requirements_structured', None)
         st.session_state.pop('phase1_data_inventory', None)
@@ -2778,6 +2792,7 @@ with tab_run:
         if st.button("🔄 분석 세션 초기화", use_container_width=True):
             reset_step_analysis_state()
             st.success("분석 세션을 초기화했습니다.")
+            st.rerun()
     prepare_disabled = not analysis_text
     with control_col2:
         if st.button("🚀 단계별 분석 세션 준비", type="primary", use_container_width=True, disabled=prepare_disabled):
@@ -2785,11 +2800,35 @@ with tab_run:
                 st.warning("분석에 사용할 텍스트가 없습니다.")
             else:
                 try:
+                    # 세션 준비 시 모든 이전 상태를 완전히 초기화
+                    EnhancedArchAnalyzer.reset_lm()
+                    st.session_state.pop('cot_analyzer', None)
+                    st.session_state.pop('_last_analyzer_provider', None)
+                    
+                    # 이전 세션 완전히 제거
+                    st.session_state.cot_session = None
+                    st.session_state.cot_plan = []
+                    st.session_state.cot_current_index = 0
+                    st.session_state.cot_results = {}
+                    st.session_state.cot_progress_messages = []
+                    st.session_state.cot_history = []
+                    st.session_state.cot_citations = {}
+                    st.session_state.cot_feedback_inputs = {}
+                    st.session_state.cot_running_block = None
+                    
                     analyzer = get_cot_analyzer()
                     if analyzer is None:
                         st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
                         st.stop()
+                    
+                    # 완전히 새로운 세션 생성 (previous_results는 빈 딕셔너리로 시작)
                     session = analyzer.initialize_cot_session(project_info_payload, analysis_text, len(selected_blocks))
+                    # 세션의 previous_results가 빈 딕셔너리인지 확인
+                    if 'previous_results' in session:
+                        session['previous_results'] = {}
+                    if 'cot_history' in session:
+                        session['cot_history'] = []
+                    
                     st.session_state.cot_session = session
                     st.session_state.cot_plan = selected_blocks.copy()
                     st.session_state.cot_current_index = 0
@@ -2797,7 +2836,10 @@ with tab_run:
                     st.session_state.cot_progress_messages = []
                     st.session_state.cot_history = []
                     st.session_state.analysis_results = {}
+                    st.session_state.cot_citations = {}
+                    st.session_state.cot_feedback_inputs = {}
                     st.success("단계별 분석 세션이 준비되었습니다. 순서대로 블록을 실행하세요.")
+                    st.rerun()
                 except Exception as e:
                     st.error(f"분석기 초기화 실패: {e}")
 
