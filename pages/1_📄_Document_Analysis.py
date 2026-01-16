@@ -375,7 +375,36 @@ def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
         EnhancedArchAnalyzer.reset_lm()
     except Exception:
         pass
-    
+
+    # LiteLLM 캐시 초기화 (이전 분석 결과가 캐시에서 반환되는 것 방지)
+    try:
+        import litellm
+        if hasattr(litellm, 'cache') and litellm.cache is not None:
+            litellm.cache = None
+        if hasattr(litellm, '_async_client'):
+            litellm._async_client = None
+    except Exception:
+        pass
+
+    # DSPy 캐시 및 상태 초기화
+    try:
+        import dspy
+        # DSPy LM 초기화 상태 리셋
+        EnhancedArchAnalyzer._lm_initialized = False
+        EnhancedArchAnalyzer._last_provider = None
+        # DSPy 내부 캐시 초기화 시도
+        if hasattr(dspy, 'cache') and dspy.cache is not None:
+            if hasattr(dspy.cache, 'clear'):
+                dspy.cache.clear()
+        # DSPy settings 리셋
+        if hasattr(dspy, 'settings'):
+            try:
+                dspy.settings.configure(lm=None)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # 모든 세션 상태를 완전히 초기화
     st.session_state.cot_session = None
     st.session_state.cot_plan = []
@@ -2790,7 +2819,12 @@ with tab_run:
     control_col1, control_col2 = st.columns(2)
     with control_col1:
         if st.button("🔄 분석 세션 초기화", use_container_width=True):
+            print("[DEBUG] 초기화 버튼 클릭됨")
+            print(f"[DEBUG] 초기화 전 cot_results: {list(st.session_state.cot_results.keys())}")
+            print(f"[DEBUG] 초기화 전 cot_current_index: {st.session_state.cot_current_index}")
             reset_step_analysis_state()
+            print(f"[DEBUG] 초기화 후 cot_results: {list(st.session_state.cot_results.keys())}")
+            print(f"[DEBUG] 초기화 후 cot_current_index: {st.session_state.cot_current_index}")
             st.success("분석 세션을 초기화했습니다.")
             st.rerun()
     prepare_disabled = not analysis_text
@@ -2846,6 +2880,16 @@ with tab_run:
     active_plan = st.session_state.cot_plan if st.session_state.cot_session else selected_blocks
 
     st.markdown("### 단계 진행 현황")
+
+    # DEBUG: 상태 확인
+    with st.expander("[DEBUG] 세션 상태 확인", expanded=True):
+        st.write(f"cot_session 존재: {st.session_state.cot_session is not None}")
+        st.write(f"cot_current_index: {st.session_state.cot_current_index}")
+        st.write(f"cot_results keys: {list(st.session_state.cot_results.keys())}")
+        st.write(f"cot_plan: {st.session_state.cot_plan}")
+        if st.session_state.cot_session:
+            st.write(f"cot_session previous_results keys: {list(st.session_state.cot_session.get('previous_results', {}).keys())}")
+
     if not active_plan:
         st.info("분석 세션을 준비하면 단계별 진행 정보를 확인할 수 있습니다.")
     else:
