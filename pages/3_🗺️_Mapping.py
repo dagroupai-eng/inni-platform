@@ -18,6 +18,10 @@ import re
 import glob
 import fnmatch
 from pathlib import Path
+from dotenv import load_dotenv
+
+# 환경 변수 로드
+load_dotenv()
 
 # 상위 디렉토리를 path에 추가하여 모듈 import 가능하게 함
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -35,7 +39,23 @@ except ImportError as e:
 # ========================================
 # VWorld WMS/WFS API 설정
 # ========================================
-VWORLD_API_KEY = "B490761B-D863-3E97-BCA1-F2F60CEA02AE"
+# Streamlit Cloud secrets 또는 환경 변수에서 API 키 가져오기
+def get_vworld_api_key():
+    """VWorld API 키를 가져옵니다. Streamlit secrets > 환경변수 > 기본값 순서로 확인"""
+    # 1. Streamlit secrets에서 확인
+    try:
+        if hasattr(st, 'secrets') and 'VWORLD_API_KEY' in st.secrets:
+            return st.secrets['VWORLD_API_KEY']
+    except Exception:
+        pass
+    # 2. 환경 변수에서 확인
+    env_key = os.getenv("VWORLD_API_KEY")
+    if env_key:
+        return env_key
+    # 3. 기본값 반환 (로컬 개발용)
+    return "B490761B-D863-3E97-BCA1-F2F60CEA02AE"
+
+VWORLD_API_KEY = get_vworld_api_key()
 VWORLD_WMS_URL = "https://api.vworld.kr/req/wms"
 VWORLD_WFS_URL = "https://api.vworld.kr/req/wfs"
 
