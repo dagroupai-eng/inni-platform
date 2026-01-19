@@ -9,28 +9,19 @@ st.set_page_config(
     layout="wide"
 )
 
-# 개발 중 - 접근 차단
-st.title("🚧 개발 중")
-st.warning("**이 페이지는 현재 개발 중입니다.**")
-st.info("""
-이 기능은 아직 개발 중이며, 곧 사용할 수 있게 될 예정입니다.
-
-**예정된 기능:**
-- Shapefile 업로드 및 시각화
-- V-world 레이어 로드
-- 입지 후보지 시각화
-
-곧 만나요! 🚀
-""")
-st.stop()
-
 import pandas as pd
+import requests
+from typing import Optional, Dict, Any, List, Tuple
 import sys
 import os
 import re
 import glob
 import fnmatch
 from pathlib import Path
+from dotenv import load_dotenv
+
+# 환경 변수 로드
+load_dotenv()
 
 # 상위 디렉토리를 path에 추가하여 모듈 import 가능하게 함
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +35,480 @@ try:
 except ImportError as e:
     GEO_MODULE_AVAILABLE = False
     # 여기서는 st.warning을 사용하지 않고 나중에 처리
+
+# ========================================
+# VWorld WMS/WFS API 설정
+# ========================================
+# Streamlit Cloud secrets 또는 환경 변수에서 API 키 가져오기
+def get_vworld_api_key():
+    """VWorld API 키를 가져옵니다. Streamlit secrets > 환경변수 > 기본값 순서로 확인"""
+    # 1. Streamlit secrets에서 확인
+    try:
+        if hasattr(st, 'secrets') and 'VWORLD_API_KEY' in st.secrets:
+            return st.secrets['VWORLD_API_KEY']
+    except Exception:
+        pass
+    # 2. 환경 변수에서 확인
+    env_key = os.getenv("VWORLD_API_KEY")
+    if env_key:
+        return env_key
+    # 3. 기본값 반환 (로컬 개발용)
+    return "B490761B-D863-3E97-BCA1-F2F60CEA02AE"
+
+VWORLD_API_KEY = get_vworld_api_key()
+VWORLD_WMS_URL = "https://api.vworld.kr/req/wms"
+VWORLD_WFS_URL = "https://api.vworld.kr/req/wfs"
+
+# 연속 지적도 레이어 설정
+CADASTRAL_LAYERS = {
+    'bonbun': {
+        'layer': 'lp_pa_cbnd_bonbun',
+        'style': 'lp_pa_cbnd_bonbun_line',
+        'name': '본번',
+        'description': '연속지적도 본번 레이어'
+    },
+    'bubun': {
+        'layer': 'lp_pa_cbnd_bubun',
+        'style': 'lp_pa_cbnd_bubun_line',
+        'name': '부번',
+        'description': '연속지적도 부번 레이어'
+    }
+}
+
+# 지역지구 레이어 설정 (용도지역/지구 - 면 레이어)
+ZONE_LAYERS = {
+    # 용도지역
+    'urban': {
+        'layer': 'lt_c_uq111',
+        'style': 'lt_c_uq111',
+        'name': '도시지역',
+        'category': '용도지역',
+        'color': '#FF6B6B'
+    },
+    'management': {
+        'layer': 'lt_c_uq112',
+        'style': 'lt_c_uq112',
+        'name': '관리지역',
+        'category': '용도지역',
+        'color': '#4ECDC4'
+    },
+    'agricultural': {
+        'layer': 'lt_c_uq113',
+        'style': 'lt_c_uq113',
+        'name': '농림지역',
+        'category': '용도지역',
+        'color': '#95E085'
+    },
+    'natural': {
+        'layer': 'lt_c_uq114',
+        'style': 'lt_c_uq114',
+        'name': '자연환경보전지역',
+        'category': '용도지역',
+        'color': '#45B7D1'
+    },
+    # 용도지구
+    'landscape': {
+        'layer': 'lt_c_uq121',
+        'style': 'lt_c_uq121',
+        'name': '경관지구',
+        'category': '용도지구',
+        'color': '#96CEB4'
+    },
+    'development_restrict': {
+        'layer': 'lt_c_ud801',
+        'style': 'lt_c_ud801',
+        'name': '개발제한구역',
+        'category': '용도지구',
+        'color': '#D4A5A5'
+    },
+    # 도시계획시설
+    'urban_road': {
+        'layer': 'lt_c_upisuq151',
+        'style': 'lt_c_upisuq151',
+        'name': '도시계획(도로)',
+        'category': '도시계획시설',
+        'color': '#A8A8A8'
+    },
+    'urban_traffic': {
+        'layer': 'lt_c_upisuq152',
+        'style': 'lt_c_upisuq152',
+        'name': '도시계획(교통시설)',
+        'category': '도시계획시설',
+        'color': '#FFB347'
+    },
+    'urban_space': {
+        'layer': 'lt_c_upisuq153',
+        'style': 'lt_c_upisuq153',
+        'name': '도시계획(공간시설)',
+        'category': '도시계획시설',
+        'color': '#87CEEB'
+    },
+    'urban_culture': {
+        'layer': 'lt_c_upisuq155',
+        'style': 'lt_c_upisuq155',
+        'name': '도시계획(공공문화체육시설)',
+        'category': '도시계획시설',
+        'color': '#DDA0DD'
+    },
+    'urban_disaster': {
+        'layer': 'lt_c_upisuq156',
+        'style': 'lt_c_upisuq156',
+        'name': '도시계획(방재시설)',
+        'category': '도시계획시설',
+        'color': '#F0E68C'
+    },
+    'urban_environment': {
+        'layer': 'lt_c_upisuq158',
+        'style': 'lt_c_upisuq158',
+        'name': '도시계획(환경기초시설)',
+        'category': '도시계획시설',
+        'color': '#98D8C8'
+    },
+    'district_unit': {
+        'layer': 'lt_c_upisuq161',
+        'style': 'lt_c_upisuq161',
+        'name': '지구단위계획',
+        'category': '도시계획시설',
+        'color': '#F7DC6F'
+    }
+}
+
+def get_wms_tile_url(layers: str, styles: str, crs: str = "EPSG:900913") -> str:
+    """WMS 타일 URL 템플릿 생성 (Folium TileLayer용)"""
+    # EPSG:900913(Web Mercator)를 사용하면 일반적인 BBOX 순서 사용 가능
+    base_url = (
+        f"{VWORLD_WMS_URL}?"
+        f"SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0"
+        f"&LAYERS={layers}&STYLES={styles}"
+        f"&CRS={crs}&BBOX={{bbox-epsg-900913}}"
+        f"&WIDTH=256&HEIGHT=256&FORMAT=image/png"
+        f"&TRANSPARENT=true&KEY={VWORLD_API_KEY}"
+    )
+    return base_url
+
+def get_feature_info(lat: float, lon: float, layers: str, styles: str,
+                     bbox_size: float = 0.001) -> Optional[Dict[str, Any]]:
+    """
+    WMS GetFeatureInfo로 특정 위치의 지적 정보 조회
+
+    Args:
+        lat: 위도
+        lon: 경도
+        layers: 조회할 레이어 (쉼표로 구분)
+        styles: 레이어 스타일 (쉼표로 구분)
+        bbox_size: BBOX 크기 (도 단위)
+
+    Returns:
+        지적 정보 딕셔너리 또는 None
+    """
+    # EPSG:4326 사용 시 BBOX 순서: ymin,xmin,ymax,xmax
+    ymin = lat - bbox_size / 2
+    ymax = lat + bbox_size / 2
+    xmin = lon - bbox_size / 2
+    xmax = lon + bbox_size / 2
+
+    # 클릭 위치를 픽셀 좌표로 변환 (256x256 이미지의 중앙)
+    i = 128  # X 픽셀 좌표 (중앙)
+    j = 128  # Y 픽셀 좌표 (중앙)
+
+    params = {
+        'SERVICE': 'WMS',
+        'VERSION': '1.3.0',
+        'REQUEST': 'GetFeatureInfo',
+        'LAYERS': layers,
+        'QUERY_LAYERS': layers,
+        'STYLES': styles,
+        'CRS': 'EPSG:4326',
+        'BBOX': f'{ymin},{xmin},{ymax},{xmax}',  # EPSG:4326: ymin,xmin,ymax,xmax
+        'WIDTH': '256',
+        'HEIGHT': '256',
+        'I': str(i),
+        'J': str(j),
+        'INFO_FORMAT': 'application/json',
+        'FEATURE_COUNT': '10',
+        'KEY': VWORLD_API_KEY
+    }
+
+    try:
+        response = requests.get(VWORLD_WMS_URL, params=params, timeout=10)
+        response.raise_for_status()
+
+        # JSON 응답 파싱
+        data = response.json()
+        return data
+    except requests.exceptions.RequestException as e:
+        st.error(f"GetFeatureInfo 요청 실패: {str(e)}")
+        return None
+    except Exception as e:
+        # JSON 파싱 실패 시 텍스트 응답 반환
+        try:
+            return {'raw_response': response.text}
+        except:
+            return None
+
+def get_wfs_features(bbox: Tuple[float, float, float, float],
+                     typename: str = "lp_pa_cbnd_bonbun",
+                     max_features: int = 100) -> Optional[Dict[str, Any]]:
+    """
+    WFS GetFeature로 특정 영역의 지적 데이터 조회
+
+    Args:
+        bbox: (minx, miny, maxx, maxy) - EPSG:4326 좌표
+        typename: 조회할 레이어명
+        max_features: 최대 피처 수
+
+    Returns:
+        GeoJSON 형식의 피처 데이터 또는 None
+    """
+    minx, miny, maxx, maxy = bbox
+
+    params = {
+        'SERVICE': 'WFS',
+        'VERSION': '1.1.0',
+        'REQUEST': 'GetFeature',
+        'TYPENAME': typename,
+        'BBOX': f'{miny},{minx},{maxy},{maxx}',  # EPSG:4326: ymin,xmin,ymax,xmax
+        'OUTPUT': 'application/json',
+        'MAXFEATURES': str(max_features),
+        'SRSNAME': 'EPSG:4326',
+        'KEY': VWORLD_API_KEY
+    }
+
+    try:
+        response = requests.get(VWORLD_WFS_URL, params=params, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"WFS 요청 실패: {str(e)}")
+        return None
+    except Exception as e:
+        return None
+
+def create_cadastral_map(center_lat: float = 37.5665, center_lon: float = 126.9780,
+                         zoom: int = 17, show_bonbun: bool = True,
+                         show_bubun: bool = True,
+                         selected_zone_layers: List[str] = None):
+    """
+    연속 지적도 및 지역지구 WMS 레이어가 포함된 Folium 지도 생성
+
+    Args:
+        center_lat: 중심 위도
+        center_lon: 중심 경도
+        zoom: 줌 레벨
+        show_bonbun: 본번 레이어 표시 여부
+        show_bubun: 부번 레이어 표시 여부
+        selected_zone_layers: 표시할 지역지구 레이어 키 목록
+
+    Returns:
+        Folium Map 객체
+    """
+    if selected_zone_layers is None:
+        selected_zone_layers = []
+
+    try:
+        import folium
+        from folium.raster_layers import WmsTileLayer
+
+        # 기본 지도 생성
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=zoom,
+            tiles='cartodbpositron'
+        )
+
+        # VWorld 기본 배경 지도 추가 (선택적)
+        folium.TileLayer(
+            tiles=f'https://api.vworld.kr/req/wmts/1.0.0/{VWORLD_API_KEY}/Base/{{z}}/{{y}}/{{x}}.png',
+            attr='VWorld',
+            name='VWorld 기본지도',
+            overlay=False,
+            control=True
+        ).add_to(m)
+
+        # VWorld 위성 지도 추가 (선택적)
+        folium.TileLayer(
+            tiles=f'https://api.vworld.kr/req/wmts/1.0.0/{VWORLD_API_KEY}/Satellite/{{z}}/{{y}}/{{x}}.jpeg',
+            attr='VWorld Satellite',
+            name='VWorld 위성지도',
+            overlay=False,
+            control=True
+        ).add_to(m)
+
+        # 지역지구 WMS 레이어 추가 (면 레이어 - 먼저 추가하여 아래에 표시)
+        for zone_key in selected_zone_layers:
+            if zone_key in ZONE_LAYERS:
+                zone_info = ZONE_LAYERS[zone_key]
+                WmsTileLayer(
+                    url=f"{VWORLD_WMS_URL}?KEY={VWORLD_API_KEY}",
+                    layers=zone_info['layer'],
+                    styles=zone_info['style'],
+                    fmt='image/png',
+                    transparent=True,
+                    version='1.3.0',
+                    name=f"{zone_info['name']} ({zone_info['category']})",
+                    overlay=True,
+                    control=True,
+                    show=True,
+                    attr=f"VWorld {zone_info['name']}"
+                ).add_to(m)
+
+        # 연속 지적도 WMS 레이어 추가 (선 레이어 - 나중에 추가하여 위에 표시)
+        cadastral_layers = []
+        cadastral_styles = []
+
+        if show_bonbun:
+            cadastral_layers.append(CADASTRAL_LAYERS['bonbun']['layer'])
+            cadastral_styles.append(CADASTRAL_LAYERS['bonbun']['style'])
+
+        if show_bubun:
+            cadastral_layers.append(CADASTRAL_LAYERS['bubun']['layer'])
+            cadastral_styles.append(CADASTRAL_LAYERS['bubun']['style'])
+
+        if cadastral_layers:
+            layers_str = ','.join(cadastral_layers)
+            styles_str = ','.join(cadastral_styles)
+
+            # WMS 레이어 추가
+            WmsTileLayer(
+                url=f"{VWORLD_WMS_URL}?KEY={VWORLD_API_KEY}",
+                layers=layers_str,
+                styles=styles_str,
+                fmt='image/png',
+                transparent=True,
+                version='1.3.0',
+                name='연속 지적도',
+                overlay=True,
+                control=True,
+                show=True,
+                attr='VWorld 연속지적도'
+            ).add_to(m)
+
+        # 레이어 컨트롤 추가
+        folium.LayerControl().add_to(m)
+
+        # 범례 추가 (선택된 지역지구 레이어가 있는 경우)
+        if selected_zone_layers:
+            legend_html = '''
+            <div style="
+                position: fixed;
+                bottom: 50px;
+                left: 50px;
+                z-index: 1000;
+                background-color: white;
+                padding: 10px 15px;
+                border-radius: 8px;
+                border: 2px solid #ccc;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                font-family: 'Malgun Gothic', sans-serif;
+                font-size: 12px;
+                max-width: 200px;
+            ">
+                <div style="font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+                    지역지구 레이어
+                </div>
+            '''
+            for zone_key in selected_zone_layers:
+                if zone_key in ZONE_LAYERS:
+                    zone_info = ZONE_LAYERS[zone_key]
+                    color = zone_info.get('color', '#888888')
+                    legend_html += f'''
+                    <div style="margin: 4px 0; display: flex; align-items: center;">
+                        <span style="
+                            display: inline-block;
+                            width: 16px;
+                            height: 16px;
+                            background-color: {color};
+                            border: 1px solid #333;
+                            margin-right: 8px;
+                            opacity: 0.7;
+                        "></span>
+                        <span>{zone_info['name']}</span>
+                    </div>
+                    '''
+            legend_html += '</div>'
+
+            m.get_root().html.add_child(folium.Element(legend_html))
+
+        return m
+
+    except ImportError:
+        st.error("folium 패키지가 설치되지 않았습니다. `pip install folium` 명령으로 설치하세요.")
+        return None
+    except Exception as e:
+        st.error(f"지도 생성 중 오류 발생: {str(e)}")
+        return None
+
+def format_feature_info(feature_data: Dict[str, Any]) -> str:
+    """GetFeatureInfo 결과를 보기 좋게 포맷팅"""
+    if not feature_data:
+        return "조회된 정보가 없습니다."
+
+    # raw_response가 있는 경우
+    if 'raw_response' in feature_data:
+        return feature_data['raw_response']
+
+    # GeoJSON FeatureCollection 형식인 경우
+    if 'features' in feature_data:
+        features = feature_data.get('features', [])
+        if not features:
+            return "해당 위치에 지적 정보가 없습니다."
+
+        result_lines = []
+        for idx, feature in enumerate(features):
+            props = feature.get('properties', {})
+            if props:
+                result_lines.append(f"### 필지 {idx + 1}")
+                for key, value in props.items():
+                    if value is not None and value != '':
+                        # 키 이름을 한글로 변환 (주요 필드)
+                        key_name = {
+                            # 연속 지적도 필드
+                            'pnu': 'PNU (필지고유번호)',
+                            'jibun': '지번',
+                            'bonbun': '본번',
+                            'bubun': '부번',
+                            'addr': '주소',
+                            'jimok': '지목',
+                            'jimok_nm': '지목명',
+                            'jiga': '공시지가',
+                            'area': '면적(㎡)',
+                            'owner_nm': '소유자',
+                            'own_type': '소유구분',
+                            'land_use': '토지이용',
+                            'ld_cpsg_code': '법정동코드',
+                            'ld_cpsg': '법정동명',
+                            'regstr_se_code': '축척코드',
+                            # 지역지구 필드
+                            'usg_nm': '용도지역명',
+                            'usg_cd': '용도지역코드',
+                            'uq_nm': '용도지구명',
+                            'uq_cd': '용도지구코드',
+                            'gb_nm': '개발제한구역명',
+                            'gb_cd': '개발제한구역코드',
+                            'dstrct_nm': '지구명',
+                            'dstrct_cd': '지구코드',
+                            'sido_nm': '시도명',
+                            'sgg_nm': '시군구명',
+                            'emd_nm': '읍면동명',
+                            'li_nm': '리명',
+                            'prpos_area_nm': '용도지역명칭',
+                            'prpos_area_cd': '용도지역코드',
+                            'spfc_area_nm': '특정지역명',
+                            'spfc_area_cd': '특정지역코드',
+                            'facl_nm': '시설명',
+                            'facl_cd': '시설코드',
+                            'ar': '면적(㎡)',
+                            'cty_nm': '도시명',
+                            'signgu_nm': '시군구명',
+                            'leg_emd_nm': '법정읍면동명'
+                        }.get(key, key)
+                        result_lines.append(f"- **{key_name}**: {value}")
+                result_lines.append("")
+
+        return '\n'.join(result_lines) if result_lines else "조회된 정보가 없습니다."
+
+    # 기타 형식
+    return str(feature_data)
 
 # V-world 레이어 정의 (GIS 기반 지도작성 시 필요 요소)
 VWORLD_LAYERS = {
@@ -391,13 +856,344 @@ def load_vworld_layer(layer_id: str, loader: GeoDataLoader = None) -> dict:
 # 데이터 로드
 seoul_projects, cities_data = generate_geo_data()
 
-# 탭 분리: 샘플 데이터 vs Shapefile 업로드 vs 후보지 시각화
+# 탭 분리: 연속 지적도, 샘플 데이터, Shapefile 업로드, 후보지 시각화
 if GEO_MODULE_AVAILABLE:
-    tab1, tab2, tab3 = st.tabs(["샘플 데이터 지도", "Shapefile 업로드", "입지 후보지 시각화"])
+    tab_cadastral, tab1, tab2, tab3 = st.tabs(["연속 지적도", "샘플 데이터 지도", "Shapefile 업로드", "입지 후보지 시각화"])
 else:
+    tab_cadastral = st.container()
     tab1 = st.container()
     tab2 = None
     tab3 = None
+
+# ========================================
+# 연속 지적도 탭
+# ========================================
+with tab_cadastral:
+    st.header("연속 지적도 조회")
+    st.markdown("**VWorld WMS API를 사용하여 연속 지적도를 표시하고 지적 정보를 조회합니다.**")
+
+    # Session state 초기화
+    if 'cadastral_center_lat' not in st.session_state:
+        st.session_state.cadastral_center_lat = 37.5665
+    if 'cadastral_center_lon' not in st.session_state:
+        st.session_state.cadastral_center_lon = 126.9780
+    if 'cadastral_zoom' not in st.session_state:
+        st.session_state.cadastral_zoom = 12  # 지역지구 레이어가 잘 보이는 줌 레벨
+    if 'clicked_location' not in st.session_state:
+        st.session_state.clicked_location = None
+    if 'feature_info_result' not in st.session_state:
+        st.session_state.feature_info_result = None
+
+    # 설정 영역
+    col_settings, col_map = st.columns([1, 3])
+
+    with col_settings:
+        st.subheader("지도 설정")
+
+        # 위치 검색
+        st.markdown("**위치 이동**")
+        search_lat = st.number_input(
+            "위도",
+            value=st.session_state.cadastral_center_lat,
+            format="%.6f",
+            step=0.001,
+            key="search_lat_input"
+        )
+        search_lon = st.number_input(
+            "경도",
+            value=st.session_state.cadastral_center_lon,
+            format="%.6f",
+            step=0.001,
+            key="search_lon_input"
+        )
+
+        if st.button("위치로 이동", type="primary", use_container_width=True):
+            st.session_state.cadastral_center_lat = search_lat
+            st.session_state.cadastral_center_lon = search_lon
+            st.rerun()
+
+        # 줌 레벨 설정
+        st.markdown("**줌 레벨**")
+        zoom_level = st.slider(
+            "줌 레벨",
+            min_value=5,
+            max_value=19,
+            value=st.session_state.cadastral_zoom,
+            help="5~10: 광역, 11~14: 지역지구, 15~19: 필지 상세"
+        )
+        if zoom_level != st.session_state.cadastral_zoom:
+            st.session_state.cadastral_zoom = zoom_level
+            st.rerun()
+
+        st.caption(f"현재 줌: {st.session_state.cadastral_zoom} (지역지구는 11~14 권장)")
+
+        # 주요 도시 바로가기
+        st.markdown("**주요 도시**")
+        city_locations = {
+            "서울 (종로구)": (37.5735, 126.9788),
+            "서울 (강남구)": (37.5172, 127.0473),
+            "부산 (중구)": (35.1028, 129.0325),
+            "대구 (중구)": (35.8682, 128.5939),
+            "인천 (남동구)": (37.4488, 126.7017),
+            "광주 (동구)": (35.1454, 126.9172),
+            "대전 (서구)": (36.3551, 127.3837),
+        }
+
+        selected_city = st.selectbox("도시 선택", list(city_locations.keys()))
+        if st.button("선택 도시로 이동", use_container_width=True):
+            lat, lon = city_locations[selected_city]
+            st.session_state.cadastral_center_lat = lat
+            st.session_state.cadastral_center_lon = lon
+            st.rerun()
+
+        st.markdown("---")
+
+        # 레이어 설정
+        st.markdown("**연속 지적도 레이어**")
+        show_bonbun = st.checkbox("본번 레이어", value=True, help="연속지적도 본번 표시")
+        show_bubun = st.checkbox("부번 레이어", value=True, help="연속지적도 부번 표시")
+
+        st.markdown("---")
+
+        # 지역지구 레이어 설정
+        st.markdown("**지역지구 레이어 (면)**")
+
+        # 카테고리별로 레이어 그룹화
+        zone_categories = {}
+        for zone_key, zone_info in ZONE_LAYERS.items():
+            category = zone_info['category']
+            if category not in zone_categories:
+                zone_categories[category] = []
+            zone_categories[category].append((zone_key, zone_info))
+
+        # Session state 초기화
+        if 'selected_zone_layers' not in st.session_state:
+            st.session_state.selected_zone_layers = []
+
+        selected_zones = []
+
+        for category, layers in zone_categories.items():
+            with st.expander(f"{category}", expanded=False):
+                for zone_key, zone_info in layers:
+                    is_selected = st.checkbox(
+                        zone_info['name'],
+                        value=zone_key in st.session_state.selected_zone_layers,
+                        key=f"zone_{zone_key}",
+                        help=f"레이어: {zone_info['layer']}"
+                    )
+                    if is_selected:
+                        selected_zones.append(zone_key)
+
+        # 선택된 레이어 저장
+        st.session_state.selected_zone_layers = selected_zones
+
+        if selected_zones:
+            st.caption(f"선택된 지역지구: {len(selected_zones)}개")
+
+        st.markdown("---")
+
+        # 지적 정보 조회 결과
+        st.subheader("지적 정보 조회")
+
+        if st.session_state.clicked_location:
+            click_lat, click_lon = st.session_state.clicked_location
+            st.info(f"**클릭 위치**\n위도: {click_lat:.6f}\n경도: {click_lon:.6f}")
+
+            if st.button("이 위치의 지적 정보 조회", type="primary", use_container_width=True):
+                with st.spinner("지적 정보 조회 중..."):
+                    # 조회할 레이어 설정
+                    query_layers = []
+                    query_styles = []
+
+                    # 연속 지적도 레이어
+                    if show_bonbun:
+                        query_layers.append(CADASTRAL_LAYERS['bonbun']['layer'])
+                        query_styles.append(CADASTRAL_LAYERS['bonbun']['style'])
+                    if show_bubun:
+                        query_layers.append(CADASTRAL_LAYERS['bubun']['layer'])
+                        query_styles.append(CADASTRAL_LAYERS['bubun']['style'])
+
+                    # 지역지구 레이어 (최대 4개까지만 - VWorld API 제한)
+                    remaining_slots = 4 - len(query_layers)
+                    for zone_key in st.session_state.selected_zone_layers[:remaining_slots]:
+                        if zone_key in ZONE_LAYERS:
+                            zone_info = ZONE_LAYERS[zone_key]
+                            query_layers.append(zone_info['layer'])
+                            query_styles.append(zone_info['style'])
+
+                    if query_layers:
+                        result = get_feature_info(
+                            click_lat, click_lon,
+                            ','.join(query_layers),
+                            ','.join(query_styles)
+                        )
+                        st.session_state.feature_info_result = result
+                    else:
+                        st.warning("조회할 레이어를 선택하세요.")
+        else:
+            st.info("지도를 클릭하여 위치를 선택하세요.")
+
+        # 조회 결과 표시
+        if st.session_state.feature_info_result:
+            st.markdown("---")
+            st.markdown("**조회 결과**")
+            formatted_result = format_feature_info(st.session_state.feature_info_result)
+            st.markdown(formatted_result)
+
+    with col_map:
+        st.subheader("연속 지적도 지도")
+
+        try:
+            import streamlit_folium as st_folium
+
+            # 지도 생성
+            cadastral_map = create_cadastral_map(
+                center_lat=st.session_state.cadastral_center_lat,
+                center_lon=st.session_state.cadastral_center_lon,
+                zoom=st.session_state.cadastral_zoom,
+                show_bonbun=show_bonbun,
+                show_bubun=show_bubun,
+                selected_zone_layers=st.session_state.selected_zone_layers
+            )
+
+            if cadastral_map:
+                # 클릭된 위치가 있으면 마커 추가
+                import folium
+                if st.session_state.clicked_location:
+                    click_lat, click_lon = st.session_state.clicked_location
+                    folium.Marker(
+                        location=[click_lat, click_lon],
+                        popup=f"클릭 위치\n위도: {click_lat:.6f}\n경도: {click_lon:.6f}",
+                        icon=folium.Icon(color='red', icon='info-sign')
+                    ).add_to(cadastral_map)
+
+                # Folium 지도 표시 (클릭 이벤트 활성화)
+                map_output = st_folium.st_folium(
+                    cadastral_map,
+                    width=900,
+                    height=600,
+                    returned_objects=["last_clicked"]
+                )
+
+                # 클릭 이벤트 처리
+                if map_output and map_output.get('last_clicked'):
+                    clicked = map_output['last_clicked']
+                    new_lat = clicked.get('lat')
+                    new_lon = clicked.get('lng')
+
+                    if new_lat and new_lon:
+                        # 이전 클릭 위치와 다른 경우에만 업데이트
+                        if st.session_state.clicked_location != (new_lat, new_lon):
+                            st.session_state.clicked_location = (new_lat, new_lon)
+                            st.session_state.feature_info_result = None  # 이전 결과 초기화
+                            st.rerun()
+
+                st.info("**사용 방법**: 지도를 클릭하면 해당 위치가 선택됩니다. 왼쪽 패널에서 '지적 정보 조회' 버튼을 클릭하여 선택한 위치의 지적 정보를 확인할 수 있습니다.")
+
+            else:
+                st.error("지도를 생성할 수 없습니다.")
+
+        except ImportError:
+            st.error("streamlit-folium 패키지가 설치되지 않았습니다.")
+            st.code("pip install streamlit-folium folium", language="bash")
+
+    # WFS 데이터 조회 섹션 (고급 기능)
+    st.markdown("---")
+    with st.expander("고급: WFS로 영역 내 지적 데이터 조회"):
+        st.markdown("**특정 영역 내 모든 지적 데이터를 GeoJSON 형식으로 조회합니다.**")
+
+        col_wfs1, col_wfs2 = st.columns(2)
+
+        with col_wfs1:
+            st.markdown("**영역 설정 (EPSG:4326)**")
+            wfs_min_lat = st.number_input("최소 위도 (ymin)", value=37.565, format="%.6f", key="wfs_min_lat")
+            wfs_min_lon = st.number_input("최소 경도 (xmin)", value=126.976, format="%.6f", key="wfs_min_lon")
+
+        with col_wfs2:
+            wfs_max_lat = st.number_input("최대 위도 (ymax)", value=37.568, format="%.6f", key="wfs_max_lat")
+            wfs_max_lon = st.number_input("최대 경도 (xmax)", value=126.980, format="%.6f", key="wfs_max_lon")
+
+        wfs_layer = st.selectbox(
+            "조회 레이어",
+            ["lp_pa_cbnd_bonbun", "lp_pa_cbnd_bubun"],
+            format_func=lambda x: "본번" if "bonbun" in x else "부번"
+        )
+
+        wfs_max_features = st.slider("최대 피처 수", min_value=10, max_value=1000, value=100, step=10)
+
+        if st.button("WFS 데이터 조회", type="primary"):
+            with st.spinner("WFS 데이터 조회 중..."):
+                bbox = (wfs_min_lon, wfs_min_lat, wfs_max_lon, wfs_max_lat)
+                wfs_result = get_wfs_features(bbox, wfs_layer, wfs_max_features)
+
+                if wfs_result:
+                    features = wfs_result.get('features', [])
+                    st.success(f"총 {len(features)}개의 필지 데이터를 조회했습니다.")
+
+                    if features:
+                        # 데이터를 DataFrame으로 변환
+                        records = []
+                        for feature in features:
+                            props = feature.get('properties', {})
+                            records.append(props)
+
+                        if records:
+                            df_wfs = pd.DataFrame(records)
+                            st.dataframe(df_wfs, use_container_width=True)
+
+                            # JSON 다운로드 버튼
+                            import json
+                            json_str = json.dumps(wfs_result, ensure_ascii=False, indent=2)
+                            st.download_button(
+                                label="GeoJSON 다운로드",
+                                data=json_str,
+                                file_name="cadastral_data.geojson",
+                                mime="application/json"
+                            )
+                else:
+                    st.warning("조회된 데이터가 없습니다.")
+
+    # API 정보 안내
+    st.markdown("---")
+    with st.expander("VWorld WMS/WFS API 정보"):
+        st.markdown("""
+        ### VWorld 연속 지적도 API
+
+        **레이어 정보:**
+        - `lp_pa_cbnd_bonbun`: 연속지적도 본번 레이어
+        - `lp_pa_cbnd_bubun`: 연속지적도 부번 레이어
+
+        **WMS GetMap 파라미터:**
+        ```
+        SERVICE=WMS
+        REQUEST=GetMap
+        VERSION=1.3.0
+        LAYERS=lp_pa_cbnd_bonbun,lp_pa_cbnd_bubun
+        STYLES=lp_pa_cbnd_bonbun_line,lp_pa_cbnd_bubun_line
+        CRS=EPSG:4326
+        BBOX=ymin,xmin,ymax,xmax (EPSG:4326 사용 시 순서 주의!)
+        WIDTH=256
+        HEIGHT=256
+        FORMAT=image/png
+        TRANSPARENT=true
+        ```
+
+        **WMS GetFeatureInfo 파라미터:**
+        ```
+        SERVICE=WMS
+        REQUEST=GetFeatureInfo
+        VERSION=1.3.0
+        QUERY_LAYERS=lp_pa_cbnd_bonbun,lp_pa_cbnd_bubun
+        I=픽셀X좌표 (0-WIDTH)
+        J=픽셀Y좌표 (0-HEIGHT)
+        INFO_FORMAT=application/json
+        FEATURE_COUNT=10
+        ```
+
+        **참고 링크:**
+        - [VWorld WMS 가이드](https://www.vworld.kr/dev/v4dv_wmsguide_s001.do)
+        - [VWorld 개발자센터](https://www.vworld.kr/dev/v4api.do)
+        """)
 
 with tab1:
     # 지도 시각화 기능
