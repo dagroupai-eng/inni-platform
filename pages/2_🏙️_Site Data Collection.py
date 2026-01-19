@@ -69,100 +69,19 @@ if 'collection_status' not in st.session_state:
 with st.sidebar:
     st.header("📍 좌표 입력")
     
-    # 좌표 입력 방식 선택
-    input_method = st.radio(
-        "입력 방식 선택",
-        ["직접 입력", "CSV 파일 업로드", "Felo 결과 업로드"]
-    )
+    # 좌표 직접 입력
+    st.subheader("좌표 직접 입력")
+    lat = st.number_input("위도 (Latitude)", value=37.5665, format="%.6f")
+    lon = st.number_input("경도 (Longitude)", value=126.9780, format="%.6f")
+    radius = st.number_input("수집 반경 (미터)", value=1000, min_value=100, max_value=5000)
+    site_id = st.text_input("사이트 ID", value="S001")
     
-    if input_method == "직접 입력":
-        st.subheader("좌표 직접 입력")
-        lat = st.number_input("위도 (Latitude)", value=37.5665, format="%.6f")
-        lon = st.number_input("경도 (Longitude)", value=126.9780, format="%.6f")
-        radius = st.number_input("수집 반경 (미터)", value=1000, min_value=100, max_value=5000)
-        site_id = st.text_input("사이트 ID", value="S001")
-        
-        coordinates = [{"lat": lat, "lon": lon, "radius": radius, "site_id": site_id}]
-    
-    elif input_method == "CSV 파일 업로드":
-        st.subheader("CSV 파일 업로드")
-        uploaded_file = st.file_uploader(
-            "CSV 파일 업로드",
-            type=['csv'],
-            help="lat, lon, radius, site_id 컬럼이 포함된 CSV 파일"
-        )
-        
-        if uploaded_file:
-            df = pd.read_csv(uploaded_file)
-            st.dataframe(df.head())
-            
-            # 필수 컬럼 확인
-            required_cols = ['lat', 'lon']
-            if all(col in df.columns for col in required_cols):
-                coordinates = df.to_dict('records')
-                st.success(f"✅ {len(coordinates)}개 좌표 로드 완료")
-            else:
-                st.error("❌ 필수 컬럼 (lat, lon)이 없습니다.")
-                coordinates = []
-        else:
-            coordinates = []
-    
-    else:  # Felo 결과 업로드
-        st.subheader("Felo 결과 업로드")
-        uploaded_file = st.file_uploader(
-            "Felo 결과 파일 업로드",
-            type=['csv', 'xlsx'],
-            help="Felo에서 생성된 후보지 리스트 파일"
-        )
-        
-        if uploaded_file:
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
-            
-            st.dataframe(df.head())
-            
-            # Felo 결과에서 좌표 추출 (컬럼명은 실제 Felo 결과에 맞게 수정)
-            coord_cols = ['latitude', 'lat', 'y', '위도']
-            lon_cols = ['longitude', 'lon', 'x', '경도']
-            
-            lat_col = None
-            lon_col = None
-            
-            for col in coord_cols:
-                if col in df.columns:
-                    lat_col = col
-                    break
-            
-            for col in lon_cols:
-                if col in df.columns:
-                    lon_col = col
-                    break
-            
-            if lat_col and lon_col:
-                coordinates = []
-                for idx, row in df.iterrows():
-                    coordinates.append({
-                        "lat": row[lat_col],
-                        "lon": row[lon_col],
-                        "radius": 1000,  # 기본값
-                        "site_id": f"Felo_{idx+1}"
-                    })
-                st.success(f"✅ {len(coordinates)}개 Felo 후보지 로드 완료")
-            else:
-                st.error("❌ 좌표 컬럼을 찾을 수 없습니다.")
-                coordinates = []
-        else:
-            coordinates = []
+    coordinates = [{"lat": lat, "lon": lon, "radius": radius, "site_id": site_id}]
     
     # 데이터 수집 설정
     st.header("⚙️ 수집 설정")
     
     collect_osm = st.checkbox("OSM POI 수집", value=True)
-    collect_vworld = st.checkbox("V-World 용도지역", value=True)
-    collect_kosis = st.checkbox("KOSIS 통계", value=True)
-    collect_public = st.checkbox("공공시설 데이터", value=True)
     
     # API 키 상태 확인
     st.header("🔑 API 키 상태")
