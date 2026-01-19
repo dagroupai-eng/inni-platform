@@ -82,21 +82,6 @@ with st.sidebar:
     st.header("⚙️ 수집 설정")
     
     collect_osm = st.checkbox("OSM POI 수집", value=True)
-    
-    # API 키 상태 확인
-    st.header("🔑 API 키 상태")
-    
-    api_keys = {
-        "V-World": os.getenv("VWORLD_API_KEY"),
-        "KOSIS": os.getenv("KOSIS_API_KEY"),
-        "공공데이터": os.getenv("PUBLIC_DATA_API_KEY")
-    }
-    
-    for api_name, api_key in api_keys.items():
-        if api_key:
-            st.success(f"✅ {api_name}")
-        else:
-            st.warning(f"⚠️ {api_name} (선택사항)")
 
 # 메인 컨텐츠
 if coordinates:
@@ -511,187 +496,147 @@ if st.session_state.collected_data:
         if total_size > 50:
             st.warning(f"⚠️ 선택한 지역의 데이터 크기가 큽니다 ({total_size:.1f} MB). 성능을 위해 데이터가 자동으로 샘플링됩니다.")
         
-        # 탭으로 결과 표시
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📍 사이트 정보", "🏥 OSM POI", "🏘️ V-World 용도지역", "📊 KOSIS 통계", "🏛️ 공공시설"])
-        
-        with tab1:
-            st.subheader("📍 사이트 정보")
-            st.json(data['site_info'])
+        # OSM POI 결과 표시
+        st.subheader("🏥 OSM POI")
+        osm_df = data.get('osm_poi', pd.DataFrame())
+        if not osm_df.empty:
+            # 반경 내 데이터만 필터링
+            filtered_osm = filter_dataframe_by_distance(
+                osm_df, center_lat, center_lon, radius_m
+            )
             
-            # 지도 표시
-            if 'lat' in data['site_info'] and 'lon' in data['site_info']:
-                m = folium.Map(
-                    location=[data['site_info']['lat'], data['site_info']['lon']],
-                    zoom_start=15
-                )
-                
-                # 사이트 마커
-                folium.Marker(
-                    [data['site_info']['lat'], data['site_info']['lon']],
-                    popup=f"사이트: {selected_site}",
-                    icon=folium.Icon(color='red', icon='star')
-                ).add_to(m)
-                
-                # 반경 원
-                folium.Circle(
-                    [data['site_info']['lat'], data['site_info']['lon']],
-                    radius=data['site_info']['radius_m'],
-                    popup=f"수집 반경: {data['site_info']['radius_m']}m",
-                    color='blue',
-                    fill=False
-                ).add_to(m)
-                
-                # 지도를 HTML로 표시 (streamlit-folium 대신)
-                try:
-                    map_html = m._repr_html_()
-                    st.components.v1.html(map_html, width=700, height=500)
-                except Exception as e:
-                    st.error(f"지도 표시 오류: {e}")
-                    st.info("지도 대신 좌표 정보를 표시합니다:")
-                    st.write(f"📍 위치: 위도 {data['site_info']['lat']}, 경도 {data['site_info']['lon']}")
-                    st.write(f"📏 수집 반경: {data['site_info']['radius_m']}m")
-        
-        with tab2:
-            st.subheader("🏥 OSM POI")
-            osm_df = data.get('osm_poi', pd.DataFrame())
-            if not osm_df.empty:
-                # 반경 내 데이터만 필터링
-                filtered_osm = filter_dataframe_by_distance(
-                    osm_df, center_lat, center_lon, radius_m
-                )
-                
-                # 필터링 결과 정보 표시
-                total_count = len(osm_df)
-                filtered_count = len(filtered_osm)
-                if total_count > filtered_count:
-                    if filtered_count > MAX_DISPLAY_ROWS:
-                        st.warning(f"⚠️ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 발견. 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
-                    else:
-                        st.success(f"✅ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 표시 중")
+            # 필터링 결과 정보 표시
+            total_count = len(osm_df)
+            filtered_count = len(filtered_osm)
+            if total_count > filtered_count:
+                if filtered_count > MAX_DISPLAY_ROWS:
+                    st.warning(f"⚠️ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 발견. 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
                 else:
-                    if filtered_count > MAX_DISPLAY_ROWS:
-                        st.warning(f"⚠️ 총 {total_count:,}개 데이터 중 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
-                    else:
-                        st.info(f"📊 총 {total_count:,}개 데이터 표시 중")
-                # POI 타입별 통계 (한국어 포함)
-                if 'poi_type' in filtered_osm.columns:
-                    poi_stats = filtered_osm['poi_type'].value_counts()
-                    poi_stats_korean = {}
-                    for poi_type, count in poi_stats.items():
-                        korean_name = KOREAN_POI_NAMES.get(poi_type, poi_type)
-                        poi_stats_korean[f"{korean_name} ({poi_type})"] = count
-                    
-                    st.bar_chart(poi_stats_korean)
-                
-                # POI 데이터 표시 (한국어 용어 추가)
-                display_df = filtered_osm.copy()
-                if 'poi_type' in display_df.columns:
-                    display_df['한국어_타입'] = display_df['poi_type'].map(KOREAN_POI_NAMES).fillna(display_df['poi_type'])
-                st.dataframe(display_df, use_container_width=True)
-                
-                # OSM POI 지도 표시 (선택적)
-                show_poi_map = st.checkbox("🗺️ POI 지도 표시 (대용량 데이터의 경우 느릴 수 있음)", value=False, key="show_poi_map")
-                
-                if show_poi_map:
-                    st.subheader("🗺️ OSM POI 지도")
-                    try:
-                        # Folium 지도 생성
-                        m = folium.Map(
-                            location=[data['site_info']['lat'], data['site_info']['lon']],
-                            zoom_start=15
-                        )
-                        
-                        # 사이트 마커
-                        folium.Marker(
-                            [data['site_info']['lat'], data['site_info']['lon']],
-                            popup=f"사이트: {selected_site}",
-                            icon=folium.Icon(color='red', icon='star')
-                        ).add_to(m)
-                        
-                        # 반경 원
-                        folium.Circle(
-                            [data['site_info']['lat'], data['site_info']['lon']],
-                            radius=data['site_info']['radius_m'],
-                            popup=f"수집 반경: {data['site_info']['radius_m']}m",
-                            color='blue',
-                            fill=False,
-                            weight=2
-                        ).add_to(m)
-                        
-                        # POI 타입별 색상 설정 (확장된 버전)
-                        poi_colors = {
-                            'amenity:hospital': 'red',
-                            'amenity:school': 'blue',
-                            'amenity:university': 'darkblue',
-                            'amenity:pharmacy': 'lightred',
-                            'amenity:clinic': 'pink',
-                            'public_transport:station': 'green',
-                            'highway:bus_stop': 'lightgreen',
-                            'shop:supermarket': 'orange',
-                            'shop:convenience': 'yellow',
-                            'leisure:park': 'darkgreen',
-                            'tourism:hotel': 'purple',
-                            'amenity:restaurant': 'beige',
-                            'amenity:cafe': 'brown'
-                        }
-                        
-                        # 지도 표시용으로 추가 샘플링 (지도 성능 최적화)
-                        if len(filtered_osm) > MAX_MAP_POIS:
-                            map_osm = filtered_osm.sample(n=MAX_MAP_POIS, random_state=42)
-                            st.warning(f"⚠️ 지도 성능을 위해 {len(filtered_osm):,}개 POI 중 {MAX_MAP_POIS:,}개만 지도에 표시합니다.")
-                        else:
-                            map_osm = filtered_osm
-                        
-                        # POI 타입별로 그룹화
-                        poi_groups = {}
-                        for idx, row in map_osm.iterrows():
-                            poi_type = row.get('poi_type', 'unknown')
-                            if poi_type not in poi_groups:
-                                poi_groups[poi_type] = []
-                            poi_groups[poi_type].append(row)
-                        
-                        # POI 마커 추가
-                        for idx, row in map_osm.iterrows():
-                            poi_type = row.get('poi_type', 'unknown')
-                            color = poi_colors.get(poi_type, 'gray')
-                            korean_name = KOREAN_POI_NAMES.get(poi_type, poi_type)
-                            
-                            folium.CircleMarker(
-                                [row['lat'], row['lon']],
-                                radius=5,
-                                popup=f"""
-                                <b>{row.get('name', '이름 없음')}</b><br>
-                                타입: {korean_name} ({poi_type})<br>
-                                거리: {row.get('distance_m', 0):.0f}m
-                                """,
-                                color='black',
-                                fillColor=color,
-                                fillOpacity=0.7,
-                                weight=1
-                            ).add_to(m)
-                        
-                        # 범례를 Streamlit 사이드바로 이동
-                        with st.sidebar:
-                            st.markdown("### 📍 POI 범례")
-                            st.markdown("*반경 내 주요 시설물*")
-                            
-                            for poi_type, color in poi_colors.items():
-                                if poi_type in poi_groups:
-                                    korean_name = KOREAN_POI_NAMES.get(poi_type, poi_type)
-                                    count = len(poi_groups[poi_type])
-                                    st.markdown(f"🔴 **{korean_name}** ({poi_type}) - {count}개")
-                            st.markdown("---")
-                        
-                        # 지도 표시 (크기 증가)
-                        map_html = m._repr_html_()
-                        st.components.v1.html(map_html, width=1000, height=700)
-                        
-                    except Exception as e:
-                        st.error(f"POI 지도 표시 오류: {e}")
-                else:
-                    st.info("💡 POI 지도를 보려면 위의 체크박스를 선택하세요.")
+                    st.success(f"✅ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 표시 중")
             else:
-                st.info("OSM POI 데이터가 없습니다.")
+                if filtered_count > MAX_DISPLAY_ROWS:
+                    st.warning(f"⚠️ 총 {total_count:,}개 데이터 중 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
+                else:
+                    st.info(f"📊 총 {total_count:,}개 데이터 표시 중")
+            # POI 타입별 통계 (한국어 포함)
+            if 'poi_type' in filtered_osm.columns:
+                poi_stats = filtered_osm['poi_type'].value_counts()
+                poi_stats_korean = {}
+                for poi_type, count in poi_stats.items():
+                    korean_name = KOREAN_POI_NAMES.get(poi_type, poi_type)
+                    poi_stats_korean[f"{korean_name} ({poi_type})"] = count
+                
+                st.bar_chart(poi_stats_korean)
+            
+            # POI 데이터 표시 (한국어 용어 추가)
+            display_df = filtered_osm.copy()
+            if 'poi_type' in display_df.columns:
+                display_df['한국어_타입'] = display_df['poi_type'].map(KOREAN_POI_NAMES).fillna(display_df['poi_type'])
+            st.dataframe(display_df, use_container_width=True)
+            
+            # OSM POI 지도 표시 (선택적)
+            show_poi_map = st.checkbox("🗺️ POI 지도 표시 (대용량 데이터의 경우 느릴 수 있음)", value=False, key="show_poi_map")
+            
+            if show_poi_map:
+                st.subheader("🗺️ OSM POI 지도")
+                try:
+                    # Folium 지도 생성
+                    m = folium.Map(
+                        location=[data['site_info']['lat'], data['site_info']['lon']],
+                        zoom_start=15
+                    )
+                    
+                    # 사이트 마커
+                    folium.Marker(
+                        [data['site_info']['lat'], data['site_info']['lon']],
+                        popup=f"사이트: {selected_site}",
+                        icon=folium.Icon(color='red', icon='star')
+                    ).add_to(m)
+                    
+                    # 반경 원
+                    folium.Circle(
+                        [data['site_info']['lat'], data['site_info']['lon']],
+                        radius=data['site_info']['radius_m'],
+                        popup=f"수집 반경: {data['site_info']['radius_m']}m",
+                        color='blue',
+                        fill=False,
+                        weight=2
+                    ).add_to(m)
+                    
+                    # POI 타입별 색상 설정 (확장된 버전)
+                    poi_colors = {
+                        'amenity:hospital': 'red',
+                        'amenity:school': 'blue',
+                        'amenity:university': 'darkblue',
+                        'amenity:pharmacy': 'lightred',
+                        'amenity:clinic': 'pink',
+                        'public_transport:station': 'green',
+                        'highway:bus_stop': 'lightgreen',
+                        'shop:supermarket': 'orange',
+                        'shop:convenience': 'yellow',
+                        'leisure:park': 'darkgreen',
+                        'tourism:hotel': 'purple',
+                        'amenity:restaurant': 'beige',
+                        'amenity:cafe': 'brown'
+                    }
+                    
+                    # 지도 표시용으로 추가 샘플링 (지도 성능 최적화)
+                    if len(filtered_osm) > MAX_MAP_POIS:
+                        map_osm = filtered_osm.sample(n=MAX_MAP_POIS, random_state=42)
+                        st.warning(f"⚠️ 지도 성능을 위해 {len(filtered_osm):,}개 POI 중 {MAX_MAP_POIS:,}개만 지도에 표시합니다.")
+                    else:
+                        map_osm = filtered_osm
+                    
+                    # POI 타입별로 그룹화
+                    poi_groups = {}
+                    for idx, row in map_osm.iterrows():
+                        poi_type = row.get('poi_type', 'unknown')
+                        if poi_type not in poi_groups:
+                            poi_groups[poi_type] = []
+                        poi_groups[poi_type].append(row)
+                    
+                    # POI 마커 추가
+                    for idx, row in map_osm.iterrows():
+                        poi_type = row.get('poi_type', 'unknown')
+                        color = poi_colors.get(poi_type, 'gray')
+                        korean_name = KOREAN_POI_NAMES.get(poi_type, poi_type)
+                        
+                        folium.CircleMarker(
+                            [row['lat'], row['lon']],
+                            radius=5,
+                            popup=f"""
+                            <b>{row.get('name', '이름 없음')}</b><br>
+                            타입: {korean_name} ({poi_type})<br>
+                            거리: {row.get('distance_m', 0):.0f}m
+                            """,
+                            color='black',
+                            fillColor=color,
+                            fillOpacity=0.7,
+                            weight=1
+                        ).add_to(m)
+                    
+                    # 범례를 Streamlit 사이드바로 이동
+                    with st.sidebar:
+                        st.markdown("### 📍 POI 범례")
+                        st.markdown("*반경 내 주요 시설물*")
+                        
+                        for poi_type, color in poi_colors.items():
+                            if poi_type in poi_groups:
+                                korean_name = KOREAN_POI_NAMES.get(poi_type, poi_type)
+                                count = len(poi_groups[poi_type])
+                                st.markdown(f"🔴 **{korean_name}** ({poi_type}) - {count}개")
+                        st.markdown("---")
+                    
+                    # 지도 표시 (크기 증가)
+                    map_html = m._repr_html_()
+                    st.components.v1.html(map_html, width=1000, height=700)
+                    
+                except Exception as e:
+                    st.error(f"POI 지도 표시 오류: {e}")
+            else:
+                st.info("💡 POI 지도를 보려면 위의 체크박스를 선택하세요.")
+        else:
+            st.info("OSM POI 데이터가 없습니다.")
     
     elif selected_site == "전체 보기":
         # 전체 보기 모드: 모든 사이트의 요약 정보만 표시
@@ -704,320 +649,13 @@ if st.session_state.collected_data:
                 "사이트 ID": site_id,
                 "위치": f"({site_info.get('lat', 0):.4f}, {site_info.get('lon', 0):.4f})",
                 "반경": f"{site_info.get('radius_m', 0)}m",
-                "OSM POI": len(site_data.get('osm_poi', [])),
-                "V-World 용도지역": len(site_data.get('vworld_zoning', [])),
-                "KOSIS 통계": len(site_data.get('kosis_stats', [])),
-                "공공시설": len(site_data.get('public_facilities', []))
+                "OSM POI": len(site_data.get('osm_poi', []))
             })
         
         summary_df = pd.DataFrame(summary_data)
         st.dataframe(summary_df, use_container_width=True)
         st.info("💡 특정 지역의 상세 데이터를 보려면 위에서 지역을 선택하세요.")
     
-    # tab3 블록이 선택된 사이트가 있을 때만 실행되도록 조건 추가
-    if selected_site and selected_site != "전체 보기":
-        with tab3:
-            st.subheader("🏘️ V-World 용도지역")
-            vworld_gdf = data.get('vworld_zoning', gpd.GeoDataFrame())
-            if not vworld_gdf.empty:
-                filtered_vworld = filter_geodataframe_by_coordinate(
-                    vworld_gdf, center_lat, center_lon, radius_m
-                )
-                
-                # 필터링 결과 정보 표시
-                total_count = len(vworld_gdf)
-                filtered_count = len(filtered_vworld)
-                if total_count > filtered_count:
-                    if filtered_count > MAX_DISPLAY_ROWS:
-                        st.warning(f"⚠️ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 발견. 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
-                    else:
-                        st.success(f"✅ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 표시 중")
-                else:
-                    if filtered_count > MAX_DISPLAY_ROWS:
-                        st.warning(f"⚠️ 총 {total_count:,}개 데이터 중 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
-                    else:
-                        st.info(f"📊 총 {total_count:,}개 데이터 표시 중")
-                
-                # V-World 레이어 한국어 이름 매핑 (상단에 정의된 상수 사용)
-                
-                # 필터링된 GeoDataFrame을 일반 DataFrame으로 변환 (geometry 컬럼 제외)
-                # 표시용으로 더 작게 샘플링
-                display_vworld = filtered_vworld.head(MAX_DISPLAY_ROWS) if len(filtered_vworld) > MAX_DISPLAY_ROWS else filtered_vworld
-                
-                # 데이터 크기 체크
-                estimated_size = estimate_data_size_mb(display_vworld)
-                if estimated_size > 50:  # 50MB 이상이면 경고
-                    st.warning(f"⚠️ 데이터 크기가 큽니다 ({estimated_size:.1f} MB). 표시 행 수를 더 줄이거나 지도 표시를 비활성화하세요.")
-                    # 추가 샘플링
-                    display_vworld = display_vworld.head(200)
-                
-                vworld_df = display_vworld.drop(columns=['geometry'], errors='ignore')
-                
-                # 한국어 레이어명 추가 (대소문자 구분 없이)
-                if 'layer_name' in vworld_df.columns:
-                    # 대소문자 구분 없이 매핑하는 함수
-                    def get_korean_name(layer_name):
-                        # 정확한 매칭 먼저 시도
-                        if layer_name in VWORLD_KOREAN_NAMES:
-                            return VWORLD_KOREAN_NAMES[layer_name]
-                        # 대소문자 구분 없이 매칭 시도
-                        for key, value in VWORLD_KOREAN_NAMES.items():
-                            if key.lower() == layer_name.lower():
-                                return value
-                        return layer_name
-                    
-                    vworld_df['한국어_레이어'] = vworld_df['layer_name'].apply(get_korean_name)
-                
-                st.dataframe(vworld_df, use_container_width=True)
-                
-                # 지도에 용도지역 표시 (선택적)
-                if 'geometry' in filtered_vworld.columns:
-                    # 지도 표시 여부 선택
-                    show_map = st.checkbox("🗺️ 지도 표시 (대용량 데이터의 경우 느릴 수 있음)", value=False, key="show_vworld_map")
-                    
-                    if show_map:
-                        st.subheader("🗺️ 용도지역 지도")
-                        try:
-                            # Folium 지도 생성
-                            m = folium.Map(
-                                location=[data['site_info']['lat'], data['site_info']['lon']],
-                                zoom_start=15
-                            )
-                            
-                            # 사이트 마커
-                            folium.Marker(
-                                [data['site_info']['lat'], data['site_info']['lon']],
-                                popup=f"사이트: {selected_site}",
-                                icon=folium.Icon(color='red', icon='star')
-                            ).add_to(m)
-                            
-                            # 용도지역 폴리곤 표시 (레이어 토글 기능 포함)
-                            # 지도 표시용으로 추가 샘플링 (지도 성능 최적화)
-                            if len(filtered_vworld) > MAX_MAP_FEATURES:
-                                map_vworld = filtered_vworld.sample(n=MAX_MAP_FEATURES, random_state=42)
-                                st.warning(f"⚠️ 지도 성능을 위해 {len(filtered_vworld):,}개 중 {MAX_MAP_FEATURES:,}개만 지도에 표시합니다.")
-                            else:
-                                map_vworld = filtered_vworld
-                            
-                            if len(map_vworld) > 0:
-                                # 레이어별로 그룹화
-                                layer_groups = {}
-                                for idx, row in map_vworld.iterrows():
-                                    if row.geometry and hasattr(row.geometry, '__geo_interface__'):
-                                        layer_name = row.get('layer_name', 'Unknown')
-                                        if layer_name not in layer_groups:
-                                            layer_groups[layer_name] = []
-                                        layer_groups[layer_name].append(row)
-                                
-                                # V-World 레이어 한국어 이름 매핑 (상단에 정의된 상수 사용)
-                                
-                                # 레이어 우선순위 설정 (가장 작은 단위부터)
-                                layer_priority = {
-                                'LT_C_UDPG': 1,    # 용도구역 (가장 작은 단위)
-                                'LT_C_UDDI': 2,    # 용도지구
-                                'LT_C_UPISU': 3,   # 용도지역 (가장 큰 단위)
-                                # 구체적인 용도지역 코드들 (우선순위 4-23)
-                                'LT_P_DGMUSEUMART': 4,
-                                'LT_P_DGPARK': 5,
-                                'LT_P_DGCOMMERCIAL': 6,
-                                'LT_P_DGRESIDENTIAL': 7,
-                                'LT_P_DGINDUSTRIAL': 8,
-                                'LT_P_DGGREEN': 9,
-                                'LT_P_DGAGRICULTURAL': 10,
-                                'LT_P_DGFOREST': 11,
-                                'LT_P_DGWATER': 12,
-                                'LT_P_DGROAD': 13,
-                                'LT_P_DGPUBLIC': 14,
-                                'LT_P_DGRELIGIOUS': 15,
-                                'LT_P_DGEDUCATIONAL': 16,
-                                'LT_P_DGMEDICAL': 17,
-                                'LT_P_DGTRANSPORT': 18,
-                                'LT_P_DGWAREHOUSE': 19,
-                                'LT_P_DGUTILITY': 20,
-                                'LT_P_DGCEMETERY': 21,
-                                'LT_P_DGOTHER': 22
-                                }
-                                
-                                # 레이어를 우선순위별로 정렬
-                                sorted_layers = sorted(layer_groups.items(), 
-                                                     key=lambda x: layer_priority.get(x[0], 999))
-                                
-                                # 색상 팔레트
-                                colors = ['red', 'blue', 'green', 'purple', 'orange', 'darkred', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue', 'darkpurple', 'white', 'pink', 'lightblue', 'lightgreen', 'gray', 'black', 'lightgray']
-                                
-                                # Folium 레이어 그룹 생성
-                                from folium import FeatureGroup
-                                
-                                # 각 레이어별 FeatureGroup 생성
-                                layer_groups_folium = {}
-                                for i, (layer_name, rows) in enumerate(sorted_layers):
-                                    color = colors[i % len(colors)]
-                                    priority = layer_priority.get(layer_name, 999)
-                                    
-                                    # FeatureGroup 생성 (한국어 이름 사용)
-                                    korean_layer_name = VWORLD_KOREAN_NAMES.get(layer_name, layer_name)
-                                    fg = FeatureGroup(name=f"{korean_layer_name} (우선순위: {priority})", show=True if priority == 1 else False)
-                                    
-                                    for row in rows:
-                                        # 폴리곤 스타일 설정
-                                        style = {
-                                            'fillColor': color,
-                                            'color': 'black',
-                                            'weight': 2,
-                                            'fillOpacity': 0.4 if priority == 1 else 0.2,  # 우선순위 높은 것 더 진하게
-                                            'opacity': 0.8
-                                        }
-                                        
-                                        # 팝업 정보 생성 (한국어 이름 포함)
-                                        korean_layer_name = VWORLD_KOREAN_NAMES.get(layer_name, layer_name)
-                                        popup_info = f"""
-                                        <b>용도지역 정보</b><br>
-                                        레이어: {korean_layer_name} ({layer_name})<br>
-                                        우선순위: {priority}<br>
-                                        """
-                                        
-                                        # 속성 정보 추가
-                                        if hasattr(row, 'properties') and row.properties:
-                                            for key, value in row.properties.items():
-                                                if key not in ['geometry']:
-                                                    popup_info += f"{key}: {value}<br>"
-                                        
-                                        folium.GeoJson(
-                                            row.geometry.__geo_interface__,
-                                            style_function=lambda x, color=color: style,
-                                            popup=folium.Popup(popup_info, max_width=300)
-                                        ).add_to(fg)
-                                    
-                                    fg.add_to(m)
-                                    layer_groups_folium[layer_name] = fg
-                                
-                                # 레이어 컨트롤 추가
-                                folium.LayerControl().add_to(m)
-                                
-                                # 범례를 Streamlit 사이드바로 이동
-                                with st.sidebar:
-                                    st.markdown("### 🗺️ 용도지역 범례")
-                                    st.markdown("*왼쪽 상단의 레이어 컨트롤로 켜고 끌 수 있습니다*")
-                                    
-                                    for i, (layer_name, rows) in enumerate(sorted_layers):
-                                        color = colors[i % len(colors)]
-                                        priority = layer_priority.get(layer_name, 999)
-                                        priority_text = "가장 작은 단위" if priority == 1 else "중간 단위" if priority == 2 else "가장 큰 단위"
-                                        
-                                        # 한국어 용어 치환 (대소문자 구분 없이)
-                                        def get_korean_name_for_legend(layer_name):
-                                            # 정확한 매칭 먼저 시도
-                                            if layer_name in VWORLD_KOREAN_NAMES:
-                                                return VWORLD_KOREAN_NAMES[layer_name]
-                                            # 대소문자 구분 없이 매칭 시도
-                                            for key, value in VWORLD_KOREAN_NAMES.items():
-                                                if key.lower() == layer_name.lower():
-                                                    return value
-                                            return layer_name
-                                        
-                                        korean_layer_name = get_korean_name_for_legend(layer_name)
-                                        
-                                        # 한국어 용어가 있으면 한국어만 표시, 없으면 원본 표시
-                                        if korean_layer_name != layer_name:
-                                            st.markdown(f"🟦 **{korean_layer_name}**")
-                                        else:
-                                            st.markdown(f"🟦 **{layer_name}**")
-                                        st.markdown(f"   *{priority_text}*")
-                                        st.markdown("---")
-                                
-                                # 지도 표시 (크기 증가)
-                                map_html = m._repr_html_()
-                                st.components.v1.html(map_html, width=1000, height=700)
-                        
-                        except Exception as e:
-                            st.error(f"지도 표시 오류: {e}")
-            else:
-                st.info("V-World 용도지역 데이터가 없습니다.")
-        
-        with tab4:
-            st.subheader("📊 KOSIS 통계")
-            kosis_df = data.get('kosis_stats', pd.DataFrame())
-            if not kosis_df.empty:
-                # 반경 내 데이터만 필터링 (좌표 정보가 있는 경우)
-                filtered_kosis = filter_dataframe_by_distance(
-                    kosis_df, center_lat, center_lon, radius_m
-                )
-                
-                # 필터링 결과 정보 표시
-                total_count = len(kosis_df)
-                filtered_count = len(filtered_kosis)
-                if total_count > filtered_count:
-                    if filtered_count > MAX_DISPLAY_ROWS:
-                        st.warning(f"⚠️ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 발견. 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
-                    else:
-                        st.success(f"✅ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 표시 중")
-                else:
-                    if filtered_count > MAX_DISPLAY_ROWS:
-                        st.warning(f"⚠️ 총 {total_count:,}개 데이터 중 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
-                    else:
-                        st.info(f"📊 총 {total_count:,}개 데이터 표시 중")
-                
-                st.dataframe(filtered_kosis, use_container_width=True)
-            else:
-                st.info("KOSIS 통계 데이터가 없습니다.")
-        
-        with tab5:
-            st.subheader("🏛️ 공공시설")
-            public_df = data.get('public_facilities', pd.DataFrame())
-            if not public_df.empty:
-                # 반경 내 데이터만 필터링
-                filtered_public = filter_dataframe_by_distance(
-                    public_df, center_lat, center_lon, radius_m
-                )
-                
-                # 필터링 결과 정보 표시
-                total_count = len(public_df)
-                filtered_count = len(filtered_public)
-                if total_count > filtered_count:
-                    if filtered_count > MAX_DISPLAY_ROWS:
-                        st.warning(f"⚠️ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 발견. 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
-                    else:
-                        st.success(f"✅ 전체 {total_count:,}개 중 반경 내 {filtered_count:,}개 표시 중")
-                else:
-                    if filtered_count > MAX_DISPLAY_ROWS:
-                        st.warning(f"⚠️ 총 {total_count:,}개 데이터 중 성능을 위해 {MAX_DISPLAY_ROWS:,}개만 표시합니다.")
-                    else:
-                        st.info(f"📊 총 {total_count:,}개 데이터 표시 중")
-                
-                st.dataframe(filtered_public, use_container_width=True)
-            else:
-                st.info("공공시설 데이터가 없습니다.")
-        
-        # 다운로드 버튼
-        st.subheader("📥 데이터 다운로드")
-        
-        if st.button("전체 데이터 다운로드", type="primary"):
-            if not URBAN_DATA_COLLECTOR_AVAILABLE:
-                st.error("⚠️ UrbanDataCollector 모듈이 설치되지 않았습니다.")
-                st.stop()
-            
-            # 임시 디렉토리에 저장
-            with tempfile.TemporaryDirectory() as temp_dir:
-                collector = UrbanDataCollector()
-                saved_files = collector.save_collected_data(data, temp_dir)
-                
-                # ZIP 파일 생성
-                import zipfile
-                zip_path = f"{temp_dir}/collected_data.zip"
-                
-                with zipfile.ZipFile(zip_path, 'w') as zipf:
-                    for file_type, file_path in saved_files.items():
-                        if os.path.exists(file_path):
-                            zipf.write(file_path, os.path.basename(file_path))
-                
-                # ZIP 파일 다운로드
-                with open(zip_path, 'rb') as f:
-                    st.download_button(
-                        label="📦 ZIP 파일 다운로드",
-                        data=f.read(),
-                        file_name=f"{selected_site}_collected_data.zip",
-                        mime="application/zip"
-                    )
 
 # 사용법 안내
 with st.expander("📖 사용법 안내"):
