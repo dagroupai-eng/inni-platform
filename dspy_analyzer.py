@@ -1,5 +1,9 @@
-import dspy
 import os
+# DSPy 캐시 비활성화 (import 전에 설정해야 함)
+os.environ['DSP_CACHEBOOL'] = 'false'
+os.environ['DSPY_CACHEBOOL'] = 'false'
+
+import dspy
 import json
 from contextlib import contextmanager
 from datetime import datetime
@@ -247,8 +251,9 @@ class EnhancedArchAnalyzer:
     
     @classmethod
     def reset_lm(cls):
-        """LM 초기화 상태를 리셋합니다. 제공자가 변경되었을 때 사용합니다."""
+        """LM 초기화 상태를 완전히 리셋합니다. 제공자가 변경되었을 때 사용합니다."""
         cls._last_provider = None
+        cls._lm_initialized = False
     
     def _get_current_model_info(self, suffix: str = "") -> str:
         """
@@ -620,8 +625,8 @@ class EnhancedArchAnalyzer:
             
             if not EnhancedArchAnalyzer._lm_initialized:
                 try:
-                    dspy.configure(lm=lm, track_usage=True)
-                    print("DSPy 전역 LM이 초기화되었습니다.")
+                    dspy.configure(lm=lm, track_usage=True, cache=False)
+                    print("DSPy 전역 LM이 초기화되었습니다. (캐싱 비활성화)")
                 except RuntimeError as thread_error:
                     print(f"전역 LM 설정 경고: {thread_error}. 활성 컨텍스트 방식으로 진행합니다.")
                 EnhancedArchAnalyzer._lm_initialized = True
@@ -659,8 +664,8 @@ class EnhancedArchAnalyzer:
                         self._active_provider = fallback_provider
                         if not EnhancedArchAnalyzer._lm_initialized:
                             try:
-                                dspy.configure(lm=lm, track_usage=True)
-                                print("DSPy 전역 LM이 초기화되었습니다. (폴백)")
+                                dspy.configure(lm=lm, track_usage=True, cache=False)
+                                print("DSPy 전역 LM이 초기화되었습니다. (폴백, 캐싱 비활성화)")
                             except RuntimeError as thread_error:
                                 print(f"전역 LM 설정 경고: {thread_error}. 활성 컨텍스트 방식으로 진행합니다.")
                             EnhancedArchAnalyzer._lm_initialized = True
@@ -1959,7 +1964,10 @@ class EnhancedArchAnalyzer:
     ) -> Dict[str, Any]:
         """단일 블록에 대한 CoT 분석을 실행하고 세션 컨텍스트를 갱신합니다."""
         try:
+            print(f"[DEBUG] run_cot_step 시작: block_id={block_id}")
+            print(f"[DEBUG] cot_session previous_results keys: {list(cot_session.get('previous_results', {}).keys())}")
             current_step = step_index if step_index is not None else len(cot_session["previous_results"]) + 1
+            print(f"[DEBUG] current_step={current_step}")
             context_for_current_block = self._build_cot_context(
                 cot_session,
                 block_info,
@@ -1977,6 +1985,10 @@ class EnhancedArchAnalyzer:
             # 최적화된 temperature 계산
             optimal_temperature = self._get_optimal_temperature(block_id, block_info)
             
+            print(f"[DEBUG] _analyze_block_with_cot_context 호출 시작...")
+            import time
+            start_time = time.time()
+
             result = self._analyze_block_with_cot_context(
                 context_for_current_block,
                 block_info,
@@ -1987,6 +1999,10 @@ class EnhancedArchAnalyzer:
                 enable_streaming=True,  # CoT 분석에서는 스트리밍 활성화
                 progress_callback=progress_callback
             )
+
+            elapsed_time = time.time() - start_time
+            print(f"[DEBUG] _analyze_block_with_cot_context 완료. 소요시간: {elapsed_time:.2f}초")
+            print(f"[DEBUG] result success: {result.get('success')}, method: {result.get('method')}")
 
             if not result.get("success"):
                 return result
@@ -2046,9 +2062,9 @@ class EnhancedArchAnalyzer:
                 # 현재 블록 정보 찾기
                 block_info = block_infos.get(block_id)
                 if not block_info:
-                    print(f"❌ 블록 정보를 찾을 수 없습니다: {block_id}")
+                    print(f"[X] 블록 정보를 찾을 수 없습니다: {block_id}")
                     if progress_callback:
-                        progress_callback(f"❌ 블록 정보를 찾을 수 없습니다: {block_id}")
+                        progress_callback(f"[X] 블록 정보를 찾을 수 없습니다: {block_id}")
                     continue
                 
                 step_result = self.run_cot_step(
@@ -2064,9 +2080,9 @@ class EnhancedArchAnalyzer:
                     cumulative_context = step_result['cot_session']
                     print(f"✅ {block_id} 블록 완료")
                 else:
-                    print(f"❌ {block_id} 블록 실패: {step_result.get('error', '알 수 없는 오류')}")
+                    print(f"[X] {block_id} 블록 실패: {step_result.get('error', '알 수 없는 오류')}")
                     if progress_callback:
-                        progress_callback(f"❌ {block_name} 블록 실패: {step_result.get('error', '알 수 없는 오류')}")
+                        progress_callback(f"[X] {block_name} 블록 실패: {step_result.get('error', '알 수 없는 오류')}")
             
             print("🎉 모든 블록 분석 완료!")
             if progress_callback:
@@ -2215,7 +2231,7 @@ class EnhancedArchAnalyzer:
             
             return formatted_prompt
         except Exception as e:
-            print(f"❌ 프롬프트 템플릿 포맷팅 오류: {e}")
+            print(f"[X] 프롬프트 템플릿 포맷팅 오류: {e}")
             return UNIFIED_PROMPT_TEMPLATE.replace("{pdf_text}", pdf_text if pdf_text else "")
     
     def _analyze_block_with_cot_context(self, cot_context, block_info, block_id, project_info=None, thinking_budget: Optional[int] = None, temperature: Optional[float] = None, enable_streaming: bool = False, progress_callback=None, use_pdf_direct: bool = True):
@@ -2322,6 +2338,10 @@ class EnhancedArchAnalyzer:
             
             # CoT 컨텍스트와 블록 프롬프트 결합
             # 중요: 블록의 프롬프트(formatted_prompt)가 주요 분석 방향을 결정하므로 명확하게 포함
+            # 캐시 무효화를 위한 고유 ID 생성
+            import uuid
+            cache_buster = str(uuid.uuid4())[:8]
+
             enhanced_prompt = f"""
 {cot_context}
 
@@ -2333,6 +2353,8 @@ class EnhancedArchAnalyzer:
 {formatted_prompt}{extended_thinking_note}
 
 {self._get_output_format_template()}
+
+<!-- analysis_id: {cache_buster} -->
 """
             
             # 블록 ID에 따라 적절한 Signature 선택 (동적 생성)
@@ -2395,18 +2417,60 @@ class EnhancedArchAnalyzer:
                                     final_result = StreamResult(accumulated_text)
                             
                             # 이벤트 루프 실행
+                            # Streamlit 환경에서는 이미 실행 중인 루프가 있을 수 있으므로
+                            # 먼저 확인하고, 실행 중이면 일반 모드로 전환
                             try:
-                                loop = asyncio.get_event_loop()
-                            except RuntimeError:
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                            
-                            if loop.is_running():
-                                # 이미 실행 중인 루프가 있는 경우 (예: Streamlit)
-                                # 일반 모드로 전환
+                                # 실행 중인 루프가 있는지 확인
+                                asyncio.get_running_loop()
+                                # 실행 중인 루프가 있으면 일반 모드로 전환
                                 raise RuntimeError("Event loop already running")
-                            else:
-                                loop.run_until_complete(collect_stream())
+                            except RuntimeError:
+                                # 실행 중인 루프가 없는 경우에만 스트리밍 시도
+                                loop = None
+                                try:
+                                    try:
+                                        loop = asyncio.get_event_loop()
+                                        if loop.is_running():
+                                            raise RuntimeError("Event loop already running")
+                                    except RuntimeError:
+                                        # 이벤트 루프가 없거나 실행 중인 경우 새로 생성
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                    
+                                    # 이벤트 루프 실행
+                                    if loop and not loop.is_running():
+                                        loop.run_until_complete(collect_stream())
+                                    else:
+                                        raise RuntimeError("Event loop already running")
+                                finally:
+                                    # 이벤트 루프 정리 (새로 만든 경우에만)
+                                    if loop:
+                                        try:
+                                            if not loop.is_running():
+                                                # 보류 중인 태스크 정리
+                                                try:
+                                                    pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                                                    if pending:
+                                                        for task in pending:
+                                                            if not task.done():
+                                                                task.cancel()
+                                                        # 취소된 태스크들을 기다림 (타임아웃 설정)
+                                                        try:
+                                                            loop.run_until_complete(asyncio.wait_for(
+                                                                asyncio.gather(*pending, return_exceptions=True),
+                                                                timeout=1.0
+                                                            ))
+                                                        except (asyncio.TimeoutError, Exception):
+                                                            pass
+                                                except Exception:
+                                                    pass
+                                                # 루프 닫기
+                                                try:
+                                                    loop.close()
+                                                except Exception:
+                                                    pass
+                                        except Exception:
+                                            pass
                             
                             result = final_result
                         except (RuntimeError, AttributeError) as stream_error:

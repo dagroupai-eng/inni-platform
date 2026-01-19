@@ -243,9 +243,10 @@ def get_cot_analyzer() -> Optional[EnhancedArchAnalyzer]:
     try:
         current_provider = get_current_provider()
         
-        # Provider가 변경되었거나 analyzer가 없으면 재생성
+        # Provider가 변경되었거나 analyzer가 없거나 None이면 재생성
         last_provider = st.session_state.get('_last_analyzer_provider')
-        if (last_provider != current_provider) or ('cot_analyzer' not in st.session_state):
+        cot_analyzer_exists = st.session_state.get('cot_analyzer') is not None
+        if (last_provider != current_provider) or (not cot_analyzer_exists):
             # 기존 analyzer 제거
             if 'cot_analyzer' in st.session_state:
                 del st.session_state.cot_analyzer
@@ -364,23 +365,65 @@ def parse_result_into_sections(text: str) -> List[Dict[str, str]]:
 
 def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
     """
-    단계별 분석 세션 상태를 초기화합니다.
+    단계별 분석 세션 상태를 완전히 초기화합니다.
 
     Args:
         preserve_existing_results: True이면 기존 분석 결과를 유지합니다.
     """
+    # 분석기 내부 상태도 완전히 초기화
+    try:
+        EnhancedArchAnalyzer.reset_lm()
+    except Exception:
+        pass
+
+    # LiteLLM 캐시 초기화 (이전 분석 결과가 캐시에서 반환되는 것 방지)
+    try:
+        import litellm
+        if hasattr(litellm, 'cache') and litellm.cache is not None:
+            litellm.cache = None
+        if hasattr(litellm, '_async_client'):
+            litellm._async_client = None
+    except Exception:
+        pass
+
+    # DSPy 캐시 및 상태 초기화
+    try:
+        import dspy
+        # DSPy LM 초기화 상태 리셋
+        EnhancedArchAnalyzer._lm_initialized = False
+        EnhancedArchAnalyzer._last_provider = None
+        # DSPy 내부 캐시 초기화 시도
+        if hasattr(dspy, 'cache') and dspy.cache is not None:
+            if hasattr(dspy.cache, 'clear'):
+                dspy.cache.clear()
+        # DSPy settings 리셋
+        if hasattr(dspy, 'settings'):
+            try:
+                dspy.settings.configure(lm=None)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 모든 세션 상태를 완전히 초기화
     st.session_state.cot_session = None
     st.session_state.cot_plan = []
     st.session_state.cot_current_index = 0
     st.session_state.cot_results = {}
     st.session_state.cot_progress_messages = []
-    st.session_state.cot_analyzer = None
     st.session_state.cot_running_block = None
+    
+    # analyzer를 완전히 삭제하여 재생성되도록 함
+    st.session_state.pop('cot_analyzer', None)
+    st.session_state.pop('_last_analyzer_provider', None)
+    
     if not preserve_existing_results:
+        # 모든 분석 결과 완전히 초기화
         st.session_state.analysis_results = {}
         st.session_state.cot_citations = {}
         st.session_state.cot_history = []
         st.session_state.cot_feedback_inputs = {}
+        
         # Phase 1 관련 개별 블록 결과 초기화
         st.session_state.pop('phase1_requirements_structured', None)
         st.session_state.pop('phase1_data_inventory', None)
@@ -2534,13 +2577,12 @@ with tab_blocks:
         df = pd.DataFrame(block_info_list)
         
         st.subheader("선택된 블록 목록 및 순서 조정")
+        st.caption("💡 순서 컬럼의 숫자를 직접 수정하거나, 오른쪽에서 행을 선택하여 화살표 버튼으로 순서를 변경할 수 있습니다.")
         
-        # 순서 조정 UI
-        col1, col2 = st.columns([2, 1])
+        # 표와 버튼을 나란히 배치
+        col_table, col_buttons = st.columns([5, 1])
         
-        with col1:
-            st.markdown("**현재 선택된 블록들:**")
-            
+        with col_table:
             # 수정 가능한 데이터 에디터로 순서 조정
             edited_df = st.data_editor(
                 df[['순서', '카테고리', '블록명', '설명']],
@@ -2568,52 +2610,73 @@ with tab_blocks:
                     )
                 }
             )
-        
-        with col2:
-            st.markdown("**빠른 순서 조정:**")
             
-            # 위/아래 이동 버튼들
-            for i, (_, row) in enumerate(df.iterrows()):
-                st.markdown(f"**[{row['카테고리']}] {row['블록명']}**")
-                col_up, col_down = st.columns(2)
-                
-                with col_up:
-                    if st.button("위로", key=f"up_{row['블록ID']}", disabled=(i == 0)):
-                        if i > 0:
-                            current_blocks = st.session_state['selected_blocks']
-                            current_blocks[i], current_blocks[i-1] = current_blocks[i-1], current_blocks[i]
-                            st.session_state['selected_blocks'] = current_blocks
-                            st.rerun()
-                
-                with col_down:
-                    if st.button("아래로", key=f"down_{row['블록ID']}", disabled=(i == len(selected_blocks)-1)):
-                        if i < len(selected_blocks) - 1:
-                            current_blocks = st.session_state['selected_blocks']
-                            current_blocks[i], current_blocks[i+1] = current_blocks[i+1], current_blocks[i]
-                            st.session_state['selected_blocks'] = current_blocks
-                            st.rerun()
+            # 순서 변경사항이 있는지 확인하고 적용 (직접 수정한 경우)
+            if not edited_df['순서'].equals(df['순서']):
+                try:
+                    sorted_indices = edited_df.sort_values('순서', kind="stable").index
+                    new_blocks = [df.loc[idx, '블록ID'] for idx in sorted_indices]
+                    st.session_state['selected_blocks'] = new_blocks
+                    st.success("블록 순서가 업데이트되었습니다!")
+                    st.rerun()
+                except Exception:
+                    st.error("블록 순서를 업데이트하는 중 문제가 발생했습니다. 입력값을 확인해주세요.")
         
-        # 순서 변경사항이 있는지 확인하고 적용
-        if not edited_df['순서'].equals(df['순서']):
-            try:
-                sorted_indices = edited_df.sort_values('순서', kind="stable").index
-                new_blocks = [df.loc[idx, '블록ID'] for idx in sorted_indices]
-                st.session_state['selected_blocks'] = new_blocks
-                st.success("블록 순서가 업데이트되었습니다!")
-                st.rerun()
-            except Exception:
-                st.error("블록 순서를 업데이트하는 중 문제가 발생했습니다. 입력값을 확인해주세요.")
-        
-        # 최종 선택된 블록들 표시
-        st.subheader("최종 분석 순서")
-        for i, block_id in enumerate(st.session_state['selected_blocks']):
-            block = block_lookup.get(block_id)
-            if block:
-                category = resolve_block_category(block)
-                block_name = block.get('name', '알 수 없음')
-                st.write(f"{i+1}. [{category}] {block_name}")
-            else:
-                st.write(f"{i+1}. {block_id} (정보 없음)")
+        with col_buttons:
+            st.markdown("")  # 상단 여백
+            st.markdown("")  # 상단 여백
+            
+            # 선택된 행 인덱스 초기화 및 유효성 검사
+            if 'selected_block_row_index' not in st.session_state:
+                st.session_state.selected_block_row_index = 0
+            
+            # 인덱스가 유효한 범위 내에 있는지 확인
+            max_index = len(block_info_list) - 1
+            if st.session_state.selected_block_row_index > max_index:
+                st.session_state.selected_block_row_index = max_index
+            if st.session_state.selected_block_row_index < 0:
+                st.session_state.selected_block_row_index = 0
+            
+            # 행 선택을 위한 selectbox
+            block_options = [f"{i+1}. {row['블록명']}" for i, row in df.iterrows()]
+            selected_row_display = st.selectbox(
+                "행 선택:",
+                options=block_options,
+                index=st.session_state.selected_block_row_index,
+                key="block_row_selector",
+                label_visibility="collapsed"
+            )
+            
+            # 선택된 인덱스 업데이트
+            selected_row_index = block_options.index(selected_row_display)
+            st.session_state.selected_block_row_index = selected_row_index
+            
+            st.markdown("")  # 여백
+            
+            # 위/아래 화살표 버튼
+            move_up_disabled = (selected_row_index == 0)
+            if st.button("⬆️", key="move_block_up", disabled=move_up_disabled, use_container_width=True, help="위로 이동"):
+                if selected_row_index > 0:
+                    current_blocks = st.session_state['selected_blocks'].copy()
+                    # 선택된 블록과 위 블록 교환
+                    current_blocks[selected_row_index], current_blocks[selected_row_index - 1] = \
+                        current_blocks[selected_row_index - 1], current_blocks[selected_row_index]
+                    st.session_state['selected_blocks'] = current_blocks
+                    st.session_state.selected_block_row_index = selected_row_index - 1
+                    st.success("블록이 위로 이동되었습니다!")
+                    st.rerun()
+            
+            move_down_disabled = (selected_row_index == len(selected_blocks) - 1)
+            if st.button("⬇️", key="move_block_down", disabled=move_down_disabled, use_container_width=True, help="아래로 이동"):
+                if selected_row_index < len(selected_blocks) - 1:
+                    current_blocks = st.session_state['selected_blocks'].copy()
+                    # 선택된 블록과 아래 블록 교환
+                    current_blocks[selected_row_index], current_blocks[selected_row_index + 1] = \
+                        current_blocks[selected_row_index + 1], current_blocks[selected_row_index]
+                    st.session_state['selected_blocks'] = current_blocks
+                    st.session_state.selected_block_row_index = selected_row_index + 1
+                    st.success("블록이 아래로 이동되었습니다!")
+                    st.rerun()
     else:
         st.warning("분석할 블록을 선택해주세요.")
 
@@ -2756,8 +2819,14 @@ with tab_run:
     control_col1, control_col2 = st.columns(2)
     with control_col1:
         if st.button("🔄 분석 세션 초기화", use_container_width=True):
+            print("[DEBUG] 초기화 버튼 클릭됨")
+            print(f"[DEBUG] 초기화 전 cot_results: {list(st.session_state.cot_results.keys())}")
+            print(f"[DEBUG] 초기화 전 cot_current_index: {st.session_state.cot_current_index}")
             reset_step_analysis_state()
+            print(f"[DEBUG] 초기화 후 cot_results: {list(st.session_state.cot_results.keys())}")
+            print(f"[DEBUG] 초기화 후 cot_current_index: {st.session_state.cot_current_index}")
             st.success("분석 세션을 초기화했습니다.")
+            st.rerun()
     prepare_disabled = not analysis_text
     with control_col2:
         if st.button("🚀 단계별 분석 세션 준비", type="primary", use_container_width=True, disabled=prepare_disabled):
@@ -2765,11 +2834,35 @@ with tab_run:
                 st.warning("분석에 사용할 텍스트가 없습니다.")
             else:
                 try:
+                    # 세션 준비 시 모든 이전 상태를 완전히 초기화
+                    EnhancedArchAnalyzer.reset_lm()
+                    st.session_state.pop('cot_analyzer', None)
+                    st.session_state.pop('_last_analyzer_provider', None)
+                    
+                    # 이전 세션 완전히 제거
+                    st.session_state.cot_session = None
+                    st.session_state.cot_plan = []
+                    st.session_state.cot_current_index = 0
+                    st.session_state.cot_results = {}
+                    st.session_state.cot_progress_messages = []
+                    st.session_state.cot_history = []
+                    st.session_state.cot_citations = {}
+                    st.session_state.cot_feedback_inputs = {}
+                    st.session_state.cot_running_block = None
+                    
                     analyzer = get_cot_analyzer()
                     if analyzer is None:
                         st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
                         st.stop()
+                    
+                    # 완전히 새로운 세션 생성 (previous_results는 빈 딕셔너리로 시작)
                     session = analyzer.initialize_cot_session(project_info_payload, analysis_text, len(selected_blocks))
+                    # 세션의 previous_results가 빈 딕셔너리인지 확인
+                    if 'previous_results' in session:
+                        session['previous_results'] = {}
+                    if 'cot_history' in session:
+                        session['cot_history'] = []
+                    
                     st.session_state.cot_session = session
                     st.session_state.cot_plan = selected_blocks.copy()
                     st.session_state.cot_current_index = 0
@@ -2777,13 +2870,26 @@ with tab_run:
                     st.session_state.cot_progress_messages = []
                     st.session_state.cot_history = []
                     st.session_state.analysis_results = {}
+                    st.session_state.cot_citations = {}
+                    st.session_state.cot_feedback_inputs = {}
                     st.success("단계별 분석 세션이 준비되었습니다. 순서대로 블록을 실행하세요.")
+                    st.rerun()
                 except Exception as e:
                     st.error(f"분석기 초기화 실패: {e}")
 
     active_plan = st.session_state.cot_plan if st.session_state.cot_session else selected_blocks
 
     st.markdown("### 단계 진행 현황")
+
+    # DEBUG: 상태 확인
+    with st.expander("[DEBUG] 세션 상태 확인", expanded=True):
+        st.write(f"cot_session 존재: {st.session_state.cot_session is not None}")
+        st.write(f"cot_current_index: {st.session_state.cot_current_index}")
+        st.write(f"cot_results keys: {list(st.session_state.cot_results.keys())}")
+        st.write(f"cot_plan: {st.session_state.cot_plan}")
+        if st.session_state.cot_session:
+            st.write(f"cot_session previous_results keys: {list(st.session_state.cot_session.get('previous_results', {}).keys())}")
+
     if not active_plan:
         st.info("분석 세션을 준비하면 단계별 진행 정보를 확인할 수 있습니다.")
     else:

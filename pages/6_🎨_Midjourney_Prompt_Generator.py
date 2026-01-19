@@ -12,6 +12,7 @@ st.set_page_config(
     layout="wide"
 )
 
+# Midjourney 프롬프트 생성 함수
 def generate_midjourney_prompt(user_inputs, cot_history, image_settings):
     """Midjourney 프롬프트 생성 함수"""
     from dspy_analyzer import EnhancedArchAnalyzer
@@ -49,6 +50,7 @@ def generate_midjourney_prompt(user_inputs, cot_history, image_settings):
     
     # 개선된 이미지 생성 프롬프트
     image_prompt = f"""
+
 당신은 건축 이미지 생성 전문가입니다. 분석 결과를 바탕으로 Midjourney에서 사용할 수 있는 구체적이고 효과적인 프롬프트를 생성해주세요.
 
 ##  프로젝트 정보
@@ -157,6 +159,7 @@ def generate_midjourney_prompt(user_inputs, cot_history, image_settings):
             'model': 'DSPy Error'
         }
 
+# 분석 데이터 로드 함수
 def load_analysis_data():
     """분석 데이터 로드 - st.session_state에서 Document Analysis 결과를 로드"""
     try:
@@ -189,6 +192,7 @@ def load_analysis_data():
         st.error(f"데이터 로드 오류: {e}")
         return {}
 
+# 웹 페이지
 def main():
     st.title("Midjourney 프롬프트 생성기")
     st.markdown("**PDF 문서나 Document Analysis 결과를 활용한 건축 이미지 프롬프트 생성**")

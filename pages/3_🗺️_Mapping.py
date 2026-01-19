@@ -345,7 +345,6 @@ def create_cadastral_map(center_lat: float = 37.5665, center_lon: float = 126.97
                     fmt='image/png',
                     transparent=True,
                     version='1.3.0',
-                    crs='EPSG:4326',
                     name=f"{zone_info['name']} ({zone_info['category']})",
                     overlay=True,
                     control=True,
@@ -377,7 +376,6 @@ def create_cadastral_map(center_lat: float = 37.5665, center_lon: float = 126.97
                 fmt='image/png',
                 transparent=True,
                 version='1.3.0',
-                crs='EPSG:4326',
                 name='연속 지적도',
                 overlay=True,
                 control=True,
@@ -858,12 +856,11 @@ def load_vworld_layer(layer_id: str, loader: GeoDataLoader = None) -> dict:
 # 데이터 로드
 seoul_projects, cities_data = generate_geo_data()
 
-# 탭 분리: 연속 지적도, 샘플 데이터, Shapefile 업로드, 후보지 시각화
+# 탭 분리: 연속 지적도, Shapefile 업로드, 후보지 시각화
 if GEO_MODULE_AVAILABLE:
-    tab_cadastral, tab1, tab2, tab3 = st.tabs(["연속 지적도", "샘플 데이터 지도", "Shapefile 업로드", "입지 후보지 시각화"])
+    tab_cadastral, tab2, tab3 = st.tabs(["연속 지적도", "Shapefile 업로드", "입지 후보지 시각화"])
 else:
     tab_cadastral = st.container()
-    tab1 = st.container()
     tab2 = None
     tab3 = None
 
@@ -1197,165 +1194,96 @@ with tab_cadastral:
         - [VWorld 개발자센터](https://www.vworld.kr/dev/v4api.do)
         """)
 
-with tab1:
-    # 지도 시각화 기능
-    st.subheader("프로젝트 위치 지도")
-    
-    # 지도 타입 선택
-    map_type = st.selectbox(
-        "지도 타입 선택",
-        ["서울 상세 지도", "전국 프로젝트 분포", "히트맵", "타임라인 지도"]
-    )
-
-    if map_type == "서울 상세 지도":
-        # 서울 프로젝트 지도
-        df_seoul = pd.DataFrame(seoul_projects)
-        
-        st.subheader("서울 지역 프로젝트 분포")
-        st.map(df_seoul, size=20)
-        
-        # 프로젝트 정보 테이블
-        st.subheader("프로젝트 상세 정보")
-        st.dataframe(df_seoul[['name', 'type', 'size', 'status', 'budget', 'area']], use_container_width=True)
-
-    elif map_type == "전국 프로젝트 분포":
-        # 전국 도시별 프로젝트 분포
-        df_cities = pd.DataFrame(cities_data)
-        
-        st.subheader("전국 도시별 프로젝트 분포")
-        st.map(df_cities, size=30)
-        
-        # 도시 정보 테이블
-        st.subheader("도시별 상세 정보")
-        st.dataframe(df_cities, use_container_width=True)
-
-    elif map_type == "히트맵":
-        # 히트맵 생성 (예산 기준으로 크기 조정)
-        df_seoul = pd.DataFrame(seoul_projects)
-        
-        # 예산에 따른 크기 계산 (최소 10, 최대 50)
-        df_seoul['budget_size'] = ((df_seoul['budget'] - df_seoul['budget'].min()) / 
-                                  (df_seoul['budget'].max() - df_seoul['budget'].min()) * 40 + 10)
-        
-        st.subheader("서울 지역 프로젝트 예산 히트맵")
-        st.map(df_seoul, size='budget_size')
-        
-        # 예산 정보 테이블
-        st.subheader("예산별 프로젝트 정보")
-        st.dataframe(df_seoul[['name', 'budget', 'area', 'type']], use_container_width=True)
-
-    elif map_type == "타임라인 지도":
-        # 타임라인 지도 (진행 상태별)
-        df_seoul = pd.DataFrame(seoul_projects)
-        
-        st.subheader("프로젝트 진행 상태별 분포")
-        st.map(df_seoul, size=20)
-        
-        # 진행 상태별 통계
-        st.subheader("진행 상태별 통계")
-        status_counts = df_seoul['status'].value_counts()
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("완료", len(df_seoul[df_seoul['status'] == '완료']))
-        with col2:
-            st.metric("진행중", len(df_seoul[df_seoul['status'] == '진행중']))
-        with col3:
-            st.metric("계획", len(df_seoul[df_seoul['status'] == '계획']))
-        
-        # 진행 상태 데이터 테이블
-        st.subheader("진행 상태별 프로젝트 정보")
-        st.dataframe(df_seoul[['name', 'status', 'start_date', 'end_date', 'type']], use_container_width=True)
-
 # Shapefile 업로드 탭
 if tab2 is not None:
     with tab2:
         st.header("도시공간데이터 Shapefile 업로드")
         st.markdown("**행정구역, 토지소유정보, 개별공시지가, 도로명주소 등 Shapefile을 업로드하여 지도에서 확인하세요.**")
         
-        # Session state 초기화
-        if 'geo_layers' not in st.session_state:
-            st.session_state.geo_layers = {}
+        # 개발중 UI 표시
+        st.markdown("---")
+        st.warning("🚧 **이 기능은 현재 개발 중입니다.**")
         
-        # V-world 레이어 상태 초기화
-        if 'vworld_layers' not in st.session_state:
-            st.session_state.vworld_layers = {}
-        
-        # 기존 단일 레이어 호환성 유지
-        if 'uploaded_gdf' not in st.session_state:
-            st.session_state.uploaded_gdf = None
-        if 'uploaded_layer_info' not in st.session_state:
-            st.session_state.uploaded_layer_info = None
-        
-        # 기존 레이어가 있으면 geo_layers로 마이그레이션
-        if st.session_state.get('uploaded_gdf') is not None and len(st.session_state.geo_layers) == 0:
-            st.session_state.geo_layers['기본 레이어'] = {
-                'gdf': st.session_state.uploaded_gdf,
-                'info': st.session_state.uploaded_layer_info
-            }
-        
-        st.subheader("📤 Shapefile 업로드")
-        
-        # 여러 파일 동시 업로드 지원
-        uploaded_files = st.file_uploader(
-            "ZIP 파일로 압축된 Shapefile들을 업로드하세요 (여러 파일 선택 가능)",
-            type=['zip'],
-            accept_multiple_files=True,
-            help="도시공간데이터포털에서 다운로드한 ZIP 파일들을 업로드하세요. 여러 파일을 한 번에 선택할 수 있습니다."
-        )
-        
-        if uploaded_files:
-            loader = GeoDataLoader()
+        # 아래 코드는 개발중이므로 주석 처리
+        if False:  # 개발중 - 주석 처리된 코드
+            # Session state 초기화
+            if 'geo_layers' not in st.session_state:
+                st.session_state.geo_layers = {}
             
-            # 여러 파일 처리
-            loaded_count = 0
-            error_count = 0
+            # V-world 레이어 상태 초기화
+            if 'vworld_layers' not in st.session_state:
+                st.session_state.vworld_layers = {}
             
-            with st.spinner(f"{len(uploaded_files)}개 파일 처리 중..."):
-                for uploaded_file in uploaded_files:
-                    # 파일명에서 레이어 이름 추출 (확장자 제거)
-                    layer_name = uploaded_file.name.replace('.zip', '').replace('.ZIP', '')
-                    
-                    # 파일 로드
-                    result = loader.load_shapefile_from_zip(
-                        uploaded_file.getvalue(),
-                        encoding='cp949'
-                    )
-                    
-                    if result['success']:
-                        # 데이터 검증
-                        validation = validate_shapefile_data(result['gdf'])
+            # 기존 단일 레이어 호환성 유지
+            if 'uploaded_gdf' not in st.session_state:
+                st.session_state.uploaded_gdf = None
+            if 'uploaded_layer_info' not in st.session_state:
+                st.session_state.uploaded_layer_info = None
+            
+            # 기존 레이어가 있으면 geo_layers로 마이그레이션
+            if st.session_state.get('uploaded_gdf') is not None and len(st.session_state.geo_layers) == 0:
+                st.session_state.geo_layers['기본 레이어'] = {
+                    'gdf': st.session_state.uploaded_gdf,
+                    'info': st.session_state.uploaded_layer_info
+                }
+            
+            st.subheader("📤 Shapefile 업로드")
+            
+            # 여러 파일 동시 업로드 지원
+            uploaded_files = st.file_uploader(
+                "ZIP 파일로 압축된 Shapefile들을 업로드하세요 (여러 파일 선택 가능)",
+                type=['zip'],
+                accept_multiple_files=True,
+                help="도시공간데이터포털에서 다운로드한 ZIP 파일들을 업로드하세요. 여러 파일을 한 번에 선택할 수 있습니다."
+            )
+            
+            if uploaded_files:
+                loader = GeoDataLoader()
+                
+                # 여러 파일 처리
+                loaded_count = 0
+                error_count = 0
+                
+                with st.spinner(f"{len(uploaded_files)}개 파일 처리 중..."):
+                    for uploaded_file in uploaded_files:
+                        # 파일명에서 레이어 이름 추출 (확장자 제거)
+                        layer_name = uploaded_file.name.replace('.zip', '').replace('.ZIP', '')
                         
-                        if validation['valid']:
-                            # geo_layers 딕셔너리에 저장
-                            st.session_state.geo_layers[layer_name] = {
-                                'gdf': result['gdf'],
-                                'info': result
-                            }
-                            loaded_count += 1
+                        # 파일 로드
+                        result = loader.load_shapefile_from_zip(
+                            uploaded_file.getvalue(),
+                            encoding='cp949'
+                        )
+                        
+                        if result['success']:
+                            # 데이터 검증
+                            validation = validate_shapefile_data(result['gdf'])
+                            
+                            if validation['valid']:
+                                # geo_layers 딕셔너리에 저장
+                                st.session_state.geo_layers[layer_name] = {
+                                    'gdf': result['gdf'],
+                                    'info': result
+                                }
+                                loaded_count += 1
+                            else:
+                                error_count += 1
+                                st.warning(f"⚠️ '{layer_name}' 검증 실패: {', '.join(validation['issues'])}")
                         else:
                             error_count += 1
-                            st.warning(f"⚠️ '{layer_name}' 검증 실패: {', '.join(validation['issues'])}")
-                    else:
-                        error_count += 1
-                        st.error(f"❌ '{layer_name}' 로드 실패: {result.get('error', '알 수 없는 오류')}")
-            
-            # 결과 요약
-            if loaded_count > 0:
-                st.success(f"✅ {loaded_count}개 레이어 로드 완료!")
-                if error_count > 0:
-                    st.warning(f"⚠️ {error_count}개 파일 처리 실패")
-                st.rerun()
-            elif error_count > 0:
-                st.error(f"❌ 모든 파일 처리 실패 ({error_count}개)")
+                            st.error(f"❌ '{layer_name}' 로드 실패: {result.get('error', '알 수 없는 오류')}")
+                
+                # 결과 요약
+                if loaded_count > 0:
+                    st.success(f"✅ {loaded_count}개 레이어 로드 완료!")
+                    if error_count > 0:
+                        st.warning(f"⚠️ {error_count}개 파일 처리 실패")
+                    st.rerun()
+                elif error_count > 0:
+                    st.error(f"❌ 모든 파일 처리 실패 ({error_count}개)")
         
-        # V-world 레이어 로드 섹션
-        st.markdown("---")
-        st.subheader("🌍 V-world 데이터 레이어")
-        st.markdown("**V-world 폴더에 저장된 GIS 레이어를 선택하여 로드하세요.**")
-        
-        # 레이어 선택 UI
-        if GEO_MODULE_AVAILABLE:
+        # 아래 코드는 개발중이므로 주석 처리
+        if False:  # 개발중 - 주석 처리된 코드
             # 레이어 선택 체크박스
             selected_layers = []
             col1, col2, col3 = st.columns(3)
@@ -1470,90 +1398,90 @@ if tab2 is not None:
                             if st.button(f"삭제", key=f"del_vworld_{layer_id}"):
                                 del st.session_state.vworld_layers[layer_id]
                                 st.rerun()
-        else:
-            st.warning("⚠️ GeoDataLoader 모듈을 사용할 수 없어 V-world 레이어를 로드할 수 없습니다.")
-        
-        # 업로드된 레이어 목록 표시
-        if st.session_state.geo_layers:
-            st.markdown("---")
-            st.subheader("📚 업로드된 레이어")
+            else:
+                st.warning("⚠️ GeoDataLoader 모듈을 사용할 수 없어 V-world 레이어를 로드할 수 없습니다.")
             
-            for layer_name, layer_data in st.session_state.geo_layers.items():
-                with st.expander(f"📂 {layer_name}"):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"**피처 수**: {layer_data['info']['feature_count']:,}개")
-                        st.write(f"**좌표계**: {layer_data['info'].get('crs', 'Unknown')}")
-                        st.write(f"**컬럼 수**: {len(layer_data['info']['columns'])}개")
-                    with col2:
-                        if st.button(f"삭제", key=f"del_{layer_name}"):
-                            del st.session_state.geo_layers[layer_name]
-                            st.rerun()
-        
-        # 통합 지도 시각화 (업로드된 레이어 + V-world 레이어)
-        all_layers = {}
-        
-        # 업로드된 레이어 추가
-        all_layers.update(st.session_state.geo_layers)
-        
-        # V-world 레이어 추가 (접두사로 구분)
-        for layer_id, layer_data in st.session_state.vworld_layers.items():
-            layer_name = f"V-world: {VWORLD_LAYERS[layer_id]['name']}"
-            all_layers[layer_name] = {
-                'gdf': layer_data['gdf'],
-                'info': layer_data['info']
-            }
-        
-        if all_layers:
-            st.markdown("---")
-            st.subheader("🗺️ 통합 지도 시각화")
-            
-            # 지도 표시 방식 선택
-            map_style = st.radio(
-                "지도 표시 방식",
-                ["고급 지도 (Polygon 경계 표시)", "간단 지도 (중심점만 표시)"],
-                horizontal=True
-            )
-            
-            loader = GeoDataLoader()
-            
-            if map_style == "고급 지도 (Polygon 경계 표시)":
-                # Folium을 사용한 고급 지도
-                try:
-                    import streamlit_folium as st_folium
-                    
-                    # 모든 레이어를 하나의 딕셔너리로 구성 (통합된 all_layers 사용)
-                    geo_layers_dict = {
-                        layer_name: layer_data['gdf'] 
-                        for layer_name, layer_data in all_layers.items()
-                    }
-                    
-                    # 대용량 레이어 경고 메시지
-                    large_layers = []
-                    for layer_name, layer_data in all_layers.items():
-                        feature_count = layer_data['info'].get('feature_count', len(layer_data['gdf']))
-                        if feature_count > 10000:
-                            large_layers.append(f"{layer_name} ({feature_count:,}개 피처)")
-                    
-                    if large_layers:
-                        st.warning(f"⚠️ 대용량 레이어 감지: {', '.join(large_layers)}\n지도 표시를 위해 일부 피처만 샘플링합니다. (최대 10,000개)")
-                    
-                    # 다중 레이어 Folium 지도 생성
-                    with st.spinner("🗺️ 지도를 생성하는 중입니다... (대용량 데이터의 경우 시간이 걸릴 수 있습니다)"):
-                        folium_map = loader.create_folium_map_multilayer(geo_layers_dict)
-                    
-                    if folium_map:
-                        # Streamlit에 지도 표시
-                        st_folium.st_folium(folium_map, width=1200, height=600)
-                        st.info("💡 지도 위의 레이어 컨트롤을 사용하여 레이어를 켜고 끌 수 있습니다.")
-                    else:
-                        st.warning("⚠️ Folium 지도를 생성할 수 없습니다. 간단 지도를 사용하세요.")
-                        map_style = "간단 지도 (중심점만 표시)"
+            # 업로드된 레이어 목록 표시
+            if st.session_state.geo_layers:
+                st.markdown("---")
+                st.subheader("📚 업로드된 레이어")
                 
-                except ImportError:
-                    st.warning("⚠️ streamlit-folium 패키지가 설치되지 않았습니다. 간단 지도를 사용합니다.")
-                    st.info("💡 고급 지도를 사용하려면: `pip install streamlit-folium folium`")
-                    map_style = "간단 지도 (중심점만 표시)"
+                for layer_name, layer_data in st.session_state.geo_layers.items():
+                    with st.expander(f"📂 {layer_name}"):
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"**피처 수**: {layer_data['info']['feature_count']:,}개")
+                            st.write(f"**좌표계**: {layer_data['info'].get('crs', 'Unknown')}")
+                            st.write(f"**컬럼 수**: {len(layer_data['info']['columns'])}개")
+                        with col2:
+                            if st.button(f"삭제", key=f"del_{layer_name}"):
+                                del st.session_state.geo_layers[layer_name]
+                                st.rerun()
+            
+            # 통합 지도 시각화 (업로드된 레이어 + V-world 레이어)
+            all_layers = {}
+            
+            # 업로드된 레이어 추가
+            all_layers.update(st.session_state.geo_layers)
+            
+            # V-world 레이어 추가 (접두사로 구분)
+            for layer_id, layer_data in st.session_state.vworld_layers.items():
+                layer_name = f"V-world: {VWORLD_LAYERS[layer_id]['name']}"
+                all_layers[layer_name] = {
+                    'gdf': layer_data['gdf'],
+                    'info': layer_data['info']
+                }
+            
+            if all_layers:
+                st.markdown("---")
+                st.subheader("🗺️ 통합 지도 시각화")
+                
+                # 지도 표시 방식 선택
+                map_style = st.radio(
+                    "지도 표시 방식",
+                    ["고급 지도 (Polygon 경계 표시)", "간단 지도 (중심점만 표시)"],
+                    horizontal=True
+                )
+                
+                loader = GeoDataLoader()
+                
+                if map_style == "고급 지도 (Polygon 경계 표시)":
+                    # Folium을 사용한 고급 지도
+                    try:
+                        import streamlit_folium as st_folium
+                        
+                        # 모든 레이어를 하나의 딕셔너리로 구성 (통합된 all_layers 사용)
+                        geo_layers_dict = {
+                            layer_name: layer_data['gdf'] 
+                            for layer_name, layer_data in all_layers.items()
+                        }
+                        
+                        # 대용량 레이어 경고 메시지
+                        large_layers = []
+                        for layer_name, layer_data in all_layers.items():
+                            feature_count = layer_data['info'].get('feature_count', len(layer_data['gdf']))
+                            if feature_count > 10000:
+                                large_layers.append(f"{layer_name} ({feature_count:,}개 피처)")
+                        
+                        if large_layers:
+                            st.warning(f"⚠️ 대용량 레이어 감지: {', '.join(large_layers)}\n지도 표시를 위해 일부 피처만 샘플링합니다. (최대 10,000개)")
+                        
+                        # 다중 레이어 Folium 지도 생성
+                        with st.spinner("🗺️ 지도를 생성하는 중입니다... (대용량 데이터의 경우 시간이 걸릴 수 있습니다)"):
+                            folium_map = loader.create_folium_map_multilayer(geo_layers_dict)
+                        
+                        if folium_map:
+                            # Streamlit에 지도 표시
+                            st_folium.st_folium(folium_map, width=1200, height=600)
+                            st.info("💡 지도 위의 레이어 컨트롤을 사용하여 레이어를 켜고 끌 수 있습니다.")
+                        else:
+                            st.warning("⚠️ Folium 지도를 생성할 수 없습니다. 간단 지도를 사용하세요.")
+                            map_style = "간단 지도 (중심점만 표시)"
+                    
+                    except ImportError:
+                        st.warning("⚠️ streamlit-folium 패키지가 설치되지 않았습니다. 간단 지도를 사용합니다.")
+                        st.info("💡 고급 지도를 사용하려면: `pip install streamlit-folium folium`")
+                        map_style = "간단 지도 (중심점만 표시)"
             
             if map_style == "간단 지도 (중심점만 표시)":
                 # 기존 방식: 중심점만 표시 (통합된 all_layers 사용)
@@ -1605,34 +1533,34 @@ if tab2 is not None:
                     
                     if feature_count > max_preview_rows:
                         st.caption(f"전체 피처 수: {feature_count:,}개 | 전체 컬럼 수: {len(gdf.columns)}개")
-        
-        # 참고 안내
-        st.markdown("---")
-        with st.expander("ℹ️ 도시공간데이터 포털 사용 안내"):
-            st.markdown("""
-            ### 도시공간데이터 다운로드 방법
             
-            1. **도시공간데이터포털** 접속: [https://www.citydata.go.kr](https://www.citydata.go.kr)
-            
-            2. **원하는 데이터셋 검색** (예: 행정구역, 토지소유정보, 개별공시지가 등)
-            
-            3. **ZIP 파일 다운로드** (반드시 ZIP 형식으로)
-            
-            4. **여기에 업로드**하여 지도에서 확인
-            
-            ### 주요 데이터셋
-            
-            - **행정구역**: 시군구, 읍면동 경계
-            - **토지소유정보**: 토지 소유자 정보
-            - **개별공시지가**: 공시지가 정보
-            - **도로명주소 건물**: 건물 위치 및 주소 정보
-            - **국토계획 시설**: 도시계획 시설 위치
-            
-            ### 좌표계 안내
-            
-            - 자동으로 WGS84(EPSG:4326)로 변환되어 지도에 표시됩니다
-            - GRS80, Bessel 등 한국 좌표계도 자동 지원됩니다
-            """)
+            # 참고 안내
+            st.markdown("---")
+            with st.expander("ℹ️ 도시공간데이터 포털 사용 안내"):
+                st.markdown("""
+                ### 도시공간데이터 다운로드 방법
+                
+                1. **도시공간데이터포털** 접속: [https://www.citydata.go.kr](https://www.citydata.go.kr)
+                
+                2. **원하는 데이터셋 검색** (예: 행정구역, 토지소유정보, 개별공시지가 등)
+                
+                3. **ZIP 파일 다운로드** (반드시 ZIP 형식으로)
+                
+                4. **여기에 업로드**하여 지도에서 확인
+                
+                ### 주요 데이터셋
+                
+                - **행정구역**: 시군구, 읍면동 경계
+                - **토지소유정보**: 토지 소유자 정보
+                - **개별공시지가**: 공시지가 정보
+                - **도로명주소 건물**: 건물 위치 및 주소 정보
+                - **국토계획 시설**: 도시계획 시설 위치
+                
+                ### 좌표계 안내
+                
+                - 자동으로 WGS84(EPSG:4326)로 변환되어 지도에 표시됩니다
+                - GRS80, Bessel 등 한국 좌표계도 자동 지원됩니다
+                """)
 
 # 입지 후보지 시각화 탭
 if tab3 is not None:
@@ -1640,170 +1568,6 @@ if tab3 is not None:
         st.header("입지 후보지 시각화")
         st.markdown("**Document Analysis의 '입지 선정 분석' 결과를 지도에서 확인하세요.**")
         
-        # 분석 결과에서 후보지 좌표 추출
-        if st.session_state.get('analysis_results'):
-            analysis_results = st.session_state.analysis_results
-            
-            # 입지 선정 분석 블록 찾기
-            site_analysis = None
-            for block_id, result in analysis_results.items():
-                if 'site_selection' in block_id or '입지 선정' in str(result)[:200]:
-                    site_analysis = result
-                    break
-            
-            if site_analysis:
-                st.success("✅ 입지 선정 분석 결과가 있습니다!")
-                
-                # 좌표를 추출하는 함수
-                def extract_coordinates_from_text(text):
-                    """텍스트에서 위경도 좌표를 추출"""
-                    import re
-                    coordinates = []
-                    
-                    # 다양한 패턴 시도
-                    patterns = [
-                        r'위도[:\s]*([\d.]+)[\s,]*,?[\s]*경도[:\s]*([\d.]+)',
-                        r'경도[:\s]*([\d.]+)[\s,]*,?[\s]*위도[:\s]*([\d.]+)',
-                        r'([\d.]+)[°\s]*N[,\s]+([\d.]+)[°\s]*E',
-                        r'([\d.]+)[°\s]*북[,\s]+([\d.]+)[°\s]*동',
-                    ]
-                    
-                    for pattern in patterns:
-                        matches = re.findall(pattern, text, re.IGNORECASE)
-                        for match in matches:
-                            try:
-                                lat = float(match[0])
-                                lon = float(match[1])
-                                # 한국 좌표 범위 체크
-                                if 33 <= lat <= 43 and 124 <= lon <= 132:
-                                    coordinates.append({'lat': lat, 'lon': lon})
-                            except:
-                                continue
-                    
-                    return coordinates
-                
-                # 좌표 추출
-                coordinates = extract_coordinates_from_text(site_analysis)
-                
-                if coordinates:
-                    st.info(f"🎯 {len(coordinates)}개의 후보지가 발견되었습니다.")
-                    
-                    # 지도 표시 방식 선택
-                    map_style = st.radio(
-                        "지도 표시 방식",
-                        ["고급 지도 (반경 5km 시설 표시)", "간단 지도 (후보지만 표시)"],
-                        horizontal=True
-                    )
-                    
-                    loader = GeoDataLoader()
-                    
-                    if map_style == "고급 지도 (반경 5km 시설 표시)":
-                        try:
-                            import streamlit_folium as st_folium
-                            from geo_data_loader import create_candidate_map_with_facilities, filter_facilities_within_radius
-                            
-                            # 후보지 정보 구성 (점수 추출 시도)
-                            candidate_sites = []
-                            for idx, coord in enumerate(coordinates):
-                                # 분석 결과에서 점수 추출 시도
-                                score = 0
-                                score_pattern = rf'후보지\s*{idx+1}[^0-9]*(\d+)점'
-                                score_match = re.search(score_pattern, site_analysis)
-                                if score_match:
-                                    try:
-                                        score = int(score_match.group(1))
-                                    except:
-                                        pass
-                                
-                                candidate_sites.append({
-                                    'name': f'후보지 {idx+1}',
-                                    'lat': coord['lat'],
-                                    'lon': coord['lon'],
-                                    'score': score
-                                })
-                            
-                            # 시설 데이터 준비 (업로드된 레이어 중 시설 관련 레이어 사용)
-                            facilities_gdf = None
-                            if st.session_state.get('geo_layers'):
-                                # 시설 관련 레이어 찾기
-                                for layer_name, layer_data in st.session_state.geo_layers.items():
-                                    if any(keyword in layer_name for keyword in ['시설', '건물', 'facility', 'building']):
-                                        facilities_gdf = layer_data['gdf']
-                                        st.info(f"💡 '{layer_name}' 레이어를 시설 데이터로 사용합니다.")
-                                        break
-                            
-                            # 반경 설정
-                            radius_km = st.slider("반경 설정 (km)", min_value=1.0, max_value=10.0, value=5.0, step=0.5)
-                            
-                            # 고급 지도 생성
-                            folium_map = create_candidate_map_with_facilities(
-                                candidate_sites, 
-                                facilities_gdf, 
-                                radius_km=radius_km
-                            )
-                            
-                            if folium_map:
-                                st_folium.st_folium(folium_map, width=1200, height=600)
-                                
-                                # 반경 내 시설 통계
-                                if facilities_gdf is not None:
-                                    st.subheader("📊 반경 내 시설 통계")
-                                    col1, col2, col3 = st.columns(3)
-                                    
-                                    for idx, site in enumerate(candidate_sites):
-                                        nearby = filter_facilities_within_radius(
-                                            site['lat'], site['lon'], radius_km, facilities_gdf
-                                        )
-                                        with col1 if idx % 3 == 0 else col2 if idx % 3 == 1 else col3:
-                                            st.metric(f"{site['name']}", f"{len(nearby)}개 시설")
-                            else:
-                                st.warning("⚠️ 고급 지도를 생성할 수 없습니다. 간단 지도를 사용하세요.")
-                                map_style = "간단 지도 (후보지만 표시)"
-                        
-                        except ImportError:
-                            st.warning("⚠️ streamlit-folium 패키지가 설치되지 않았습니다. 간단 지도를 사용합니다.")
-                            st.info("💡 고급 지도를 사용하려면: `pip install streamlit-folium folium`")
-                            map_style = "간단 지도 (후보지만 표시)"
-                    
-                    if map_style == "간단 지도 (후보지만 표시)":
-                        # 기존 방식: 간단한 지도
-                        df_candidates = pd.DataFrame(coordinates)
-                        df_candidates['name'] = [f'후보지 {i+1}' for i in range(len(coordinates))]
-                        
-                        st.map(df_candidates, size=20)
-                        st.info("💡 반경 5km 시설을 보려면 '고급 지도' 옵션을 선택하세요.")
-                    
-                    # 좌표 정보 표시
-                    st.subheader("📍 후보지 좌표 정보")
-                    for idx, coord in enumerate(coordinates):
-                        st.write(f"**후보지 {idx+1}**: 위도 {coord['lat']:.6f}, 경도 {coord['lon']:.6f}")
-                    
-                    # 지형 정보 안내
-                    st.subheader("🗻 지형 정보")
-                    st.info("""
-                    **지형 정보 활용 방법:**
-                    - 도시공간데이터포털에서 'DEM(수치지형도)' 또는 '고도 정보' 레이어를 다운로드하여 Shapefile 업로드 탭에 업로드하세요.
-                    - 업로드된 지형 데이터는 후보지 주변의 고도 정보를 제공합니다.
-                    - 고급 지도에서 지형 레이어를 활성화하여 확인할 수 있습니다.
-                    """)
-                    
-                    # 원본 분석 결과 표시
-                    st.subheader("📊 전체 분석 결과")
-                    st.markdown(site_analysis)
-                else:
-                    st.warning("⚠️ 분석 결과에서 좌표를 찾을 수 없습니다.")
-                    st.info("💡 AI 분석 결과가 위경도 좌표를 포함하고 있는지 확인하세요.")
-                    st.markdown("**예시 형식:** 위도 37.1234, 경도 129.5678")
-                    
-                    # 전체 분석 결과 표시
-                    st.subheader("📊 전체 분석 결과")
-                    with st.expander("분석 결과 보기"):
-                        st.markdown(site_analysis)
-            else:
-                st.warning("⚠️ 입지 선정 분석 결과가 없습니다.")
-                st.info("Document Analysis 페이지에서 '입지 선정 분석' 블록을 실행해주세요.")
-                st.info("💡 왼쪽 사이드바에서 '1_📄_Document_Analysis'를 클릭하여 이동하세요")
-        else:
-            st.warning("⚠️ 분석 결과가 없습니다.")
-            st.info("Document Analysis 페이지에서 분석을 먼저 실행해주세요.")
-            st.info("💡 왼쪽 사이드바에서 '1_📄_Document_Analysis'를 클릭하여 이동하세요")
+        # 개발중 UI 표시
+        st.markdown("---")
+        st.warning("🚧 **이 기능은 현재 개발 중입니다.**")
