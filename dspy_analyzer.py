@@ -251,8 +251,9 @@ class EnhancedArchAnalyzer:
     
     @classmethod
     def reset_lm(cls):
-        """LM 초기화 상태를 리셋합니다. 제공자가 변경되었을 때 사용합니다."""
+        """LM 초기화 상태를 완전히 리셋합니다. 제공자가 변경되었을 때 사용합니다."""
         cls._last_provider = None
+        cls._lm_initialized = False
     
     def _get_current_model_info(self, suffix: str = "") -> str:
         """
@@ -2416,18 +2417,60 @@ class EnhancedArchAnalyzer:
                                     final_result = StreamResult(accumulated_text)
                             
                             # 이벤트 루프 실행
+                            # Streamlit 환경에서는 이미 실행 중인 루프가 있을 수 있으므로
+                            # 먼저 확인하고, 실행 중이면 일반 모드로 전환
                             try:
-                                loop = asyncio.get_event_loop()
-                            except RuntimeError:
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                            
-                            if loop.is_running():
-                                # 이미 실행 중인 루프가 있는 경우 (예: Streamlit)
-                                # 일반 모드로 전환
+                                # 실행 중인 루프가 있는지 확인
+                                asyncio.get_running_loop()
+                                # 실행 중인 루프가 있으면 일반 모드로 전환
                                 raise RuntimeError("Event loop already running")
-                            else:
-                                loop.run_until_complete(collect_stream())
+                            except RuntimeError:
+                                # 실행 중인 루프가 없는 경우에만 스트리밍 시도
+                                loop = None
+                                try:
+                                    try:
+                                        loop = asyncio.get_event_loop()
+                                        if loop.is_running():
+                                            raise RuntimeError("Event loop already running")
+                                    except RuntimeError:
+                                        # 이벤트 루프가 없거나 실행 중인 경우 새로 생성
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                    
+                                    # 이벤트 루프 실행
+                                    if loop and not loop.is_running():
+                                        loop.run_until_complete(collect_stream())
+                                    else:
+                                        raise RuntimeError("Event loop already running")
+                                finally:
+                                    # 이벤트 루프 정리 (새로 만든 경우에만)
+                                    if loop:
+                                        try:
+                                            if not loop.is_running():
+                                                # 보류 중인 태스크 정리
+                                                try:
+                                                    pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                                                    if pending:
+                                                        for task in pending:
+                                                            if not task.done():
+                                                                task.cancel()
+                                                        # 취소된 태스크들을 기다림 (타임아웃 설정)
+                                                        try:
+                                                            loop.run_until_complete(asyncio.wait_for(
+                                                                asyncio.gather(*pending, return_exceptions=True),
+                                                                timeout=1.0
+                                                            ))
+                                                        except (asyncio.TimeoutError, Exception):
+                                                            pass
+                                                except Exception:
+                                                    pass
+                                                # 루프 닫기
+                                                try:
+                                                    loop.close()
+                                                except Exception:
+                                                    pass
+                                        except Exception:
+                                            pass
                             
                             result = final_result
                         except (RuntimeError, AttributeError) as stream_error:
