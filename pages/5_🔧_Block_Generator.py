@@ -204,6 +204,7 @@ def remove_dspy_signature(block_id, signature_name):
 
 # load_blocks 함수는 prompt_processor에서 import하여 사용
 
+# 블록 저장 함수
 def save_blocks(blocks_data):
     """blocks.json 파일에 블록 데이터를 저장합니다."""
     # blocks.json 파일 경로 (명시적 경로 지정)
@@ -219,6 +220,7 @@ def save_blocks(blocks_data):
         st.error(f"블록 데이터 저장 중 오류 발생: {e}")
         return False
 
+# 블록 아이디 생성 함수
 def generate_block_id(name):
     """블록 이름에서 ID를 생성합니다."""
     import re
@@ -229,6 +231,7 @@ def generate_block_id(name):
     # 소문자로 변환
     return id_text.lower()
 
+# frontend
 def main():
     st.set_page_config(
         page_title="블록 생성기",

@@ -551,13 +551,23 @@ if tab2 is not None:
             elif error_count > 0:
                 st.error(f"❌ 모든 파일 처리 실패 ({error_count}개)")
         
-        # V-world 레이어 로드 섹션
+        # 개발중 UI 표시
         st.markdown("---")
-        st.subheader("🌍 V-world 데이터 레이어")
-        st.markdown("**V-world 폴더에 저장된 GIS 레이어를 선택하여 로드하세요.**")
+        st.warning("🚧 **이 기능은 현재 개발 중입니다.**")
+        st.info("""
+        Shapefile 업로드 후 레이어 관리 및 지도 시각화 기능은 곧 사용할 수 있게 될 예정입니다.
         
-        # 레이어 선택 UI
-        if GEO_MODULE_AVAILABLE:
+        **예정된 기능:**
+        - V-world 레이어 로드
+        - 업로드된 레이어 목록 표시
+        - 통합 지도 시각화
+        - 원본 데이터 미리보기
+        
+        곧 만나요! 🚀
+        """)
+        
+        # 아래 코드는 개발중이므로 주석 처리
+        if False:  # 개발중 - 주석 처리된 코드
             # 레이어 선택 체크박스
             selected_layers = []
             col1, col2, col3 = st.columns(3)
@@ -672,90 +682,90 @@ if tab2 is not None:
                             if st.button(f"삭제", key=f"del_vworld_{layer_id}"):
                                 del st.session_state.vworld_layers[layer_id]
                                 st.rerun()
-        else:
-            st.warning("⚠️ GeoDataLoader 모듈을 사용할 수 없어 V-world 레이어를 로드할 수 없습니다.")
-        
-        # 업로드된 레이어 목록 표시
-        if st.session_state.geo_layers:
-            st.markdown("---")
-            st.subheader("📚 업로드된 레이어")
+            else:
+                st.warning("⚠️ GeoDataLoader 모듈을 사용할 수 없어 V-world 레이어를 로드할 수 없습니다.")
             
-            for layer_name, layer_data in st.session_state.geo_layers.items():
-                with st.expander(f"📂 {layer_name}"):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"**피처 수**: {layer_data['info']['feature_count']:,}개")
-                        st.write(f"**좌표계**: {layer_data['info'].get('crs', 'Unknown')}")
-                        st.write(f"**컬럼 수**: {len(layer_data['info']['columns'])}개")
-                    with col2:
-                        if st.button(f"삭제", key=f"del_{layer_name}"):
-                            del st.session_state.geo_layers[layer_name]
-                            st.rerun()
-        
-        # 통합 지도 시각화 (업로드된 레이어 + V-world 레이어)
-        all_layers = {}
-        
-        # 업로드된 레이어 추가
-        all_layers.update(st.session_state.geo_layers)
-        
-        # V-world 레이어 추가 (접두사로 구분)
-        for layer_id, layer_data in st.session_state.vworld_layers.items():
-            layer_name = f"V-world: {VWORLD_LAYERS[layer_id]['name']}"
-            all_layers[layer_name] = {
-                'gdf': layer_data['gdf'],
-                'info': layer_data['info']
-            }
-        
-        if all_layers:
-            st.markdown("---")
-            st.subheader("🗺️ 통합 지도 시각화")
-            
-            # 지도 표시 방식 선택
-            map_style = st.radio(
-                "지도 표시 방식",
-                ["고급 지도 (Polygon 경계 표시)", "간단 지도 (중심점만 표시)"],
-                horizontal=True
-            )
-            
-            loader = GeoDataLoader()
-            
-            if map_style == "고급 지도 (Polygon 경계 표시)":
-                # Folium을 사용한 고급 지도
-                try:
-                    import streamlit_folium as st_folium
-                    
-                    # 모든 레이어를 하나의 딕셔너리로 구성 (통합된 all_layers 사용)
-                    geo_layers_dict = {
-                        layer_name: layer_data['gdf'] 
-                        for layer_name, layer_data in all_layers.items()
-                    }
-                    
-                    # 대용량 레이어 경고 메시지
-                    large_layers = []
-                    for layer_name, layer_data in all_layers.items():
-                        feature_count = layer_data['info'].get('feature_count', len(layer_data['gdf']))
-                        if feature_count > 10000:
-                            large_layers.append(f"{layer_name} ({feature_count:,}개 피처)")
-                    
-                    if large_layers:
-                        st.warning(f"⚠️ 대용량 레이어 감지: {', '.join(large_layers)}\n지도 표시를 위해 일부 피처만 샘플링합니다. (최대 10,000개)")
-                    
-                    # 다중 레이어 Folium 지도 생성
-                    with st.spinner("🗺️ 지도를 생성하는 중입니다... (대용량 데이터의 경우 시간이 걸릴 수 있습니다)"):
-                        folium_map = loader.create_folium_map_multilayer(geo_layers_dict)
-                    
-                    if folium_map:
-                        # Streamlit에 지도 표시
-                        st_folium.st_folium(folium_map, width=1200, height=600)
-                        st.info("💡 지도 위의 레이어 컨트롤을 사용하여 레이어를 켜고 끌 수 있습니다.")
-                    else:
-                        st.warning("⚠️ Folium 지도를 생성할 수 없습니다. 간단 지도를 사용하세요.")
-                        map_style = "간단 지도 (중심점만 표시)"
+            # 업로드된 레이어 목록 표시
+            if st.session_state.geo_layers:
+                st.markdown("---")
+                st.subheader("📚 업로드된 레이어")
                 
-                except ImportError:
-                    st.warning("⚠️ streamlit-folium 패키지가 설치되지 않았습니다. 간단 지도를 사용합니다.")
-                    st.info("💡 고급 지도를 사용하려면: `pip install streamlit-folium folium`")
-                    map_style = "간단 지도 (중심점만 표시)"
+                for layer_name, layer_data in st.session_state.geo_layers.items():
+                    with st.expander(f"📂 {layer_name}"):
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"**피처 수**: {layer_data['info']['feature_count']:,}개")
+                            st.write(f"**좌표계**: {layer_data['info'].get('crs', 'Unknown')}")
+                            st.write(f"**컬럼 수**: {len(layer_data['info']['columns'])}개")
+                        with col2:
+                            if st.button(f"삭제", key=f"del_{layer_name}"):
+                                del st.session_state.geo_layers[layer_name]
+                                st.rerun()
+            
+            # 통합 지도 시각화 (업로드된 레이어 + V-world 레이어)
+            all_layers = {}
+            
+            # 업로드된 레이어 추가
+            all_layers.update(st.session_state.geo_layers)
+            
+            # V-world 레이어 추가 (접두사로 구분)
+            for layer_id, layer_data in st.session_state.vworld_layers.items():
+                layer_name = f"V-world: {VWORLD_LAYERS[layer_id]['name']}"
+                all_layers[layer_name] = {
+                    'gdf': layer_data['gdf'],
+                    'info': layer_data['info']
+                }
+            
+            if all_layers:
+                st.markdown("---")
+                st.subheader("🗺️ 통합 지도 시각화")
+                
+                # 지도 표시 방식 선택
+                map_style = st.radio(
+                    "지도 표시 방식",
+                    ["고급 지도 (Polygon 경계 표시)", "간단 지도 (중심점만 표시)"],
+                    horizontal=True
+                )
+                
+                loader = GeoDataLoader()
+                
+                if map_style == "고급 지도 (Polygon 경계 표시)":
+                    # Folium을 사용한 고급 지도
+                    try:
+                        import streamlit_folium as st_folium
+                        
+                        # 모든 레이어를 하나의 딕셔너리로 구성 (통합된 all_layers 사용)
+                        geo_layers_dict = {
+                            layer_name: layer_data['gdf'] 
+                            for layer_name, layer_data in all_layers.items()
+                        }
+                        
+                        # 대용량 레이어 경고 메시지
+                        large_layers = []
+                        for layer_name, layer_data in all_layers.items():
+                            feature_count = layer_data['info'].get('feature_count', len(layer_data['gdf']))
+                            if feature_count > 10000:
+                                large_layers.append(f"{layer_name} ({feature_count:,}개 피처)")
+                        
+                        if large_layers:
+                            st.warning(f"⚠️ 대용량 레이어 감지: {', '.join(large_layers)}\n지도 표시를 위해 일부 피처만 샘플링합니다. (최대 10,000개)")
+                        
+                        # 다중 레이어 Folium 지도 생성
+                        with st.spinner("🗺️ 지도를 생성하는 중입니다... (대용량 데이터의 경우 시간이 걸릴 수 있습니다)"):
+                            folium_map = loader.create_folium_map_multilayer(geo_layers_dict)
+                        
+                        if folium_map:
+                            # Streamlit에 지도 표시
+                            st_folium.st_folium(folium_map, width=1200, height=600)
+                            st.info("💡 지도 위의 레이어 컨트롤을 사용하여 레이어를 켜고 끌 수 있습니다.")
+                        else:
+                            st.warning("⚠️ Folium 지도를 생성할 수 없습니다. 간단 지도를 사용하세요.")
+                            map_style = "간단 지도 (중심점만 표시)"
+                    
+                    except ImportError:
+                        st.warning("⚠️ streamlit-folium 패키지가 설치되지 않았습니다. 간단 지도를 사용합니다.")
+                        st.info("💡 고급 지도를 사용하려면: `pip install streamlit-folium folium`")
+                        map_style = "간단 지도 (중심점만 표시)"
             
             if map_style == "간단 지도 (중심점만 표시)":
                 # 기존 방식: 중심점만 표시 (통합된 all_layers 사용)

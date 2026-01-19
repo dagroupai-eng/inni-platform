@@ -66,10 +66,13 @@ if 'additional_info' not in st.session_state:
     st.session_state.additional_info = ""
 if 'uploaded_file' not in st.session_state:
     st.session_state.uploaded_file = None
-if 'analysis_results' not in st.session_state:
+# 초기화 플래그 확인: 초기화 중이면 기본값으로 설정하지 않음
+_reset_in_progress = st.session_state.get('_reset_in_progress', False)
+
+if 'analysis_results' not in st.session_state and not _reset_in_progress:
     st.session_state.analysis_results = {}
 
-if 'selected_blocks' not in st.session_state:
+if 'selected_blocks' not in st.session_state and not _reset_in_progress:
     st.session_state.selected_blocks = []
 if 'pdf_text' not in st.session_state:
     st.session_state.pdf_text = ""
@@ -104,27 +107,27 @@ if 'llm_temperature' not in st.session_state:
     st.session_state.llm_temperature = 0.2
 if 'llm_max_tokens' not in st.session_state:
     st.session_state.llm_max_tokens = 16000
-if 'cot_session' not in st.session_state:
+if 'cot_session' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_session = None
-if 'cot_plan' not in st.session_state:
+if 'cot_plan' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_plan = []
-if 'cot_current_index' not in st.session_state:
+if 'cot_current_index' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_current_index = 0
 if 'llm_provider' not in st.session_state:
-    st.session_state.llm_provider = 'gemini_25flash'
-if 'cot_results' not in st.session_state:
+    st.session_state.llm_provider = 'gemini_25flash'  # LLM 프로바이더는 유지
+if 'cot_results' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_results = {}
-if 'cot_citations' not in st.session_state:
+if 'cot_citations' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_citations = {}
-if 'cot_progress_messages' not in st.session_state:
+if 'cot_progress_messages' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_progress_messages = []
-if 'cot_history' not in st.session_state:
+if 'cot_history' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_history = []
-if 'cot_analyzer' not in st.session_state:
+if 'cot_analyzer' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_analyzer = None
-if 'cot_running_block' not in st.session_state:
+if 'cot_running_block' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_running_block = None
-if 'cot_feedback_inputs' not in st.session_state:
+if 'cot_feedback_inputs' not in st.session_state and not _reset_in_progress:
     st.session_state.cot_feedback_inputs = {}
 if 'reference_documents' not in st.session_state:
     st.session_state.reference_documents = []
@@ -143,8 +146,12 @@ DEFAULT_FIXED_PROGRAM = {
 }
 
 for key, value in DEFAULT_FIXED_PROGRAM.items():
-    if key not in st.session_state:
+    if key not in st.session_state and not _reset_in_progress:
         st.session_state[key] = value
+
+# 초기화 플래그 제거 (모든 초기화 코드 실행 후)
+if _reset_in_progress:
+    st.session_state.pop('_reset_in_progress', None)
 
 def build_fixed_program_markdown() -> str:
     return "\n".join([
@@ -370,17 +377,59 @@ def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
     Args:
         preserve_existing_results: True이면 기존 분석 결과를 유지합니다.
     """
-    # 분석기 내부 상태도 완전히 초기화
+    # 초기화 플래그 설정 (페이지 상단 코드가 기본값으로 다시 채우지 않도록)
+    st.session_state['_reset_in_progress'] = True
+    
+    # Streamlit 캐시 초기화
     try:
-        EnhancedArchAnalyzer.reset_lm()
+        st.cache_data.clear()
+    except Exception:
+        pass
+    try:
+        st.cache_resource.clear()
     except Exception:
         pass
     
-    # 모든 세션 상태를 완전히 초기화
+    # 분석기 내부 상태도 완전히 초기화
+    try:
+        EnhancedArchAnalyzer.reset_lm()
+        # analyzer 인스턴스의 _provider_lms도 리셋
+        if 'cot_analyzer' in st.session_state and st.session_state.cot_analyzer is not None:
+            analyzer = st.session_state.cot_analyzer
+            if hasattr(analyzer, '_provider_lms'):
+                analyzer._provider_lms = {}
+            if hasattr(analyzer, '_active_provider'):
+                analyzer._active_provider = None
+        
+        # dspy 전역 설정도 리셋 시도
+        try:
+            import dspy
+            # dspy의 전역 LM 설정을 None으로 리셋 시도
+            # (dspy 라이브러리가 이를 지원하는 경우)
+            if hasattr(dspy, 'configure'):
+                try:
+                    dspy.configure(lm=None)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    except Exception:
+        pass
+    
+    # cot_session 내부의 previous_results도 완전히 초기화
+    if st.session_state.get('cot_session') is not None:
+        if isinstance(st.session_state.cot_session, dict):
+            st.session_state.cot_session['previous_results'] = {}
+            st.session_state.cot_session['cot_history'] = []
+    
+    # 모든 세션 상태를 완전히 초기화 (딕셔너리를 완전히 삭제 후 재생성)
     st.session_state.cot_session = None
+    st.session_state.pop('cot_plan', None)
     st.session_state.cot_plan = []
     st.session_state.cot_current_index = 0
+    st.session_state.pop('cot_results', None)
     st.session_state.cot_results = {}
+    st.session_state.pop('cot_progress_messages', None)
     st.session_state.cot_progress_messages = []
     st.session_state.cot_running_block = None
     
@@ -389,23 +438,90 @@ def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
     st.session_state.pop('_last_analyzer_provider', None)
     
     if not preserve_existing_results:
-        # 모든 분석 결과 완전히 초기화
+        # analysis_results 폴더의 모든 파일 삭제
+        analysis_folder = "analysis_results"
+        if os.path.exists(analysis_folder):
+            try:
+                import glob
+                # analysis_results 폴더 내의 모든 JSON 파일 삭제
+                pattern = os.path.join(analysis_folder, "*.json")
+                files = glob.glob(pattern)
+                for file_path in files:
+                    try:
+                        os.remove(file_path)
+                    except Exception as e:
+                        # 파일 삭제 실패해도 계속 진행
+                        pass
+            except Exception:
+                # 폴더 접근 실패해도 계속 진행
+                pass
+        
+        # 웹 검색 캐시 파일 삭제
+        cache_folder = "cache/web_search"
+        if os.path.exists(cache_folder):
+            try:
+                import glob
+                # 웹 검색 캐시 폴더 내의 모든 JSON 파일 삭제
+                pattern = os.path.join(cache_folder, "*.json")
+                files = glob.glob(pattern)
+                for file_path in files:
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        
+        # 모든 분석 결과 완전히 초기화 (딕셔너리를 완전히 삭제 후 재생성)
+        st.session_state.pop('analysis_results', None)
         st.session_state.analysis_results = {}
+        st.session_state.pop('cot_citations', None)
         st.session_state.cot_citations = {}
+        st.session_state.pop('cot_history', None)
         st.session_state.cot_history = []
+        st.session_state.pop('cot_feedback_inputs', None)
         st.session_state.cot_feedback_inputs = {}
         
+        # 선택된 블록은 유지 (사용자가 선택한 블록은 초기화하지 않음)
+        # st.session_state.pop('selected_blocks', None)  # 선택된 블록은 유지
+        
         # Phase 1 관련 개별 블록 결과 초기화
-        st.session_state.pop('phase1_requirements_structured', None)
-        st.session_state.pop('phase1_data_inventory', None)
-        st.session_state.pop('phase1_facility_program_report', None)
-        st.session_state.pop('phase1_facility_area_reference', None)
-        st.session_state.pop('phase1_facility_area_calculation', None)
-        st.session_state.pop('phase1_requirements_cot_history', None)
-        st.session_state.pop('phase1_3_requirements_text', None)
-        st.session_state.pop('phase1_3_requirements_loaded', None)
-        st.session_state.pop('phase1_3_selected_site', None)
-        st.session_state.pop('phase1_3_selected_site_name', None)
+        phase1_keys = [
+            'phase1_requirements_structured',
+            'phase1_data_inventory',
+            'phase1_facility_program_report',
+            'phase1_facility_area_reference',
+            'phase1_facility_area_calculation',
+            'phase1_requirements_cot_history',
+            'phase1_3_requirements_text',
+            'phase1_3_requirements_loaded',
+            'phase1_3_selected_site',
+            'phase1_3_selected_site_name',
+            'phase1_requirements_text',
+            'phase1_felo_data',
+            'phase1_candidate_geo_layers',
+            'phase1_candidate_felo_text',
+            'phase1_candidate_sites',
+            'phase1_candidate_filtered',
+            'phase1_selected_sites',
+            'phase1_candidate_felo_sections',
+            'phase1_parse_result'
+        ]
+        for key in phase1_keys:
+            st.session_state.pop(key, None)
+        
+        # 모든 세션 상태에서 'analysis' 또는 'result'가 포함된 키 찾아서 삭제
+        keys_to_remove = []
+        for key in st.session_state.keys():
+            if any(keyword in key.lower() for keyword in ['analysis', 'result', 'cot', 'block']):
+                if key not in ['cot_session', 'cot_plan', 'cot_current_index', 'cot_running_block', 
+                              'cot_analyzer', 'selected_blocks', 'llm_provider']:
+                    keys_to_remove.append(key)
+        for key in keys_to_remove:
+            st.session_state.pop(key, None)
+    
+    # 초기화 완료 후 플래그는 유지 (rerun 후 페이지 상단 코드가 기본값으로 다시 채우지 않도록)
+    # 플래그는 다음 rerun에서 자동으로 제거됨 (페이지 상단 코드에서 확인 후 제거)
 
 def reset_all_state() -> None:
     """
@@ -2791,7 +2907,8 @@ with tab_run:
     with control_col1:
         if st.button("🔄 분석 세션 초기화", use_container_width=True):
             reset_step_analysis_state()
-            st.success("분석 세션을 초기화했습니다.")
+            st.success("✅ 분석 세션을 완전히 초기화했습니다.")
+            # 페이지를 완전히 새로고침
             st.rerun()
     prepare_disabled = not analysis_text
     with control_col2:
@@ -2805,16 +2922,25 @@ with tab_run:
                     st.session_state.pop('cot_analyzer', None)
                     st.session_state.pop('_last_analyzer_provider', None)
                     
-                    # 이전 세션 완전히 제거
+                    # 이전 세션 완전히 제거 (딕셔너리를 완전히 삭제 후 재생성)
                     st.session_state.cot_session = None
+                    st.session_state.pop('cot_plan', None)
                     st.session_state.cot_plan = []
                     st.session_state.cot_current_index = 0
+                    st.session_state.pop('cot_results', None)
                     st.session_state.cot_results = {}
+                    st.session_state.pop('cot_progress_messages', None)
                     st.session_state.cot_progress_messages = []
+                    st.session_state.pop('cot_history', None)
                     st.session_state.cot_history = []
+                    st.session_state.pop('cot_citations', None)
                     st.session_state.cot_citations = {}
+                    st.session_state.pop('cot_feedback_inputs', None)
                     st.session_state.cot_feedback_inputs = {}
                     st.session_state.cot_running_block = None
+                    # analysis_results도 완전히 초기화
+                    st.session_state.pop('analysis_results', None)
+                    st.session_state.analysis_results = {}
                     
                     analyzer = get_cot_analyzer()
                     if analyzer is None:
@@ -2823,15 +2949,15 @@ with tab_run:
                     
                     # 완전히 새로운 세션 생성 (previous_results는 빈 딕셔너리로 시작)
                     session = analyzer.initialize_cot_session(project_info_payload, analysis_text, len(selected_blocks))
-                    # 세션의 previous_results가 빈 딕셔너리인지 확인
-                    if 'previous_results' in session:
-                        session['previous_results'] = {}
-                    if 'cot_history' in session:
-                        session['cot_history'] = []
+                    # 세션의 previous_results와 cot_history를 명시적으로 빈 상태로 설정
+                    session['previous_results'] = {}
+                    session['cot_history'] = []
                     
-                    st.session_state.cot_session = session
+                    # 완전히 새로운 세션 객체로 저장 (이전 참조 제거)
+                    st.session_state.cot_session = session.copy() if isinstance(session, dict) else session
                     st.session_state.cot_plan = selected_blocks.copy()
                     st.session_state.cot_current_index = 0
+                    # 위에서 이미 초기화했지만 명시적으로 다시 설정
                     st.session_state.cot_results = {}
                     st.session_state.cot_progress_messages = []
                     st.session_state.cot_history = []
@@ -2984,10 +3110,72 @@ with tab_run:
             type="primary",
             disabled=st.session_state.cot_running_block is not None
         ):
+            # cot_session이 None인 경우 재생성
+            if st.session_state.cot_session is None:
+                st.warning("세션이 초기화되었습니다. 세션을 다시 준비합니다...")
+                try:
+                    analyzer = get_cot_analyzer()
+                    if analyzer is None:
+                        st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
+                        st.stop()
+                    # 세션 재생성을 위한 project_info_payload 재구성
+                    project_name = st.session_state.get("project_name", "")
+                    location = st.session_state.get("location", "")
+                    project_goals = st.session_state.get("project_goals", "")
+                    additional_info = st.session_state.get("additional_info", "")
+                    
+                    base_text_candidates: List[str] = []
+                    if st.session_state.get('pdf_uploaded', False):
+                        base_text_candidates.append(st.session_state.get('pdf_text', ''))
+                    reference_combined = st.session_state.get('reference_combined_text', '')
+                    if reference_combined:
+                        base_text_candidates.append(reference_combined)
+                    base_text_candidates.extend(filter(None, [project_name, location, project_goals, additional_info]))
+                    analysis_text = "\n\n".join([text for text in base_text_candidates if text]).strip()
+                    
+                    session_payload = {
+                        "project_name": project_name,
+                        "location": location,
+                        "project_goals": project_goals,
+                        "additional_info": additional_info,
+                        "file_text": analysis_text
+                    }
+                    reference_docs_meta = st.session_state.get('reference_documents', [])
+                    reference_combined_text = st.session_state.get('reference_combined_text', '')
+                    if reference_docs_meta:
+                        session_payload["reference_documents"] = reference_docs_meta
+                    if reference_combined_text:
+                        session_payload["reference_text"] = reference_combined_text
+                    if st.session_state.get('reference_urls'):
+                        session_payload["reference_urls"] = st.session_state.reference_urls
+                    if st.session_state.get('latitude') and st.session_state.get('longitude'):
+                        try:
+                            session_payload["latitude"] = float(st.session_state.latitude)
+                            session_payload["longitude"] = float(st.session_state.longitude)
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    session = analyzer.initialize_cot_session(session_payload, analysis_text, len(st.session_state.cot_plan))
+                    session['previous_results'] = {}
+                    session['cot_history'] = []
+                    st.session_state.cot_session = session.copy() if isinstance(session, dict) else session
+                    st.session_state.cot_current_index = 0
+                except Exception as e:
+                    st.error(f"세션 재생성 실패: {e}")
+                    import traceback
+                    with st.expander("🔍 상세 오류 정보", expanded=False):
+                        st.code(traceback.format_exc(), language='python')
+                    st.stop()
+            
             analyzer = get_cot_analyzer()
             if analyzer is None:
                 st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
                 st.stop()
+            
+            if st.session_state.cot_session is None:
+                st.error("세션이 초기화되지 않았습니다. '단계별 분석 세션 준비' 버튼을 먼저 눌러주세요.")
+                st.stop()
+            
             progress_placeholder = st.empty()
             st.session_state.cot_running_block = next_block_id
 
@@ -3007,6 +3195,13 @@ with tab_run:
                         step_index=st.session_state.cot_current_index + 1,
                         feedback=st.session_state.cot_feedback_inputs.get(next_block_id, "").strip() or None
                     )
+            except Exception as e:
+                st.session_state.cot_running_block = None
+                st.error(f"블록 실행 중 오류 발생: {str(e)}")
+                import traceback
+                with st.expander("🔍 상세 오류 정보", expanded=False):
+                    st.code(traceback.format_exc(), language='python')
+                st.stop()
             finally:
                 st.session_state.cot_running_block = None
 
