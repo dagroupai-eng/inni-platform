@@ -1271,96 +1271,87 @@ if tab2 is not None:
         st.header("도시공간데이터 Shapefile 업로드")
         st.markdown("**행정구역, 토지소유정보, 개별공시지가, 도로명주소 등 Shapefile을 업로드하여 지도에서 확인하세요.**")
         
-        # Session state 초기화
-        if 'geo_layers' not in st.session_state:
-            st.session_state.geo_layers = {}
-        
-        # V-world 레이어 상태 초기화
-        if 'vworld_layers' not in st.session_state:
-            st.session_state.vworld_layers = {}
-        
-        # 기존 단일 레이어 호환성 유지
-        if 'uploaded_gdf' not in st.session_state:
-            st.session_state.uploaded_gdf = None
-        if 'uploaded_layer_info' not in st.session_state:
-            st.session_state.uploaded_layer_info = None
-        
-        # 기존 레이어가 있으면 geo_layers로 마이그레이션
-        if st.session_state.get('uploaded_gdf') is not None and len(st.session_state.geo_layers) == 0:
-            st.session_state.geo_layers['기본 레이어'] = {
-                'gdf': st.session_state.uploaded_gdf,
-                'info': st.session_state.uploaded_layer_info
-            }
-        
-        st.subheader("📤 Shapefile 업로드")
-        
-        # 여러 파일 동시 업로드 지원
-        uploaded_files = st.file_uploader(
-            "ZIP 파일로 압축된 Shapefile들을 업로드하세요 (여러 파일 선택 가능)",
-            type=['zip'],
-            accept_multiple_files=True,
-            help="도시공간데이터포털에서 다운로드한 ZIP 파일들을 업로드하세요. 여러 파일을 한 번에 선택할 수 있습니다."
-        )
-        
-        if uploaded_files:
-            loader = GeoDataLoader()
-            
-            # 여러 파일 처리
-            loaded_count = 0
-            error_count = 0
-            
-            with st.spinner(f"{len(uploaded_files)}개 파일 처리 중..."):
-                for uploaded_file in uploaded_files:
-                    # 파일명에서 레이어 이름 추출 (확장자 제거)
-                    layer_name = uploaded_file.name.replace('.zip', '').replace('.ZIP', '')
-                    
-                    # 파일 로드
-                    result = loader.load_shapefile_from_zip(
-                        uploaded_file.getvalue(),
-                        encoding='cp949'
-                    )
-                    
-                    if result['success']:
-                        # 데이터 검증
-                        validation = validate_shapefile_data(result['gdf'])
-                        
-                        if validation['valid']:
-                            # geo_layers 딕셔너리에 저장
-                            st.session_state.geo_layers[layer_name] = {
-                                'gdf': result['gdf'],
-                                'info': result
-                            }
-                            loaded_count += 1
-                        else:
-                            error_count += 1
-                            st.warning(f"⚠️ '{layer_name}' 검증 실패: {', '.join(validation['issues'])}")
-                    else:
-                        error_count += 1
-                        st.error(f"❌ '{layer_name}' 로드 실패: {result.get('error', '알 수 없는 오류')}")
-            
-            # 결과 요약
-            if loaded_count > 0:
-                st.success(f"✅ {loaded_count}개 레이어 로드 완료!")
-                if error_count > 0:
-                    st.warning(f"⚠️ {error_count}개 파일 처리 실패")
-                st.rerun()
-            elif error_count > 0:
-                st.error(f"❌ 모든 파일 처리 실패 ({error_count}개)")
-        
         # 개발중 UI 표시
         st.markdown("---")
         st.warning("🚧 **이 기능은 현재 개발 중입니다.**")
-        st.info("""
-        Shapefile 업로드 후 레이어 관리 및 지도 시각화 기능은 곧 사용할 수 있게 될 예정입니다.
         
-        **예정된 기능:**
-        - V-world 레이어 로드
-        - 업로드된 레이어 목록 표시
-        - 통합 지도 시각화
-        - 원본 데이터 미리보기
-        
-        곧 만나요! 🚀
-        """)
+        # 아래 코드는 개발중이므로 주석 처리
+        if False:  # 개발중 - 주석 처리된 코드
+            # Session state 초기화
+            if 'geo_layers' not in st.session_state:
+                st.session_state.geo_layers = {}
+            
+            # V-world 레이어 상태 초기화
+            if 'vworld_layers' not in st.session_state:
+                st.session_state.vworld_layers = {}
+            
+            # 기존 단일 레이어 호환성 유지
+            if 'uploaded_gdf' not in st.session_state:
+                st.session_state.uploaded_gdf = None
+            if 'uploaded_layer_info' not in st.session_state:
+                st.session_state.uploaded_layer_info = None
+            
+            # 기존 레이어가 있으면 geo_layers로 마이그레이션
+            if st.session_state.get('uploaded_gdf') is not None and len(st.session_state.geo_layers) == 0:
+                st.session_state.geo_layers['기본 레이어'] = {
+                    'gdf': st.session_state.uploaded_gdf,
+                    'info': st.session_state.uploaded_layer_info
+                }
+            
+            st.subheader("📤 Shapefile 업로드")
+            
+            # 여러 파일 동시 업로드 지원
+            uploaded_files = st.file_uploader(
+                "ZIP 파일로 압축된 Shapefile들을 업로드하세요 (여러 파일 선택 가능)",
+                type=['zip'],
+                accept_multiple_files=True,
+                help="도시공간데이터포털에서 다운로드한 ZIP 파일들을 업로드하세요. 여러 파일을 한 번에 선택할 수 있습니다."
+            )
+            
+            if uploaded_files:
+                loader = GeoDataLoader()
+                
+                # 여러 파일 처리
+                loaded_count = 0
+                error_count = 0
+                
+                with st.spinner(f"{len(uploaded_files)}개 파일 처리 중..."):
+                    for uploaded_file in uploaded_files:
+                        # 파일명에서 레이어 이름 추출 (확장자 제거)
+                        layer_name = uploaded_file.name.replace('.zip', '').replace('.ZIP', '')
+                        
+                        # 파일 로드
+                        result = loader.load_shapefile_from_zip(
+                            uploaded_file.getvalue(),
+                            encoding='cp949'
+                        )
+                        
+                        if result['success']:
+                            # 데이터 검증
+                            validation = validate_shapefile_data(result['gdf'])
+                            
+                            if validation['valid']:
+                                # geo_layers 딕셔너리에 저장
+                                st.session_state.geo_layers[layer_name] = {
+                                    'gdf': result['gdf'],
+                                    'info': result
+                                }
+                                loaded_count += 1
+                            else:
+                                error_count += 1
+                                st.warning(f"⚠️ '{layer_name}' 검증 실패: {', '.join(validation['issues'])}")
+                        else:
+                            error_count += 1
+                            st.error(f"❌ '{layer_name}' 로드 실패: {result.get('error', '알 수 없는 오류')}")
+                
+                # 결과 요약
+                if loaded_count > 0:
+                    st.success(f"✅ {loaded_count}개 레이어 로드 완료!")
+                    if error_count > 0:
+                        st.warning(f"⚠️ {error_count}개 파일 처리 실패")
+                    st.rerun()
+                elif error_count > 0:
+                    st.error(f"❌ 모든 파일 처리 실패 ({error_count}개)")
         
         # 아래 코드는 개발중이므로 주석 처리
         if False:  # 개발중 - 주석 처리된 코드
@@ -1613,34 +1604,34 @@ if tab2 is not None:
                     
                     if feature_count > max_preview_rows:
                         st.caption(f"전체 피처 수: {feature_count:,}개 | 전체 컬럼 수: {len(gdf.columns)}개")
-        
-        # 참고 안내
-        st.markdown("---")
-        with st.expander("ℹ️ 도시공간데이터 포털 사용 안내"):
-            st.markdown("""
-            ### 도시공간데이터 다운로드 방법
             
-            1. **도시공간데이터포털** 접속: [https://www.citydata.go.kr](https://www.citydata.go.kr)
-            
-            2. **원하는 데이터셋 검색** (예: 행정구역, 토지소유정보, 개별공시지가 등)
-            
-            3. **ZIP 파일 다운로드** (반드시 ZIP 형식으로)
-            
-            4. **여기에 업로드**하여 지도에서 확인
-            
-            ### 주요 데이터셋
-            
-            - **행정구역**: 시군구, 읍면동 경계
-            - **토지소유정보**: 토지 소유자 정보
-            - **개별공시지가**: 공시지가 정보
-            - **도로명주소 건물**: 건물 위치 및 주소 정보
-            - **국토계획 시설**: 도시계획 시설 위치
-            
-            ### 좌표계 안내
-            
-            - 자동으로 WGS84(EPSG:4326)로 변환되어 지도에 표시됩니다
-            - GRS80, Bessel 등 한국 좌표계도 자동 지원됩니다
-            """)
+            # 참고 안내
+            st.markdown("---")
+            with st.expander("ℹ️ 도시공간데이터 포털 사용 안내"):
+                st.markdown("""
+                ### 도시공간데이터 다운로드 방법
+                
+                1. **도시공간데이터포털** 접속: [https://www.citydata.go.kr](https://www.citydata.go.kr)
+                
+                2. **원하는 데이터셋 검색** (예: 행정구역, 토지소유정보, 개별공시지가 등)
+                
+                3. **ZIP 파일 다운로드** (반드시 ZIP 형식으로)
+                
+                4. **여기에 업로드**하여 지도에서 확인
+                
+                ### 주요 데이터셋
+                
+                - **행정구역**: 시군구, 읍면동 경계
+                - **토지소유정보**: 토지 소유자 정보
+                - **개별공시지가**: 공시지가 정보
+                - **도로명주소 건물**: 건물 위치 및 주소 정보
+                - **국토계획 시설**: 도시계획 시설 위치
+                
+                ### 좌표계 안내
+                
+                - 자동으로 WGS84(EPSG:4326)로 변환되어 지도에 표시됩니다
+                - GRS80, Bessel 등 한국 좌표계도 자동 지원됩니다
+                """)
 
 # 입지 후보지 시각화 탭
 if tab3 is not None:
