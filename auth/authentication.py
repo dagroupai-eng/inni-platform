@@ -83,15 +83,16 @@ def login(personal_number: str, auto_create: bool = False) -> tuple[bool, str]:
     st_session[SESSION_TOKEN_KEY] = session_token
     st_session[CURRENT_USER_KEY] = user
 
-    # 로컬 파일에도 저장 (새로고침 시 유지)
-    try:
-        from pathlib import Path
-        from config.settings import DATA_DIR
-        last_session_file = DATA_DIR / "last_session.txt"
-        with open(last_session_file, 'w') as f:
-            f.write(session_token)
-    except Exception as e:
-        print(f"세션 파일 저장 오류: {e}")
+    # 로컬 파일 저장 제거 (멀티유저 환경에서 세션 충돌 방지)
+    # Streamlit Cloud에서는 각 브라우저 세션이 독립적이므로 파일 기반 세션 불필요
+    # try:
+    #     from pathlib import Path
+    #     from config.settings import DATA_DIR
+    #     last_session_file = DATA_DIR / "last_session.txt"
+    #     with open(last_session_file, 'w') as f:
+    #         f.write(session_token)
+    # except Exception as e:
+    #     print(f"세션 파일 저장 오류: {e}")
 
     return True, f"환영합니다, {user.get('display_name', personal_number)}님!"
 
@@ -127,15 +128,15 @@ def logout() -> bool:
     if 'api_keys_loaded' in st_session:
         del st_session['api_keys_loaded']
 
-    # 로컬 파일에서도 제거
-    try:
-        from pathlib import Path
-        from config.settings import DATA_DIR
-        last_session_file = DATA_DIR / "last_session.txt"
-        if last_session_file.exists():
-            last_session_file.unlink()
-    except Exception as e:
-        print(f"세션 파일 삭제 오류: {e}")
+    # 로컬 파일 삭제 제거 (멀티유저 환경에서 세션 충돌 방지)
+    # try:
+    #     from pathlib import Path
+    #     from config.settings import DATA_DIR
+    #     last_session_file = DATA_DIR / "last_session.txt"
+    #     if last_session_file.exists():
+    #         last_session_file.unlink()
+    # except Exception as e:
+    #     print(f"세션 파일 삭제 오류: {e}")
 
     return True
 
