@@ -21,74 +21,22 @@ def init_page_session():
 
 
 def restore_login_session():
-    """로그인 세션을 URL에서 복원합니다."""
+    """로그인 세션을 복원합니다. (파일 기반 복원 제거됨)"""
     # 이미 세션이 있으면 스킵
     if 'pms_session_token' in st.session_state and st.session_state.pms_session_token:
-        print("[DEBUG] 세션 이미 존재, 복원 스킵")
+        # print("[DEBUG] 세션 이미 존재, 복원 스킵")
         return
 
-    try:
-        from pathlib import Path
-        from config.settings import DATA_DIR
-        from auth.session_manager import get_session
-        from auth.user_manager import get_user_by_id
-
-        # 로컬 파일에서 토큰 로드
-        token = None
-        last_session_file = DATA_DIR / "last_session.txt"
-        if last_session_file.exists():
-            with open(last_session_file, 'r') as f:
-                token = f.read().strip()
-
-        print(f"[DEBUG] 파일에서 로드된 토큰: {token[:20] if token else 'None'}...")
-
-        if token:
-            # 세션 유효성 확인
-            session_data = get_session(token)
-            print(f"[DEBUG] 세션 데이터: {session_data is not None}")
-
-            if session_data:
-                # 유효한 세션이면 복원
-                st.session_state.pms_session_token = token
-                print(f"[DEBUG] 세션 토큰 복원 완료")
-
-                # 사용자 정보도 복원
-                user_id = session_data.get("user_id")
-                if user_id:
-                    user = get_user_by_id(user_id)
-                    if user:
-                        st.session_state.pms_current_user = user
-                        print(f"[DEBUG] 사용자 정보 복원: {user.get('personal_number')}")
-
-                        # API 키도 복원
-                        try:
-                            from security.api_key_manager import get_user_api_key
-                            from dspy_analyzer import PROVIDER_CONFIG
-
-                            for provider, config in PROVIDER_CONFIG.items():
-                                api_key_env = config.get('api_key_env')
-                                if api_key_env:
-                                    db_key = get_user_api_key(user_id, api_key_env)
-                                    if db_key:
-                                        session_key = f'user_api_key_{api_key_env}'
-                                        st.session_state[session_key] = db_key
-                        except:
-                            pass
-            else:
-                print("[DEBUG] 세션 데이터가 유효하지 않음")
-        else:
-            print("[DEBUG] URL에 토큰 없음")
-    except Exception as e:
-        print(f"로그인 세션 복원 오류: {e}")
-        import traceback
-        traceback.print_exc()
+    # 파일 기반 세션 복원 제거 (멀티유저 환경에서 세션 충돌 방지)
+    # Streamlit Cloud에서는 각 브라우저 세션이 독립적이므로 파일 기반 복원 불필요
+    # 새로운 세션의 경우 로그인 페이지로 이동하게 됨
+    pass
 
 
 def restore_work_session():
     """작업 데이터를 DB에서 복원합니다."""
     # 로그인 확인
     if 'pms_current_user' not in st.session_state:
-        print("[DEBUG] 사용자 정보 없음, 복원 스킵")
         return
 
     # 현재 페이지에서 이미 복원했는지 확인
@@ -100,7 +48,6 @@ def restore_work_session():
     restore_key = f'work_session_restored_{hash(page_name)}'
 
     if restore_key in st.session_state:
-        print(f"[DEBUG] 페이지 {page_name}에서 이미 복원됨, 스킵")
         return
 
     try:
@@ -110,8 +57,6 @@ def restore_work_session():
         user_id = st.session_state.pms_current_user.get('id')
         if not user_id:
             return
-
-        print(f"[DEBUG] 사용자 {user_id}의 작업 세션 복원 중...")
 
         # 가장 최근 작업 세션 조회
         result = execute_query(
@@ -126,24 +71,15 @@ def restore_work_session():
 
         if result and result[0]:
             session_data = json.loads(result[0]['session_data'])
-            restored_count = 0
 
             # 세션 상태로 복원
             for key, value in session_data.items():
                 if key not in st.session_state:
                     st.session_state[key] = value
-                    restored_count += 1
-
-            print(f"[DEBUG] {restored_count}개의 세션 키 복원됨")
-            print(f"[DEBUG] 복원된 키: {list(session_data.keys())[:5]}...")
-        else:
-            print("[DEBUG] 저장된 작업 세션 없음")
 
         st.session_state[restore_key] = True
     except Exception as e:
         print(f"작업 세션 복원 오류: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 def save_work_session():
@@ -197,13 +133,8 @@ def save_work_session():
                 (user_id, json.dumps(session_data, ensure_ascii=False), datetime.now().isoformat()),
                 commit=True
             )
-            print(f"[DEBUG] {len(session_data)}개의 세션 키 저장됨")
-        else:
-            print("[DEBUG] 저장할 세션 데이터 없음")
     except Exception as e:
         print(f"작업 세션 저장 오류: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 def auto_save_trigger():
@@ -217,7 +148,5 @@ def auto_save_trigger():
 
     # 마지막 저장 후 5초 이상 경과한 경우에만 저장
     if current_time - st.session_state.last_save_time > 5:
-        print(f"[DEBUG] 작업 세션 자동 저장 중...")
         save_work_session()
         st.session_state.last_save_time = current_time
-        print(f"[DEBUG] 작업 세션 저장 완료")
