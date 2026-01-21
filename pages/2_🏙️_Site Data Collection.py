@@ -30,12 +30,23 @@ except ImportError:
     URBAN_DATA_COLLECTOR_AVAILABLE = False
 import json
 
+# 인증 모듈 import
+try:
+    from auth.authentication import check_page_access
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+
 # 페이지 설정
 st.set_page_config(
     page_title="사이트 데이터 수집",
     page_icon="🏙️",
     layout="wide"
 )
+
+# 로그인 체크
+if AUTH_AVAILABLE:
+    check_page_access()
 
 # 제목
 st.title("🏙️ 사이트 데이터 자동 수집")

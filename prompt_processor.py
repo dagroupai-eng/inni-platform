@@ -61,18 +61,59 @@ def _format_narrowing(narrowing: Dict[str, Any]) -> str:
         lines.append(f"- **{label}:** {value_text}")
     return "\n".join(lines)
 
-def load_blocks() -> List[Dict[str, Any]]:
-    """blocks.json에서 블록들을 로드합니다."""
+def load_blocks(include_user_blocks: bool = True) -> List[Dict[str, Any]]:
+    """
+    blocks.json에서 블록들을 로드합니다.
+    사용자 인증이 되어 있으면 접근 가능한 DB 블록도 함께 로드합니다.
+
+    Args:
+        include_user_blocks: True면 현재 사용자가 접근 가능한 DB 블록도 포함
+
+    Returns:
+        블록 목록
+    """
+    blocks = []
+
+    # 1. blocks.json에서 시스템 블록 로드
     try:
         with open('blocks.json', 'r', encoding='utf-8') as f:
             data = json.load(f)
-            return data.get('blocks', [])
+            blocks = data.get('blocks', [])
     except FileNotFoundError:
         print("blocks.json 파일을 찾을 수 없습니다.")
-        return []
     except json.JSONDecodeError:
         print("blocks.json 파일 형식이 올바르지 않습니다.")
-        return []
+
+    # 2. 사용자 DB 블록 로드 (인증된 경우만)
+    if include_user_blocks:
+        try:
+            from auth.authentication import is_authenticated, get_current_user
+            from blocks.block_manager import get_accessible_blocks
+
+            if is_authenticated():
+                user = get_current_user()
+                if user:
+                    user_id = user.get("id")
+                    team_id = user.get("team_id")
+
+                    # 접근 가능한 블록 조회
+                    db_blocks = get_accessible_blocks(user_id, team_id)
+
+                    # block_data 필드를 블록 형태로 변환
+                    for db_block in db_blocks:
+                        block_data = db_block.get("block_data", {})
+                        if isinstance(block_data, dict):
+                            # DB 메타데이터 추가
+                            block_data["_db_id"] = db_block.get("id")
+                            block_data["_owner_id"] = db_block.get("owner_id")
+                            block_data["_visibility"] = db_block.get("visibility")
+                            blocks.append(block_data)
+        except ImportError:
+            pass  # 인증 모듈이 없으면 시스템 블록만 사용
+        except Exception as e:
+            print(f"사용자 블록 로드 오류: {e}")
+
+    return blocks
 
 def process_prompt(block: Dict[str, Any], pdf_text: str) -> str:
     """블록의 프롬프트에 PDF 텍스트를 삽입합니다."""

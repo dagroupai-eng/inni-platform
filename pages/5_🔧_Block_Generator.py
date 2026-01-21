@@ -5,6 +5,24 @@ from datetime import datetime
 from pathlib import Path
 from prompt_processor import load_blocks as load_blocks_from_processor
 
+# 인증 및 블록 관리 모듈 import
+try:
+    from auth.authentication import is_authenticated, get_current_user, check_page_access
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+
+try:
+    from blocks.block_manager import (
+        create_user_block,
+        get_user_blocks,
+        delete_user_block,
+        BlockVisibility
+    )
+    BLOCKS_DB_AVAILABLE = True
+except ImportError:
+    BLOCKS_DB_AVAILABLE = False
+
 def generate_dspy_signature(block_id, block_name, block_description):
     """블록 정보를 바탕으로 DSPy Signature 코드를 생성합니다."""
     
@@ -238,7 +256,11 @@ def main():
         page_icon=None,
         layout="wide"
     )
-    
+
+    # 로그인 체크
+    if AUTH_AVAILABLE:
+        check_page_access()
+
     st.title("분석 블록 생성기")
     st.markdown("---")
     
@@ -255,30 +277,74 @@ def main():
         st.header("기존 블록 목록")
         if existing_blocks:
             for i, block in enumerate(existing_blocks):
-                with st.expander(f"{block.get('name', 'Unknown')}"):
+                block_name = block.get('name', 'Unknown')
+                block_source = "🗄️ DB" if block.get('_db_id') else "📄 File"
+
+                with st.expander(f"{block_source} {block_name}"):
                     st.write(f"**ID:** {block.get('id', 'N/A')}")
                     st.write(f"**카테고리:** {block.get('category', '미지정')}")
                     st.write(f"**설명:** {block.get('description', 'N/A')}")
+
+                    # 삭제 버튼
                     if st.button(f"삭제", key=f"delete_{i}"):
-                        # 삭제할 블록 정보
                         block_to_delete = existing_blocks[i]
                         block_id = block_to_delete.get('id')
-                        block_name = block_to_delete.get('name')
-                        
-                        # Signature 이름 생성
-                        signature_name = ''.join(word.capitalize() for word in block_id.split('_')) + 'Signature'
-                        
-                        # 블록 삭제
-                        existing_blocks.pop(i)
-                        blocks_data = {"blocks": existing_blocks}
-                        
-                        if save_blocks(blocks_data):
-                            # DSPy Signature도 제거
-                            if remove_dspy_signature(block_id, signature_name):
-                                st.success("블록과 DSPy Signature가 삭제되었습니다!")
+                        db_id = block_to_delete.get('_db_id')
+                        owner_id = block_to_delete.get('_owner_id')
+
+                        delete_success = False
+
+                        # DB 블록인 경우
+                        if db_id and BLOCKS_DB_AVAILABLE:
+                            try:
+                                from blocks.block_manager import delete_user_block
+                                from auth.authentication import get_current_user_id
+
+                                # 현재 사용자 ID 가져오기
+                                current_user_id = get_current_user_id()
+
+                                if not current_user_id:
+                                    st.error("사용자 정보를 가져올 수 없습니다.")
+                                elif owner_id and owner_id != current_user_id:
+                                    st.error("본인이 생성한 블록만 삭제할 수 있습니다.")
+                                elif delete_user_block(db_id, current_user_id):
+                                    st.success(f"블록 '{block_name}'이 데이터베이스에서 삭제되었습니다!")
+                                    delete_success = True
+                                else:
+                                    st.error("데이터베이스에서 블록 삭제에 실패했습니다.")
+                            except Exception as e:
+                                st.error(f"삭제 오류: {e}")
+
+                        # blocks.json 블록인 경우
+                        else:
+                            # Signature 이름 생성
+                            signature_name = ''.join(word.capitalize() for word in block_id.split('_')) + 'Signature'
+
+                            # blocks.json에서 블록 제거
+                            json_blocks = []
+                            try:
+                                with open('blocks.json', 'r', encoding='utf-8') as f:
+                                    data = json.load(f)
+                                    json_blocks = data.get('blocks', [])
+                            except:
+                                pass
+
+                            # 해당 블록 찾아서 제거
+                            json_blocks = [b for b in json_blocks if b.get('id') != block_id]
+                            blocks_data = {"blocks": json_blocks}
+
+                            if save_blocks(blocks_data):
+                                # DSPy Signature도 제거
+                                if remove_dspy_signature(block_id, signature_name):
+                                    st.success("블록과 DSPy Signature가 삭제되었습니다!")
+                                else:
+                                    st.success("블록이 삭제되었습니다!")
+                                    st.warning("DSPy Signature 제거에 실패했습니다.")
+                                delete_success = True
                             else:
-                                st.success("블록이 삭제되었습니다!")
-                                st.warning("DSPy Signature 제거에 실패했습니다. 수동으로 제거해주세요.")
+                                st.error("blocks.json 저장에 실패했습니다.")
+
+                        if delete_success:
                             st.rerun()
         else:
             st.info("생성된 블록이 없습니다.")
@@ -470,7 +536,24 @@ def main():
                     help="블록의 고유 ID를 직접 지정할 수 있습니다. 비워두면 이름에서 자동 생성됩니다.",
                     value="" if reset_form else None
                 )
-                
+
+                # 공개 범위 옵션 (로그인한 경우만)
+                if AUTH_AVAILABLE and is_authenticated():
+                    visibility_options = {
+                        "personal": "나만 보기 (비공개)",
+                        "team": "팀 공유",
+                        "public": "전체 공개"
+                    }
+                    visibility = st.selectbox(
+                        "공개 범위",
+                        options=list(visibility_options.keys()),
+                        format_func=lambda x: visibility_options[x],
+                        index=0,
+                        help="블록의 공개 범위를 설정합니다."
+                    )
+                else:
+                    visibility = "personal"
+
             
             # 제출 버튼
             submitted = st.form_submit_button("블록 생성", type="primary")
@@ -535,39 +618,69 @@ def main():
                             "created_at": datetime.now().isoformat(),
                             "created_by": "user"
                         }
-                        
-                        # 블록 추가
-                        existing_blocks.append(new_block)
-                        
-                        # 저장 (딕셔너리 형식으로 변환)
-                        blocks_data = {"blocks": existing_blocks}
-                        if save_blocks(blocks_data):
-                            # DSPy Signature 자동 생성
-                            signature_code, signature_name = generate_dspy_signature(
-                                block_id, final_name, block_description
-                            )
-                            
-                            # dspy_analyzer.py 파일 업데이트
-                            if update_dspy_analyzer(block_id, signature_code, signature_name):
-                                st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
-                                st.success(f"DSPy Signature '{signature_name}'도 자동으로 생성되었습니다!")
-                                st.info("💡 새로 생성한 블록을 사용하려면 Streamlit 페이지를 새로고침하세요.")
-                                st.balloons()
+
+                        # 저장 로직: 로그인 여부에 따라 분기
+                        save_success = False
+                        db_saved = False
+
+                        # 로그인한 경우: DB에 저장
+                        if AUTH_AVAILABLE and BLOCKS_DB_AVAILABLE and is_authenticated():
+                            user = get_current_user()
+                            if user:
+                                visibility_enum = BlockVisibility(visibility) if visibility else BlockVisibility.PERSONAL
+                                db_id = create_user_block(
+                                    owner_id=user["id"],
+                                    name=final_name,
+                                    block_data=new_block,
+                                    category=category_value,
+                                    visibility=visibility_enum,
+                                    block_id=block_id
+                                )
+                                if db_id:
+                                    save_success = True
+                                    db_saved = True
+                                    st.success(f"블록 '{final_name}'이 데이터베이스에 저장되었습니다!")
+                                    visibility_msg = {"personal": "나만 볼 수 있음", "team": "팀 공유됨", "public": "전체 공개됨"}
+                                    st.info(f"공개 범위: {visibility_msg.get(visibility, visibility)}")
+
+                        # 비로그인 또는 DB 저장 실패: blocks.json에 저장
+                        if not save_success:
+                            existing_blocks.append(new_block)
+                            blocks_data = {"blocks": existing_blocks}
+                            if save_blocks(blocks_data):
+                                save_success = True
+
+                        if save_success:
+                            # DSPy Signature 자동 생성 (blocks.json 저장 시에만)
+                            signature_code = None
+                            signature_name = None
+
+                            if not db_saved:
+                                signature_code, signature_name = generate_dspy_signature(
+                                    block_id, final_name, block_description
+                                )
+
+                                # dspy_analyzer.py 파일 업데이트
+                                if update_dspy_analyzer(block_id, signature_code, signature_name):
+                                    st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
+                                    st.success(f"DSPy Signature '{signature_name}'도 자동으로 생성되었습니다!")
+                                else:
+                                    st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
+                                    st.warning("⚠️ DSPy Signature 자동 생성에 실패했습니다.")
                             else:
-                                st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
-                                st.warning("⚠️ DSPy Signature 자동 생성에 실패했습니다.")
-                                st.warning("다음 단계를 수행해주세요:")
-                                st.warning("1. dspy_analyzer.py 파일을 확인하여 Signature 클래스가 올바르게 추가되었는지 확인")
-                                st.warning("2. Streamlit 페이지를 새로고침하여 모듈을 리로드")
-                                st.warning("3. 그래도 작동하지 않으면 수동으로 Signature를 추가해주세요")
-                            
+                                st.success(f"블록 '{final_name}'이 데이터베이스에 저장되었습니다!")
+
+                            st.info("새로 생성한 블록을 사용하려면 Streamlit 페이지를 새로고침하세요.")
+                            st.balloons()
+
                             # 생성된 블록 정보 표시
                             with st.expander("생성된 블록 정보", expanded=True):
                                 st.json(new_block)
-                            
-                            # 생성된 DSPy Signature 코드 표시
-                            with st.expander("생성된 DSPy Signature", expanded=False):
-                                st.code(signature_code, language="python")
+
+                            # 생성된 DSPy Signature 코드 표시 (blocks.json 저장 시에만)
+                            if signature_code:
+                                with st.expander("생성된 DSPy Signature", expanded=False):
+                                    st.code(signature_code, language="python")
                         else:
                             st.error("블록 저장 중 오류가 발생했습니다.")
     

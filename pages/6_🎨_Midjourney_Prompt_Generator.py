@@ -5,12 +5,23 @@ import os
 from file_analyzer import UniversalFileAnalyzer
 from dspy_analyzer import EnhancedArchAnalyzer
 
+# 인증 모듈 import
+try:
+    from auth.authentication import check_page_access
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+
 # 페이지 설정
 st.set_page_config(
     page_title="Midjourney 프롬프트 생성기",
     page_icon=None,
     layout="wide"
 )
+
+# 로그인 체크
+if AUTH_AVAILABLE:
+    check_page_access()
 
 # Midjourney 프롬프트 생성 함수
 def generate_midjourney_prompt(user_inputs, cot_history, image_settings):

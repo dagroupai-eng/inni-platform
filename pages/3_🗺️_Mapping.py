@@ -9,6 +9,17 @@ st.set_page_config(
     layout="wide"
 )
 
+# 인증 모듈 import
+try:
+    from auth.authentication import check_page_access
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+
+# 로그인 체크
+if AUTH_AVAILABLE:
+    check_page_access()
+
 import pandas as pd
 import requests
 from typing import Optional, Dict, Any, List, Tuple
