@@ -169,7 +169,7 @@ def update_user_admin(
     user_id: int,
     display_name: Optional[str] = None,
     role: Optional[str] = None,
-    team_id: Optional[int] = None,
+    team_id: Optional[int] = ...,  # ... (Ellipsis)를 기본값으로 사용
     status: Optional[str] = None
 ) -> tuple[bool, str]:
     """
@@ -179,7 +179,7 @@ def update_user_admin(
         user_id: 사용자 ID
         display_name: 새 표시 이름
         role: 새 역할
-        team_id: 새 팀 ID
+        team_id: 새 팀 ID (None이면 팀 제거, ...이면 변경 안 함)
         status: 새 상태
 
     Returns:
@@ -196,8 +196,10 @@ def update_user_admin(
         except ValueError:
             pass
 
-    if team_id is not None:
+    # team_id: ... (Ellipsis)가 아니면 업데이트 (None 포함)
+    if team_id is not ...:
         update_data["team_id"] = team_id
+        print(f"[DEBUG update_user_admin] team_id 업데이트: {team_id}")
 
     if status is not None:
         try:
@@ -208,6 +210,7 @@ def update_user_admin(
     if not update_data:
         return False, "업데이트할 정보가 없습니다."
 
+    print(f"[DEBUG update_user_admin] update_data: {update_data}")
     success = update_user(user_id, **update_data)
     if success:
         return True, "사용자 정보가 업데이트되었습니다."
