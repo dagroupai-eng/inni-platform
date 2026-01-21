@@ -12,6 +12,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# 세션 초기화 (로그인 + 작업 데이터 복원)
+try:
+    from auth.session_init import init_page_session
+    init_page_session()
+except Exception as e:
+    print(f"세션 초기화 오류: {e}")
+
 # 데이터베이스 초기화 (필요시)
 try:
     from database.init_db import init_database
@@ -59,8 +66,7 @@ def show_access_denied():
     st.info("관리자 권한이 있는 계정으로 로그인해주세요.")
 
     if not is_authenticated():
-        if st.button("로그인하기"):
-            st.switch_page("pages/0_🔐_Login.py")
+        st.warning("메인 페이지에서 로그인해주세요.")
 
 
 def show_dashboard():
@@ -210,28 +216,90 @@ def show_user_management():
                     last_login = user.get('last_login', '')
                     st.markdown(f"**마지막 로그인:** {last_login[:19] if last_login else '-'}")
 
-                # 사용자 관리 버튼
+                # 사용자 정보 수정
+                st.markdown("**사용자 정보 수정**")
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
+                    status_options = ["active", "inactive", "suspended"]
+                    current_status = user.get("status", "active")
+                    try:
+                        status_index = status_options.index(current_status)
+                    except ValueError:
+                        status_index = 0
+                    
                     new_status = st.selectbox(
-                        "상태 변경",
-                        options=["active", "inactive", "suspended"],
+                        "상태",
+                        options=status_options,
                         format_func=lambda x: {"active": "활성", "inactive": "비활성", "suspended": "정지"}[x],
-                        index=["active", "inactive", "suspended"].index(user.get("status", "active")),
+                        index=status_index,
                         key=f"status_{user['id']}"
                     )
 
                 with col2:
-                    if st.button("상태 업데이트", key=f"update_{user['id']}"):
-                        success, message = update_user_admin(user["id"], status=new_status)
+                    role_options = ["user", "team_lead", "admin"]
+                    current_role = user.get("role", "user")
+                    try:
+                        role_index = role_options.index(current_role)
+                    except ValueError:
+                        role_index = 0
+                    
+                    new_role = st.selectbox(
+                        "역할",
+                        options=role_options,
+                        format_func=lambda x: {"user": "일반 사용자", "team_lead": "팀 리드", "admin": "관리자"}[x],
+                        index=role_index,
+                        key=f"role_{user['id']}"
+                    )
+
+                with col3:
+                    teams = get_all_teams_admin()
+                    team_options = {0: "팀 없음"}
+                    team_options.update({t["id"]: t["name"] for t in teams})
+                    
+                    current_team_id = user.get("team_id") or 0
+                    team_keys = list(team_options.keys())
+                    try:
+                        team_index = team_keys.index(current_team_id)
+                    except ValueError:
+                        team_index = 0
+                    
+                    new_team_id = st.selectbox(
+                        "소속 팀",
+                        options=team_keys,
+                        format_func=lambda x: team_options[x],
+                        index=team_index,
+                        key=f"team_{user['id']}"
+                    )
+
+                # 버튼
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.button("정보 업데이트", key=f"update_{user['id']}", type="primary"):
+                        print(f"[DEBUG 업데이트] user_id: {user['id']}")
+                        print(f"[DEBUG 업데이트] 이전 status: {user.get('status')} -> 새 status: {new_status}")
+                        print(f"[DEBUG 업데이트] 이전 role: {user.get('role')} -> 새 role: {new_role}")
+                        print(f"[DEBUG 업데이트] 이전 team_id: {user.get('team_id')} -> 새 team_id: {new_team_id}")
+                        
+                        # team_id 처리: 0이면 None으로, 그 외에는 그대로
+                        final_team_id = None if new_team_id == 0 else new_team_id
+                        print(f"[DEBUG 업데이트] 최종 team_id: {final_team_id}")
+                        
+                        success, message = update_user_admin(
+                            user["id"],
+                            status=new_status,
+                            role=new_role,
+                            team_id=final_team_id
+                        )
+                        print(f"[DEBUG 업데이트] 결과: success={success}, message={message}")
+                        
                         if success:
                             st.success(message)
                             st.rerun()
                         else:
                             st.error(message)
 
-                with col3:
+                with col2:
                     if user.get("role") != "admin":
                         if st.button("삭제", key=f"delete_{user['id']}", type="secondary"):
                             success, message = delete_user_admin(user["id"])

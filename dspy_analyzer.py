@@ -90,13 +90,19 @@ PROVIDER_CONFIG = {
         'api_key_env': 'GEMINI_API_KEY',  # Google AI Studio API 키
         'model': 'gemini-3-pro-preview',  # 가장 지능적인 모델
         'provider': 'gemini',  # Google AI Studio (API Key)
-        'display_name': 'Gemini 3 Pro (Preview)'
+        'display_name': 'Gemini 3 Pro'
     },
     'gemini_25flash': {
         'api_key_env': 'GEMINI_API_KEY',  # Google AI Studio API 키
         'model': 'gemini-2.5-flash',  # 빠르고 가격 대비 성능 우수
         'provider': 'gemini',  # Google AI Studio (API Key)
         'display_name': 'Gemini 2.5 Flash'
+    },
+    'gemini_3flash': {
+        'api_key_env': 'GEMINI_API_KEY',  # Google AI Studio API 키
+        'model': 'gemini-3-flash-preview',  # Gemini 3.0 Flash
+        'provider': 'gemini',  # Google AI Studio (API Key)
+        'display_name': 'Gemini 3.0 Flash'
     }
 }
 

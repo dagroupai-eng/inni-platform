@@ -83,6 +83,16 @@ def login(personal_number: str, auto_create: bool = False) -> tuple[bool, str]:
     st_session[SESSION_TOKEN_KEY] = session_token
     st_session[CURRENT_USER_KEY] = user
 
+    # 로컬 파일에도 저장 (새로고침 시 유지)
+    try:
+        from pathlib import Path
+        from config.settings import DATA_DIR
+        last_session_file = DATA_DIR / "last_session.txt"
+        with open(last_session_file, 'w') as f:
+            f.write(session_token)
+    except Exception as e:
+        print(f"세션 파일 저장 오류: {e}")
+
     return True, f"환영합니다, {user.get('display_name', personal_number)}님!"
 
 
@@ -117,6 +127,16 @@ def logout() -> bool:
     if 'api_keys_loaded' in st_session:
         del st_session['api_keys_loaded']
 
+    # 로컬 파일에서도 제거
+    try:
+        from pathlib import Path
+        from config.settings import DATA_DIR
+        last_session_file = DATA_DIR / "last_session.txt"
+        if last_session_file.exists():
+            last_session_file.unlink()
+    except Exception as e:
+        print(f"세션 파일 삭제 오류: {e}")
+
     return True
 
 
@@ -142,6 +162,15 @@ def is_authenticated() -> bool:
         if CURRENT_USER_KEY in st_session:
             del st_session[CURRENT_USER_KEY]
         return False
+
+    # 사용자 정보가 세션에 없으면 복원
+    if CURRENT_USER_KEY not in st_session:
+        user_id = session_data.get("user_id")
+        if user_id:
+            from auth.user_manager import get_user_by_id
+            user = get_user_by_id(user_id)
+            if user:
+                st_session[CURRENT_USER_KEY] = user
 
     return True
 
@@ -202,12 +231,8 @@ def require_auth(redirect_to_login: bool = True):
             if not is_authenticated():
                 try:
                     import streamlit as st
-                    if redirect_to_login:
-                        st.warning("로그인이 필요합니다.")
-                        st.switch_page("pages/0_🔐_Login.py")
-                    else:
-                        st.error("로그인이 필요합니다.")
-                        st.stop()
+                    st.warning("로그인이 필요합니다. 메인 페이지에서 로그인해주세요.")
+                    st.stop()
                 except ImportError:
                     raise PermissionError("Authentication required")
             return func(*args, **kwargs)

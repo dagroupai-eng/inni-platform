@@ -9,6 +9,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# 세션 초기화 (로그인 + 작업 데이터 복원)
+try:
+    from auth.session_init import init_page_session
+    init_page_session()
+except Exception as e:
+    print(f"세션 초기화 오류: {e}")
+
 # 인증 모듈 import
 try:
     from auth.authentication import check_page_access

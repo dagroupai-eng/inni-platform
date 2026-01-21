@@ -51,6 +51,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# 세션 초기화 (로그인 + 작업 데이터 복원)
+try:
+    from auth.session_init import init_page_session
+    init_page_session()
+except Exception as e:
+    print(f"세션 초기화 오류: {e}")
+
 # 로그인 체크
 if AUTH_AVAILABLE:
     check_page_access()
@@ -434,6 +441,7 @@ def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
     st.session_state.cot_results = {}
     st.session_state.cot_progress_messages = []
     st.session_state.cot_running_block = None
+    st.session_state.skipped_blocks = []  # 건너뛴 블록 목록 초기화
     
     # analyzer를 완전히 삭제하여 재생성되도록 함
     st.session_state.pop('cot_analyzer', None)
@@ -486,6 +494,7 @@ def reset_all_state() -> None:
     st.session_state.cot_progress_messages = []
     st.session_state.cot_analyzer = None
     st.session_state.cot_running_block = None
+    st.session_state.skipped_blocks = []  # 건너뛴 블록 목록 초기화
     st.session_state.cot_history = []
     st.session_state.cot_feedback_inputs = {}
     
@@ -2568,7 +2577,12 @@ with tab_blocks:
                     if checkbox_value and not is_selected:
                         st.session_state['selected_blocks'].append(block_id)
                     elif not checkbox_value and is_selected:
-                        st.session_state['selected_blocks'].remove(block_id)
+                        # 분석 세션 진행 중이고 cot_plan에 있는 블록은 제거하지 않음
+                        if st.session_state.get('cot_session') and block_id in st.session_state.get('cot_plan', []):
+                            print(f"[DEBUG 체크박스] 블록 {block_id} 제거 방지 (cot_plan에 있음)")
+                        else:
+                            print(f"[DEBUG 체크박스] 블록 {block_id} 제거됨")
+                            st.session_state['selected_blocks'].remove(block_id)
             
             if idx < total_categories - 1:
                 st.divider()
@@ -2834,7 +2848,9 @@ with tab_run:
     if spatial_notice:
         st.caption(spatial_notice)
 
-    if st.session_state.cot_plan and st.session_state.cot_plan != selected_blocks:
+    # 분석 세션이 비활성화 상태에서만 블록 불일치 시 초기화
+    # (분석 중 블록 추가 시에는 초기화하지 않음)
+    if st.session_state.cot_plan and st.session_state.cot_plan != selected_blocks and not st.session_state.cot_session:
         reset_step_analysis_state()
 
     st.markdown("### 단계별 분석 제어")
@@ -2871,7 +2887,8 @@ with tab_run:
                     st.session_state.cot_citations = {}
                     st.session_state.cot_feedback_inputs = {}
                     st.session_state.cot_running_block = None
-                    
+                    st.session_state.skipped_blocks = []  # 건너뛴 블록 목록 초기화
+
                     analyzer = get_cot_analyzer()
                     if analyzer is None:
                         st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
@@ -2901,21 +2918,101 @@ with tab_run:
 
     active_plan = st.session_state.cot_plan if st.session_state.cot_session else selected_blocks
 
+    # 분석 중 블록 추가 기능
+    if st.session_state.cot_session and st.session_state.cot_plan:
+        with st.expander("➕ 블록 추가 (분석 진행 중)", expanded=False):
+            st.caption("분석 세션이 진행 중일 때 새 블록을 추가할 수 있습니다.")
+
+            # 현재 플랜에 없는 블록들만 표시
+            current_plan_ids = set(st.session_state.cot_plan)
+            available_to_add = [
+                block for block in all_blocks
+                if block.get('id') and block.get('id') not in current_plan_ids
+            ]
+
+            if available_to_add:
+                # 블록 선택
+                block_options = {block['id']: f"[{resolve_block_category(block)}] {block.get('name', block['id'])}" for block in available_to_add}
+                selected_block_to_add = st.selectbox(
+                    "추가할 블록 선택",
+                    options=list(block_options.keys()),
+                    format_func=lambda x: block_options.get(x, x),
+                    key="add_block_selector"
+                )
+
+                # 삽입 위치 선택
+                insert_positions = ["현재 위치 (다음에 실행)", "플랜 마지막에 추가"]
+                for i, plan_block_id in enumerate(st.session_state.cot_plan):
+                    plan_block = block_lookup.get(plan_block_id, {})
+                    plan_block_name = plan_block.get('name', plan_block_id)
+                    insert_positions.append(f"{i+1}. {plan_block_name} 뒤에 삽입")
+
+                insert_position = st.selectbox(
+                    "삽입 위치",
+                    options=insert_positions,
+                    key="insert_position_selector"
+                )
+
+                if st.button("➕ 블록 추가", type="primary", key="add_block_btn"):
+                    if selected_block_to_add:
+                        print(f"[DEBUG 블록추가] 추가 전 cot_plan: {st.session_state.cot_plan}")
+                        print(f"[DEBUG 블록추가] 추가할 블록: {selected_block_to_add}")
+                        new_plan = st.session_state.cot_plan.copy()
+
+                        if insert_position == "현재 위치 (다음에 실행)":
+                            # 현재 인덱스에 삽입
+                            insert_idx = st.session_state.cot_current_index
+                        elif insert_position == "플랜 마지막에 추가":
+                            insert_idx = len(new_plan)
+                        else:
+                            # "N. 블록명 뒤에 삽입" 형식에서 인덱스 추출
+                            try:
+                                position_num = int(insert_position.split(".")[0])
+                                insert_idx = position_num  # 해당 블록 뒤에 삽입
+                            except:
+                                insert_idx = len(new_plan)
+
+                        new_plan.insert(insert_idx, selected_block_to_add)
+                        st.session_state.cot_plan = new_plan
+
+                        # 현재 인덱스보다 앞에 삽입되면 인덱스 조정
+                        if insert_idx <= st.session_state.cot_current_index:
+                            st.session_state.cot_current_index += 1
+
+                        # selected_blocks도 업데이트 (일관성 유지)
+                        st.session_state.selected_blocks = new_plan.copy()
+
+                        # 세션 저장 후 재시작
+                        try:
+                            from auth.session_init import save_work_session
+                            save_work_session()
+                        except Exception as e:
+                            print(f"세션 저장 오류: {e}")
+
+                        print(f"[DEBUG 블록추가] 추가 후 cot_plan: {st.session_state.cot_plan}")
+                        print(f"[DEBUG 블록추가] 추가 후 selected_blocks: {st.session_state.selected_blocks}")
+                        added_block = block_lookup.get(selected_block_to_add, {})
+                        added_block_name = added_block.get('name', selected_block_to_add)
+                        st.success(f"'{added_block_name}' 블록이 추가되었습니다.")
+                        st.rerun()
+            else:
+                st.info("추가 가능한 블록이 없습니다. 모든 블록이 이미 플랜에 포함되어 있습니다.")
+
     st.markdown("### 단계 진행 현황")
 
-    # DEBUG: 상태 확인
-    with st.expander("[DEBUG] 세션 상태 확인", expanded=True):
-        st.write(f"cot_session 존재: {st.session_state.cot_session is not None}")
-        st.write(f"cot_current_index: {st.session_state.cot_current_index}")
-        st.write(f"cot_results keys: {list(st.session_state.cot_results.keys())}")
-        st.write(f"cot_plan: {st.session_state.cot_plan}")
-        if st.session_state.cot_session:
-            st.write(f"cot_session previous_results keys: {list(st.session_state.cot_session.get('previous_results', {}).keys())}")
+    # DEBUG: 상태 확인 (콘솔에만 출력)
+    print(f"[DEBUG] cot_session 존재: {st.session_state.cot_session is not None}")
+    print(f"[DEBUG] cot_current_index: {st.session_state.cot_current_index}")
+    print(f"[DEBUG] cot_results keys: {list(st.session_state.cot_results.keys())}")
+    print(f"[DEBUG] cot_plan: {st.session_state.cot_plan}")
+    if st.session_state.cot_session:
+        print(f"[DEBUG] cot_session previous_results keys: {list(st.session_state.cot_session.get('previous_results', {}).keys())}")
 
     if not active_plan:
         st.info("분석 세션을 준비하면 단계별 진행 정보를 확인할 수 있습니다.")
     else:
         running_block = st.session_state.get('cot_running_block')
+        skipped_blocks = st.session_state.get('skipped_blocks', [])
         for idx, block_id in enumerate(active_plan, start=1):
             block = block_lookup.get(block_id)
             block_name = block.get('name', block_id) if block else block_id
@@ -2924,11 +3021,14 @@ with tab_run:
                 status_badge = "⏳ 진행중"
             elif block_id in st.session_state.cot_results:
                 status_badge = "✅ 완료"
+            elif block_id in skipped_blocks:
+                status_badge = "⏭️ 건너뜀"
             elif st.session_state.cot_session and idx == st.session_state.cot_current_index + 1:
                 status_badge = "🟡 대기"
             else:
                 status_badge = "⚪ 준비"
-            expander = st.expander(f"{idx}. [{category}] {block_name} · {status_badge}", expanded=(status_badge != "✅ 완료"))
+            is_collapsed = status_badge in ["✅ 완료", "⏭️ 건너뜀"]
+            expander = st.expander(f"{idx}. [{category}] {block_name} · {status_badge}", expanded=(not is_collapsed))
             with expander:
                 st.caption((block.get('description') if block else "설명이 없습니다.") or "설명이 없습니다.")
                 if block_id in st.session_state.cot_results:
@@ -3045,11 +3145,67 @@ with tab_run:
         next_block_id = st.session_state.cot_plan[st.session_state.cot_current_index]
         next_block = block_lookup.get(next_block_id, {"id": next_block_id})
         next_block_name = next_block.get('name', next_block_id)
-        if st.button(
-            f"▶️ {st.session_state.cot_current_index + 1}단계 실행: {next_block_name}",
-            type="primary",
-            disabled=st.session_state.cot_running_block is not None
-        ):
+
+        # 실행, 멈춤, 건너뛰기 버튼
+        is_running = st.session_state.cot_running_block is not None
+        
+        run_col, stop_col, skip_col = st.columns([3, 1, 1])
+        with run_col:
+            run_clicked = st.button(
+                f"▶️ {st.session_state.cot_current_index + 1}단계 실행: {next_block_name}",
+                type="primary",
+                disabled=is_running,
+                use_container_width=True
+            )
+        with stop_col:
+            stop_clicked = st.button(
+                "⏹️ 멈춤",
+                disabled=not is_running,
+                use_container_width=True,
+                help="현재 실행 중인 분석을 중단합니다.",
+                type="secondary"
+            )
+        with skip_col:
+            skip_clicked = st.button(
+                "⏭️ 건너뛰기",
+                disabled=is_running,
+                use_container_width=True,
+                help="이 블록을 건너뛰고 다음 블록으로 진행합니다."
+            )
+        
+        # 멈춤 처리
+        if stop_clicked:
+            st.session_state.cot_running_block = None
+            st.warning(f"{next_block_name} 블록 분석을 중단했습니다. 페이지를 새로고침합니다.")
+            
+            # 세션 저장 후 재시작
+            try:
+                from auth.session_init import save_work_session
+                save_work_session()
+            except Exception as e:
+                print(f"세션 저장 오류: {e}")
+            
+            st.rerun()
+
+        # 건너뛰기 처리
+        if skip_clicked:
+            # 건너뛴 블록 기록 (선택적)
+            if 'skipped_blocks' not in st.session_state:
+                st.session_state.skipped_blocks = []
+            st.session_state.skipped_blocks.append(next_block_id)
+            st.session_state.cot_current_index += 1
+            
+            # 세션 저장 후 재시작
+            try:
+                from auth.session_init import save_work_session
+                save_work_session()
+            except Exception as e:
+                print(f"세션 저장 오류: {e}")
+            
+            st.info(f"{next_block_name} 블록을 건너뛰었습니다.")
+            st.rerun()
+
+        if run_clicked:
             analyzer = get_cot_analyzer()
             if analyzer is None:
                 st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
@@ -3095,6 +3251,14 @@ with tab_run:
                 
                 st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
                 st.session_state.cot_current_index += 1
+                
+                # 세션 저장 후 재시작
+                try:
+                    from auth.session_init import save_work_session
+                    save_work_session()
+                except Exception as e:
+                    print(f"세션 저장 오류: {e}")
+                
                 st.success(f"{next_block_name} 블록 분석이 완료되었습니다.")
                 st.rerun()
             else:
@@ -3228,3 +3392,10 @@ with tab_download:
                 )
     else:
         st.info("분석 결과가 없습니다.")
+
+# 페이지 렌더링 완료 후 작업 세션 자동 저장
+try:
+    from auth.session_init import auto_save_trigger
+    auto_save_trigger()
+except Exception as e:
+    pass

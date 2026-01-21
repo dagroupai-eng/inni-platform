@@ -5,7 +5,8 @@
       "Bash(dir /s /b \"C:\\\\Users\\\\dA\\\\inni-platform\\\\.dspy_cache\")",
       "Bash(dir /s /b \"C:\\\\Users\\\\dA\\\\*litellm*cache*\")",
       "Bash(python -c:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(python -m py_compile:*)"
     ]
   }
 }
