@@ -12,12 +12,36 @@ from datetime import datetime, timedelta
 import requests
 from pathlib import Path
 
-# 캐시 디렉토리
-CACHE_DIR = Path("cache/web_search")
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
 # 캐시 유효 기간 (시간)
 CACHE_EXPIRY_HOURS = 24
+
+
+def _get_cache_dir() -> Path:
+    """
+    캐시 디렉토리 경로를 반환합니다.
+    로그인한 경우 사용자별 캐시 경로를 사용합니다.
+    """
+    try:
+        from auth.authentication import is_authenticated, get_current_user
+        if is_authenticated():
+            user = get_current_user()
+            if user:
+                personal_number = user.get("personal_number", "default")
+                user_cache_dir = Path(f"data/cache/{personal_number}/web_search")
+                user_cache_dir.mkdir(parents=True, exist_ok=True)
+                return user_cache_dir
+    except ImportError:
+        pass
+
+    # 기본 캐시 디렉토리
+    default_cache_dir = Path("cache/web_search")
+    default_cache_dir.mkdir(parents=True, exist_ok=True)
+    return default_cache_dir
+
+
+# 기본 캐시 디렉토리 (역호환성)
+CACHE_DIR = Path("cache/web_search")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class WebSearchHelper:
@@ -63,8 +87,8 @@ class WebSearchHelper:
         return hashlib.md5(cache_str.encode()).hexdigest()
     
     def _get_cache_path(self, cache_key: str) -> Path:
-        """캐시 파일 경로 반환"""
-        return CACHE_DIR / f"{cache_key}.json"
+        """캐시 파일 경로 반환 (사용자별 캐시 지원)"""
+        return _get_cache_dir() / f"{cache_key}.json"
     
     def _load_cache(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
         """캐시에서 검색 결과 로드"""

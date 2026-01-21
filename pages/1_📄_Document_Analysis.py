@@ -12,6 +12,13 @@ from prompt_processor import load_blocks, load_custom_blocks
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
+
+# 인증 모듈 import
+try:
+    from auth.authentication import is_authenticated, get_current_user, check_page_access
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
 try:
     from geo_data_loader import GeoDataLoader, validate_shapefile_data
     GEO_LOADER_AVAILABLE = True
@@ -44,9 +51,24 @@ st.set_page_config(
     layout="wide"
 )
 
+# 로그인 체크
+if AUTH_AVAILABLE:
+    check_page_access()
+
 # 제목
 st.title("도시 프로젝트 분석")
 st.markdown("**도시 프로젝트 문서 분석 (PDF, Excel, CSV, 텍스트, JSON 지원)**")
+
+# 사용자 인증 상태 표시 (사이드바)
+if AUTH_AVAILABLE:
+    with st.sidebar:
+        if is_authenticated():
+            user = get_current_user()
+            st.success(f"로그인: {user.get('display_name', user.get('personal_number'))}")
+        else:
+            st.warning("로그인이 필요합니다")
+            st.info("사이드바에서 '로그인' 페이지로 이동하세요.")
+        st.markdown("---")
 
 # 페이지 네비게이션 처리
 # (st.switch_page는 사이드바에서 직접 호출하면 오류 발생 가능하므로 제거)

@@ -148,3 +148,7 @@ logs/
 
 # Streamlit secrets (contains API keys)
 .streamlit/secrets.toml
+
+# PMS data directory (contains user data, sessions, database)
+data/
+!data/.gitkeep

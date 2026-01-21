@@ -45,7 +45,6 @@ try:  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib
 
-
 # 환경변수 로드 함수
 def _load_streamlit_secrets_into_env():
     """
@@ -105,32 +104,42 @@ PROVIDER_CONFIG = {
 def get_api_key(provider: str) -> Optional[str]:
     """
     선택된 제공자에 맞는 API 키를 가져옵니다.
-    
+    우선순위: 1) 세션 상태 -> 2) DB 저장 키 -> 3) Streamlit secrets -> 4) 환경변수
+
     Args:
         provider: 제공자 이름 ('anthropic', 'openai', 'gemini', 'deepseek')
-    
+
     Returns:
         API 키 문자열 또는 None (Vertex AI는 None 반환)
     """
     if provider not in PROVIDER_CONFIG:
         return None
-    
+
     config = PROVIDER_CONFIG[provider]
     api_key_env = config.get('api_key_env')
-    
+
     # Vertex AI는 API 키 불필요 (ADC 사용)
     if not api_key_env:
         return None
-    
+
     try:
         import streamlit as st
         # 1. 먼저 세션 상태에서 확인 (사용자가 웹에서 입력한 키)
         session_key = f'user_api_key_{api_key_env}'
         if session_key in st.session_state and st.session_state[session_key]:
             return st.session_state[session_key]
-        
-        # 2. Streamlit secrets에서 확인 (secrets 파일이 없을 수 있으므로 안전하게 처리)
-        # 3. 환경변수에서 확인
+
+        # 2. DB에 저장된 사용자별 API 키 확인
+        try:
+            from security.api_key_manager import get_api_key_for_current_user
+            db_api_key = get_api_key_for_current_user(api_key_env)
+            if db_api_key:
+                return db_api_key
+        except ImportError:
+            pass
+
+        # 3. Streamlit secrets에서 확인 (secrets 파일이 없을 수 있으므로 안전하게 처리)
+        # 4. 환경변수에서 확인
         try:
             api_key = st.secrets.get(api_key_env) or os.environ.get(api_key_env)
         except (FileNotFoundError, AttributeError, KeyError):
@@ -138,7 +147,7 @@ def get_api_key(provider: str) -> Optional[str]:
     except Exception:
         # Streamlit이 없는 환경 (예: 스크립트 실행)
         api_key = os.environ.get(api_key_env)
-    
+
     return api_key
 
 # 현재 제공자 가져오기 함수
@@ -377,8 +386,7 @@ class EnhancedArchAnalyzer:
             블록 ID를 키로, Signature 클래스를 값으로 하는 딕셔너리
         """
         # 기본 블록들의 하드코딩된 매핑 (기존 블록 호환성 유지)
-        signature_map = {
-            'basic_info': BasicInfoSignature,
+        signature_map = {            'basic_info': BasicInfoSignature,
             'requirements': RequirementsSignature,
             'design_suggestions': DesignSignature,
             'accessibility_analysis': AccessibilitySignature,
@@ -390,7 +398,7 @@ class EnhancedArchAnalyzer:
             'phase1_facility_area_calculation': SimpleAnalysisSignature,
             'phase1_candidate_generation': SimpleAnalysisSignature,
             'phase1_candidate_evaluation': SimpleAnalysisSignature
-        }
+}
         
         # blocks.json에서 블록을 읽어서 동적으로 Signature 클래스 매핑 추가
         try:
