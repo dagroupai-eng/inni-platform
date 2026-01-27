@@ -110,30 +110,55 @@ def is_local_environment():
     return False
 
 def get_cors_proxy():
-    """CORS 프록시 URL 반환"""
-    # 1. 명시적으로 비활성화된 경우
-    try:
-        if hasattr(st, 'secrets') and 'USE_CORS_PROXY' in st.secrets:
-            if not st.secrets['USE_CORS_PROXY']:
-                return ""
-            else:
-                return "https://corsproxy.io/?"
-    except:
-        pass
-
-    if os.getenv("USE_CORS_PROXY", "").lower() in ("false", "0", "no"):
-        return ""
-    if os.getenv("USE_CORS_PROXY", "").lower() in ("true", "1", "yes"):
-        return "https://corsproxy.io/?"
-
-    # 2. 로컬 환경이면 프록시 불필요
-    if is_local_environment():
-        return ""
-
-    # 3. 그 외 모든 환경 (Linux/Cloud)은 CORS 프록시 사용
-    return "https://corsproxy.io/?"
+    """CORS 프록시 URL 반환 - 비활성화 (직접 연결 우선)"""
+    return ""
 
 CORS_PROXY = get_cors_proxy()
+
+# 여러 CORS 프록시 목록 (fallback용)
+CORS_PROXY_LIST = [
+    "",  # 직접 연결 (한국 서버/로컬에서는 작동)
+    "https://api.allorigins.win/raw?url=",  # allorigins (비교적 안정적)
+    "https://corsproxy.io/?",  # corsproxy.io (불안정할 수 있음)
+]
+
+def try_request_with_fallback(base_url: str, params: dict, headers: dict = None, timeout: int = 15) -> Optional[requests.Response]:
+    """
+    여러 방법으로 API 요청 시도 (직접 연결 → CORS 프록시 순)
+    """
+    if headers is None:
+        headers = get_vworld_headers()
+
+    from urllib.parse import urlencode
+    query_string = urlencode(params)
+
+    for proxy in CORS_PROXY_LIST:
+        try:
+            if proxy:
+                # CORS 프록시 사용
+                full_url = f"{base_url}?{query_string}"
+                url = f"{proxy}{full_url}"
+                response = requests.get(url, headers=headers, timeout=timeout)
+            else:
+                # 직접 연결
+                response = requests.get(base_url, params=params, headers=headers, timeout=timeout)
+
+            # 성공적인 응답 확인
+            if response.status_code == 200:
+                return response
+
+            # 5xx 오류는 다음 프록시 시도
+            if response.status_code >= 500:
+                continue
+
+            # 4xx 오류는 반환 (API 키 오류 등)
+            return response
+
+        except requests.exceptions.RequestException:
+            # 연결 실패 시 다음 프록시 시도
+            continue
+
+    return None
 
 
 def make_cors_url(base_url: str, params: dict) -> str:
@@ -200,25 +225,57 @@ def get_vworld_headers() -> dict:
 # Streamlit Cloud에서 서버사이드 요청이 차단될 때 사용
 # ========================================
 
-def fetch_vworld_api_client_side(url: str, timeout_ms: int = 10000) -> Optional[Dict[str, Any]]:
+def fetch_vworld_api_client_side(url: str, timeout_ms: int = 15000) -> Optional[Dict[str, Any]]:
     """
     클라이언트 사이드(브라우저)에서 VWorld API 호출
     Streamlit Cloud 서버가 해외 IP라서 차단될 때 우회용
+
+    사용자 브라우저가 한국에 있으면 V-World API 직접 호출 가능
     """
     if not JS_AVAILABLE:
         return None
 
     try:
-        # JavaScript fetch API로 호출
-        js_code = f"""
-        await fetch("{url}")
-            .then(response => response.json())
-            .then(data => data)
-            .catch(error => ({{ "error": error.message }}))
-        """
-        result = st_javascript(js_code, key=f"vworld_fetch_{hash(url)}")
+        # 고유 키 생성 (URL + 타임스탬프)
+        import hashlib
+        unique_key = hashlib.md5(f"{url}_{time.time()}".encode()).hexdigest()[:8]
 
-        if result and isinstance(result, dict) and 'error' not in result:
+        # JavaScript fetch API로 호출 (Promise 체인 방식)
+        js_code = f"""
+        (async () => {{
+            try {{
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), {timeout_ms});
+
+                const response = await fetch("{url}", {{
+                    signal: controller.signal,
+                    headers: {{
+                        'Accept': 'application/json'
+                    }}
+                }});
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {{
+                    return {{ "error": `HTTP ${{response.status}}`, "status": response.status }};
+                }}
+
+                const data = await response.json();
+                return data;
+            }} catch (error) {{
+                if (error.name === 'AbortError') {{
+                    return {{ "error": "Timeout", "status": 408 }};
+                }}
+                return {{ "error": error.message, "status": 0 }};
+            }}
+        }})()
+        """
+        result = st_javascript(js_code, key=f"vworld_{unique_key}")
+
+        if result and isinstance(result, dict):
+            if 'error' in result:
+                # 에러 발생 시 로깅
+                return None
             return result
         return None
     except Exception as e:
@@ -598,6 +655,10 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
     """
     WFS API로 레이어 데이터 조회 (GeoJSON 반환)
 
+    클라이언트 사이드(브라우저) 우선 방식:
+    - 사용자 브라우저가 한국에 있으면 V-World API 직접 호출 가능
+    - Streamlit Cloud 서버는 해외에 있어 V-World가 차단할 수 있음
+
     Args:
         layer_code: WFS 레이어 코드 (예: lt_c_adsigg)
         bbox: (minx, miny, maxx, maxy) EPSG:4326
@@ -609,6 +670,19 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
     # WFS typename 매핑
     typename = WFS_LAYER_MAPPING.get(layer_code, layer_code)
 
+    # ============================================
+    # 1단계: 클라이언트 사이드 우선 시도 (한국 사용자 브라우저)
+    # ============================================
+    if JS_AVAILABLE:
+        client_result = get_wfs_layer_data_client_side(layer_code, bbox, max_features)
+        if client_result:
+            # 클라이언트 사이드 성공
+            return client_result
+        # 클라이언트 사이드 실패 시 서버 사이드로 fallback
+
+    # ============================================
+    # 2단계: 서버 사이드 시도 (여러 프록시 fallback)
+    # ============================================
     minx, miny, maxx, maxy = bbox
     params = {
         'SERVICE': 'WFS',
@@ -621,43 +695,12 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
         'SRSNAME': 'EPSG:4326',
         'key': VWORLD_API_KEY
     }
-    # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
-    # params = add_domain_param(params)
 
-    # Retry 로직 (502, 503, 504 오류 시 재시도)
-    max_retries = 3
-    retry_delay = 1  # 초
-    response = None
-
-    for attempt in range(max_retries):
-        try:
-            response = vworld_request(VWORLD_WFS_URL, params, timeout=30)
-
-            # 5xx 서버 오류 시 재시도
-            if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))  # 점진적 대기
-                continue
-
-            response.raise_for_status()
-            break  # 성공 시 루프 탈출
-        except requests.exceptions.RequestException as e:
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
-                continue
-            # 서버사이드 실패 시 클라이언트 사이드로 fallback
-            st.info("서버 요청 실패, 클라이언트 측에서 재시도 중...")
-            client_result = get_wfs_layer_data_client_side(layer_code, bbox, max_features)
-            if client_result:
-                return client_result
-            st.error(f"WFS 요청 실패: {str(e)}")
-            return None
+    # 여러 프록시를 순차적으로 시도
+    response = try_request_with_fallback(VWORLD_WFS_URL, params, timeout=20)
 
     if response is None:
-        # 서버사이드 실패 시 클라이언트 사이드로 fallback
-        client_result = get_wfs_layer_data_client_side(layer_code, bbox, max_features)
-        if client_result:
-            return client_result
-        st.error("WFS 요청 실패: 응답 없음")
+        st.warning("WFS 요청 실패: 모든 연결 방법 실패")
         return None
 
     try:
@@ -829,6 +872,13 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
     Returns:
         GeoJSON 형식의 피처 데이터 또는 None
     """
+    # 1단계: 클라이언트 사이드 우선 시도
+    if JS_AVAILABLE:
+        client_result = get_wfs_features_client_side(bbox, typename, max_features)
+        if client_result:
+            return client_result
+
+    # 2단계: 서버 사이드 (여러 프록시 fallback)
     minx, miny, maxx, maxy = bbox
 
     params = {
@@ -842,43 +892,11 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
         'SRSNAME': 'EPSG:4326',
         'key': VWORLD_API_KEY
     }
-    # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
-    # params = add_domain_param(params)
 
-    # Retry 로직 (502, 503, 504, Connection 오류 시 재시도)
-    max_retries = 3
-    retry_delay = 1  # 초
-    response = None
-
-    for attempt in range(max_retries):
-        try:
-            response = vworld_request(VWORLD_WFS_URL, params, timeout=30)
-
-            # 5xx 서버 오류 시 재시도
-            if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
-                continue
-
-            response.raise_for_status()
-            break
-        except requests.exceptions.RequestException as e:
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
-                continue
-            # 서버사이드 실패 시 클라이언트 사이드로 fallback
-            st.info("서버 요청 실패, 클라이언트 측에서 재시도 중...")
-            client_result = get_wfs_features_client_side(bbox, typename, max_features)
-            if client_result:
-                return client_result
-            st.error(f"WFS 요청 실패: {str(e)}")
-            return None
+    response = try_request_with_fallback(VWORLD_WFS_URL, params, timeout=20)
 
     if response is None:
-        # 서버사이드 실패 시 클라이언트 사이드로 fallback
-        client_result = get_wfs_features_client_side(bbox, typename, max_features)
-        if client_result:
-            return client_result
-        st.error("WFS 요청 실패: 응답 없음")
+        st.warning("WFS 요청 실패: 모든 연결 방법 실패")
         return None
 
     try:
@@ -2462,107 +2480,9 @@ if 'feature_info_result' not in st.session_state:
 # 설정 영역 (위에 배치)
 st.subheader("설정")
 
-# 위치 검색 - Expander로 접기
-with st.expander("위치 검색 및 설정", expanded=False):
-    st.markdown("**주소/장소 통합 검색**")
-    search_query = st.text_input(
-        "주소 또는 장소명을 입력하세요",
-        placeholder="예: 강남역, 서울시청, 테헤란로 152",
-        help="주소, 건물명, 랜드마크 등을 검색할 수 있습니다"
-    )
-
-    if search_query:
-        if st.button("🔍 검색", type="primary", use_container_width=True):
-            with st.spinner("검색 중..."):
-                import time
-                results = []
-
-                # 주소 검색만 시도 (V-World 연속 요청 제한 회피)
-                address_result = geocode_address(search_query, address_type="road")
-
-                if address_result:
-                    results.append({
-                        'title': search_query,
-                        'address': address_result['address'],
-                        'lat': address_result['lat'],
-                        'lon': address_result['lon'],
-                        'category': '주소'
-                    })
-                    # 첫 결과 성공 시 바로 지도 이동
-                    st.session_state.cadastral_center_lat = address_result['lat']
-                    st.session_state.cadastral_center_lon = address_result['lon']
-                    st.session_state.selected_location_info = {
-                        'title': search_query,
-                        'address': address_result['address'],
-                        'lat': address_result['lat'],
-                        'lon': address_result['lon']
-                    }
-                    st.success(f"✅ '{address_result['address']}'로 이동합니다")
-                    st.rerun()
-                else:
-                    st.error("검색 결과가 없습니다. 정확한 주소나 장소명을 입력해보세요.")
-
-    # 검색 결과 표시
-    if 'search_results' in st.session_state and st.session_state.search_results:
-        st.markdown("**검색 결과 선택** (클릭하면 지도가 이동합니다)")
-
-        for idx, result in enumerate(st.session_state.search_results):
-            title = result.get('title', '제목 없음')
-            address = result.get('address', '주소 없음')
-            category = result.get('category', '')
-
-            result_text = f"📍 {title}"
-            if category:
-                result_text += f" ({category})"
-            if address:
-                result_text += f"\n   {address}"
-
-            if st.button(result_text, key=f"search_result_{idx}", use_container_width=True):
-                if 'lat' in result and 'lon' in result:
-                    st.session_state.cadastral_center_lat = result['lat']
-                    st.session_state.cadastral_center_lon = result['lon']
-                    st.session_state.selected_location_info = {
-                        'title': title,
-                        'address': address,
-                        'lat': result['lat'],
-                        'lon': result['lon']
-                    }
-                    st.session_state.search_results = None
-                    st.rerun()
-
-        # 검색 결과 초기화 버튼
-        if st.button("검색 결과 지우기", use_container_width=True):
-            st.session_state.search_results = None
-            st.rerun()
-
-    # 선택된 위치 정보 표시 및 확정 버튼
-    if 'selected_location_info' in st.session_state and st.session_state.selected_location_info:
-        loc_info = st.session_state.selected_location_info
-        st.success(f"**선택된 위치**: {loc_info['title']}\n{loc_info['address']}")
-
-        col_confirm, col_clear = st.columns(2)
-        with col_confirm:
-            if st.button("✅ 이 위치로 확정", type="primary", use_container_width=True):
-                st.toast(f"'{loc_info['title']}' 위치가 확정되었습니다!")
-        with col_clear:
-            if st.button("❌ 선택 취소", use_container_width=True):
-                st.session_state.selected_location_info = None
-                st.rerun()
-
-    st.markdown("---")
+# 위치 설정 - Expander로 접기
+with st.expander("위치 설정", expanded=False):
     st.markdown("**좌표 직접 입력**")
-
-    # 좌표 입력을 위한 임시 변수 초기화
-    if 'temp_input_lat' not in st.session_state:
-        st.session_state.temp_input_lat = st.session_state.cadastral_center_lat
-    if 'temp_input_lon' not in st.session_state:
-        st.session_state.temp_input_lon = st.session_state.cadastral_center_lon
-
-    # 주소 검색 후 업데이트 확인
-    if st.session_state.temp_input_lat != st.session_state.cadastral_center_lat:
-        st.session_state.temp_input_lat = st.session_state.cadastral_center_lat
-    if st.session_state.temp_input_lon != st.session_state.cadastral_center_lon:
-        st.session_state.temp_input_lon = st.session_state.cadastral_center_lon
 
     search_lat = st.number_input(
         "위도",
@@ -2580,8 +2500,6 @@ with st.expander("위치 검색 및 설정", expanded=False):
     if st.button("좌표로 이동", type="primary", use_container_width=True):
         st.session_state.cadastral_center_lat = search_lat
         st.session_state.cadastral_center_lon = search_lon
-        st.session_state.temp_input_lat = search_lat
-        st.session_state.temp_input_lon = search_lon
         st.rerun()
 
     st.markdown("---")
