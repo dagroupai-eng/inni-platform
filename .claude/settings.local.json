@@ -6,7 +6,19 @@
       "Bash(dir /s /b \"C:\\\\Users\\\\dA\\\\*litellm*cache*\")",
       "Bash(python -c:*)",
       "Bash(wc:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(find:*)",
+      "WebSearch",
+      "WebFetch(domain:www.vworld.kr)",
+      "WebFetch(domain:vworld.kr)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.vw-lab.com)",
+      "WebFetch(domain:www.data.go.kr)",
+      "WebFetch(domain:geodikt.com)",
+      "WebFetch(domain:www.housingherald.co.kr)",
+      "WebFetch(domain:aptgin.com)",
+      "WebFetch(domain:www.bigdata-realestate.kr)",
+      "WebFetch(domain:geobigdata.go.kr)"
     ]
   }
 }

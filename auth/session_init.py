@@ -150,3 +150,225 @@ def auto_save_trigger():
     if current_time - st.session_state.last_save_time > 5:
         save_work_session()
         st.session_state.last_save_time = current_time
+
+
+def save_analysis_progress(force: bool = False):
+    """
+    분석 진행 상태 즉시 저장 (2초 간격)
+
+    Args:
+        force: True이면 간격 제한 무시하고 즉시 저장
+    """
+    import time
+    current_time = time.time()
+
+    if 'last_analysis_save_time' not in st.session_state:
+        st.session_state.last_analysis_save_time = 0
+
+    # 마지막 저장 후 2초 이상 경과한 경우에만 저장 (force=True이면 무시)
+    if not force and current_time - st.session_state.last_analysis_save_time < 2:
+        return
+
+    # 로그인 확인
+    if 'pms_current_user' not in st.session_state:
+        return
+
+    try:
+        from database.db_manager import execute_query
+        from datetime import datetime
+        import json
+
+        user_id = st.session_state.pms_current_user.get('id')
+        if not user_id:
+            return
+
+        # 분석 진행 상태만 수집
+        progress_data = {}
+
+        progress_keys = [
+            'cot_session', 'cot_plan', 'cot_current_index',
+            'cot_results', 'cot_running_block', 'cot_progress_messages',
+            'cot_feedback_inputs', 'skipped_blocks', 'cot_citations',
+            'cot_history', 'analysis_results', 'selected_blocks'
+        ]
+
+        for key in progress_keys:
+            if key in st.session_state:
+                value = st.session_state[key]
+                try:
+                    json.dumps(value)
+                    progress_data[key] = value
+                except (TypeError, ValueError):
+                    pass
+
+        if progress_data:
+            # 저장 시간 기록
+            progress_data['_saved_at'] = datetime.now().isoformat()
+
+            # 기존 분석 진행 상태 업데이트 또는 삽입
+            execute_query(
+                """
+                INSERT OR REPLACE INTO analysis_progress
+                (user_id, progress_data, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                (user_id, json.dumps(progress_data, ensure_ascii=False), datetime.now().isoformat()),
+                commit=True
+            )
+
+        st.session_state.last_analysis_save_time = current_time
+    except Exception as e:
+        print(f"분석 진행 저장 오류: {e}")
+
+
+def restore_analysis_progress() -> Optional[dict]:
+    """
+    중단된 분석 진행 상태 복원 (1시간 이내)
+
+    Returns:
+        복원 가능한 진행 상태가 있으면 dict 반환, 없으면 None
+    """
+    # 로그인 확인
+    if 'pms_current_user' not in st.session_state:
+        return None
+
+    try:
+        from database.db_manager import execute_query
+        from datetime import datetime, timedelta
+        import json
+
+        user_id = st.session_state.pms_current_user.get('id')
+        if not user_id:
+            return None
+
+        # 1시간 이내의 분석 진행 상태 조회
+        one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+
+        result = execute_query(
+            """
+            SELECT progress_data, updated_at FROM analysis_progress
+            WHERE user_id = ? AND updated_at > ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (user_id, one_hour_ago)
+        )
+
+        if result and result[0]:
+            progress_data = json.loads(result[0]['progress_data'])
+            updated_at = result[0]['updated_at']
+
+            # 분석 결과가 있는지 확인
+            if progress_data.get('cot_results') or progress_data.get('cot_session'):
+                progress_data['_restored_from'] = updated_at
+                return progress_data
+
+        return None
+    except Exception as e:
+        print(f"분석 진행 복원 조회 오류: {e}")
+        return None
+
+
+def apply_restored_progress(progress_data: dict) -> bool:
+    """
+    복원된 진행 상태를 세션에 적용
+
+    Args:
+        progress_data: 복원된 진행 데이터
+
+    Returns:
+        성공 여부
+    """
+    if not progress_data:
+        return False
+
+    try:
+        restore_keys = [
+            'cot_session', 'cot_plan', 'cot_current_index',
+            'cot_results', 'cot_progress_messages',
+            'cot_feedback_inputs', 'skipped_blocks', 'cot_citations',
+            'cot_history', 'analysis_results', 'selected_blocks'
+        ]
+
+        for key in restore_keys:
+            if key in progress_data:
+                st.session_state[key] = progress_data[key]
+
+        # 실행 중 상태는 복원하지 않음 (안전)
+        st.session_state.cot_running_block = None
+
+        return True
+    except Exception as e:
+        print(f"분석 진행 복원 적용 오류: {e}")
+        return False
+
+
+def reset_analysis_state_selective(
+    reset_results: bool = True,
+    reset_session: bool = True,
+    preserve_api_keys: bool = True,
+    preserve_blocks: bool = True,
+    preserve_project_info: bool = True
+) -> dict:
+    """
+    선택적 분석 상태 초기화
+
+    Args:
+        reset_results: 분석 결과 초기화 여부
+        reset_session: CoT 세션 초기화 여부
+        preserve_api_keys: API 키 유지 여부
+        preserve_blocks: 선택된 블록 유지 여부
+        preserve_project_info: 프로젝트 정보 유지 여부
+
+    Returns:
+        초기화 전 보존된 값들
+    """
+    preserved = {}
+
+    # 보존할 값들 저장
+    if preserve_api_keys:
+        api_keys_to_preserve = [
+            'user_api_key_GEMINI_API_KEY',
+            'user_api_key_OPENAI_API_KEY',
+            'user_api_key_ANTHROPIC_API_KEY',
+            'llm_provider'
+        ]
+        for key in api_keys_to_preserve:
+            if key in st.session_state:
+                preserved[key] = st.session_state[key]
+
+    if preserve_blocks:
+        if 'selected_blocks' in st.session_state:
+            preserved['selected_blocks'] = st.session_state.selected_blocks.copy()
+        if 'block_spatial_selection' in st.session_state:
+            preserved['block_spatial_selection'] = st.session_state.block_spatial_selection.copy()
+
+    if preserve_project_info:
+        project_keys = ['project_name', 'location', 'latitude', 'longitude',
+                       'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded']
+        for key in project_keys:
+            if key in st.session_state:
+                preserved[key] = st.session_state[key]
+
+    # 선택적 초기화 수행
+    if reset_session:
+        st.session_state.cot_session = None
+        st.session_state.cot_plan = []
+        st.session_state.cot_current_index = 0
+        st.session_state.cot_running_block = None
+        st.session_state.cot_progress_messages = []
+        st.session_state.skipped_blocks = []
+        st.session_state.pop('cot_analyzer', None)
+
+    if reset_results:
+        st.session_state.cot_results = {}
+        st.session_state.cot_citations = {}
+        st.session_state.cot_history = []
+        st.session_state.cot_feedback_inputs = {}
+        st.session_state.analysis_results = {}
+
+    # 보존된 값 복원
+    for key, value in preserved.items():
+        st.session_state[key] = value
+
+    return preserved

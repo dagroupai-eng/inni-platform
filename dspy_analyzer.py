@@ -106,6 +106,247 @@ PROVIDER_CONFIG = {
     }
 }
 
+# 피드백 유형 분류
+FEEDBACK_TYPES = {
+    'perspective_shift': {
+        'name': '관점 부족',
+        'description': '다른 관점에서 재분석 (환경, 경제, 사회, 기술 등)',
+        'hint': '예: "환경적 측면이 부족합니다", "경제성 분석을 추가해주세요"',
+        'keywords': ['관점', '측면', '시각', '고려', '부족', '누락', '추가']
+    },
+    'constraint_addition': {
+        'name': '제약조건 추가',
+        'description': '예산, 규모, 법규, 일정 등 제약사항 반영',
+        'hint': '예: "예산 30억 이하로", "6개월 내 완공 가능하도록"',
+        'keywords': ['예산', '비용', '규모', '법규', '규정', '일정', '기한', '제한', '이하', '이상', '범위']
+    },
+    'scope_expansion': {
+        'name': '범위 확장',
+        'description': '추가 분석 영역 요청',
+        'hint': '예: "주변 교통 영향도 분석해주세요", "인근 시설과의 연계방안"',
+        'keywords': ['추가', '확장', '포함', '함께', '연계', '주변', '더']
+    },
+    'correction': {
+        'name': '오류 수정',
+        'description': '잘못된 내용 수정 또는 사실관계 정정',
+        'hint': '예: "면적이 잘못되었습니다", "법규 해석이 틀렸습니다"',
+        'keywords': ['잘못', '오류', '틀림', '수정', '정정', '아닙니다', '아니라']
+    },
+    'direction_change': {
+        'name': '방향 전환',
+        'description': '분석 방향 자체를 변경',
+        'hint': '예: "이 방향은 어렵습니다. 대안을 분석해주세요"',
+        'keywords': ['안됩니다', '어렵', '불가능', '대안', '다른', '방향', '전환']
+    }
+}
+
+
+def parse_feedback_intent(feedback_text: str, feedback_type: Optional[str] = None) -> Dict[str, Any]:
+    """
+    피드백 텍스트에서 의도를 분석합니다.
+
+    Args:
+        feedback_text: 사용자가 입력한 피드백 텍스트
+        feedback_type: 선택된 피드백 유형 (None이면 자동 감지)
+
+    Returns:
+        분석된 피드백 의도 정보:
+        - type: 피드백 유형
+        - missing_perspectives: 부족한 관점 목록
+        - constraints: 추출된 제약조건
+        - rejection_reason: 거부 이유 (있는 경우)
+        - additional_scope: 추가 분석 범위
+        - correction_points: 수정 필요 사항
+    """
+    result = {
+        'type': feedback_type,
+        'original_text': feedback_text,
+        'missing_perspectives': [],
+        'constraints': [],
+        'rejection_reason': None,
+        'additional_scope': [],
+        'correction_points': []
+    }
+
+    if not feedback_text:
+        return result
+
+    feedback_lower = feedback_text.lower()
+
+    # 자동 유형 감지 (feedback_type이 없는 경우)
+    if not feedback_type:
+        max_score = 0
+        detected_type = None
+        for ftype, info in FEEDBACK_TYPES.items():
+            score = sum(1 for kw in info['keywords'] if kw in feedback_lower)
+            if score > max_score:
+                max_score = score
+                detected_type = ftype
+        result['type'] = detected_type or 'general'
+
+    # 관점 키워드 추출
+    perspective_keywords = {
+        '환경': '환경적 영향 분석',
+        '경제': '경제성 분석',
+        '사회': '사회적 영향 분석',
+        '기술': '기술적 타당성',
+        '법규': '법규 검토',
+        '안전': '안전성 분석',
+        '접근성': '접근성 분석',
+        '지속가능': '지속가능성 분석',
+        '교통': '교통 영향 분석',
+        '문화': '문화적 가치 분석'
+    }
+    for kw, perspective in perspective_keywords.items():
+        if kw in feedback_text:
+            result['missing_perspectives'].append(perspective)
+
+    # 제약조건 추출 (숫자 + 단위 패턴)
+    import re
+    constraint_patterns = [
+        r'(\d+(?:,\d+)*(?:\.\d+)?)\s*(억|만원|원|평|㎡|m²|층|개월|년|일)',
+        r'(예산|비용|면적|규모|높이|기간)\s*[:：]?\s*(\d+(?:,\d+)*(?:\.\d+)?)\s*(억|만원|원|평|㎡|m²|층|개월|년|일)?',
+        r'(\d+(?:,\d+)*(?:\.\d+)?)\s*(억|만원|원)\s*(이하|이상|미만|초과|내외)'
+    ]
+    for pattern in constraint_patterns:
+        matches = re.findall(pattern, feedback_text)
+        for match in matches:
+            constraint_str = ' '.join(str(m) for m in match if m)
+            if constraint_str and constraint_str not in result['constraints']:
+                result['constraints'].append(constraint_str)
+
+    # 거부/방향전환 이유 추출
+    rejection_keywords = ['안됩니다', '어렵습니다', '불가능', '못합니다', '안 됩니다']
+    for kw in rejection_keywords:
+        if kw in feedback_text:
+            # 해당 문장 추출
+            sentences = feedback_text.split('.')
+            for sent in sentences:
+                if kw in sent:
+                    result['rejection_reason'] = sent.strip()
+                    break
+            break
+
+    # 추가 범위 추출
+    scope_keywords = ['추가로', '함께', '포함해서', '연계하여', '더불어']
+    for kw in scope_keywords:
+        if kw in feedback_text:
+            idx = feedback_text.find(kw)
+            # 키워드 이후 문장 추출
+            remainder = feedback_text[idx:].split('.')[0]
+            if remainder:
+                result['additional_scope'].append(remainder.strip())
+
+    return result
+
+
+def build_contextual_feedback_prompt(
+    feedback_intent: Dict[str, Any],
+    previous_result: str,
+    block_info: Dict[str, Any]
+) -> str:
+    """
+    피드백 의도에 따른 맞춤 프롬프트를 생성합니다.
+
+    Args:
+        feedback_intent: parse_feedback_intent()의 결과
+        previous_result: 이전 분석 결과
+        block_info: 현재 블록 정보
+
+    Returns:
+        컨텍스트 인식 피드백 프롬프트
+    """
+    feedback_type = feedback_intent.get('type', 'general')
+    original_feedback = feedback_intent.get('original_text', '')
+
+    prompt_parts = []
+
+    # 기본 피드백 섹션
+    prompt_parts.append("### 🔁 사용자 피드백 분석\n")
+
+    # 피드백 유형에 따른 지시사항
+    if feedback_type == 'perspective_shift':
+        perspectives = feedback_intent.get('missing_perspectives', [])
+        prompt_parts.append("**피드백 유형**: 관점 부족 - 다른 관점에서 재분석 필요\n")
+        if perspectives:
+            prompt_parts.append(f"**추가 필요 관점**: {', '.join(perspectives)}\n")
+        prompt_parts.append("""
+**재분석 지시사항**:
+1. 이전 분석 결과를 기반으로 하되, 위에서 지적된 관점을 중심으로 재분석하세요.
+2. 기존 분석에서 누락된 측면을 보완하여 종합적인 분석을 제공하세요.
+3. 새로운 관점에서 발견되는 이슈와 기회를 명확히 제시하세요.
+""")
+
+    elif feedback_type == 'constraint_addition':
+        constraints = feedback_intent.get('constraints', [])
+        prompt_parts.append("**피드백 유형**: 제약조건 추가 - 새로운 제약사항 반영 필요\n")
+        if constraints:
+            prompt_parts.append(f"**적용할 제약조건**: {', '.join(constraints)}\n")
+        prompt_parts.append("""
+**재분석 지시사항**:
+1. 위의 제약조건을 반드시 반영하여 분석을 수정하세요.
+2. 제약조건으로 인해 변경되는 부분을 명확히 표시하세요.
+3. 제약조건 충족 여부를 검증하고, 충족하지 못하는 경우 대안을 제시하세요.
+""")
+
+    elif feedback_type == 'scope_expansion':
+        additional_scope = feedback_intent.get('additional_scope', [])
+        prompt_parts.append("**피드백 유형**: 범위 확장 - 추가 분석 영역 요청\n")
+        if additional_scope:
+            prompt_parts.append(f"**추가 분석 범위**: {'; '.join(additional_scope)}\n")
+        prompt_parts.append("""
+**재분석 지시사항**:
+1. 기존 분석 결과를 유지하면서 요청된 추가 범위를 분석에 포함하세요.
+2. 추가된 범위와 기존 분석 간의 연관성을 명확히 설명하세요.
+3. 확장된 범위에서 새롭게 발견되는 시사점을 제시하세요.
+""")
+
+    elif feedback_type == 'correction':
+        correction_points = feedback_intent.get('correction_points', [])
+        prompt_parts.append("**피드백 유형**: 오류 수정 - 잘못된 내용 정정 필요\n")
+        prompt_parts.append("""
+**재분석 지시사항**:
+1. 사용자가 지적한 오류 사항을 주의 깊게 검토하세요.
+2. 잘못된 부분을 정확한 정보로 수정하세요.
+3. 수정된 내용이 전체 분석에 미치는 영향을 반영하세요.
+4. 수정 사항을 명확히 표시하여 변경점을 알 수 있게 하세요.
+""")
+
+    elif feedback_type == 'direction_change':
+        rejection_reason = feedback_intent.get('rejection_reason', '')
+        prompt_parts.append("**피드백 유형**: 방향 전환 - 분석 방향 변경 요청\n")
+        if rejection_reason:
+            prompt_parts.append(f"**사용자가 제시한 이유**: {rejection_reason}\n")
+        prompt_parts.append("""
+**재분석 지시사항**:
+1. 사용자가 현재 방향이 어려운 이유를 이해하고 수용하세요.
+2. 완전히 새로운 대안적 접근 방식을 제시하세요.
+3. 대안이 사용자가 언급한 문제를 어떻게 해결하는지 설명하세요.
+4. 여러 대안이 있다면 각각의 장단점을 비교하세요.
+""")
+
+    else:  # general
+        prompt_parts.append("**피드백 유형**: 일반 피드백\n")
+        prompt_parts.append("""
+**재분석 지시사항**:
+1. 사용자 피드백의 핵심 요청사항을 파악하세요.
+2. 요청에 따라 분석을 보완하거나 수정하세요.
+3. 변경된 내용을 명확히 설명하세요.
+""")
+
+    # 원본 피드백 포함
+    prompt_parts.append(f"\n**원본 피드백**: {original_feedback}\n")
+
+    # 이전 결과 요약 (너무 길면 자르기)
+    if previous_result:
+        summary_length = min(len(previous_result), 1500)
+        prompt_parts.append(f"\n**이전 분석 결과 요약**:\n{previous_result[:summary_length]}")
+        if len(previous_result) > summary_length:
+            prompt_parts.append("\n[이전 결과 일부 생략...]")
+
+    return '\n'.join(prompt_parts)
+
+
 # API 키 가져오기 함수
 def get_api_key(provider: str) -> Optional[str]:
     """
@@ -273,10 +514,10 @@ class EnhancedArchAnalyzer:
     def _get_current_model_info(self, suffix: str = "") -> str:
         """
         현재 사용 중인 모델 정보를 반환합니다.
-        
+
         Args:
             suffix: 모델 이름 뒤에 추가할 접미사 (예: " (DSPy)")
-        
+
         Returns:
             모델 정보 문자열
         """
@@ -284,11 +525,45 @@ class EnhancedArchAnalyzer:
         provider_config = PROVIDER_CONFIG.get(provider, {})
         model_name = provider_config.get('model', 'unknown')
         display_name = provider_config.get('display_name', provider)
-        
+
         if suffix:
             return f"{display_name} {model_name}{suffix}"
         return f"{display_name} {model_name}"
-    
+
+    def _is_long_context_model(self) -> bool:
+        """
+        현재 활성화된 모델이 Long Context 모델인지 확인합니다.
+
+        Returns:
+            Long Context 모델이면 True, 아니면 False
+        """
+        current_provider = self._active_provider or get_current_provider()
+        return current_provider in ['gemini', 'gemini_3pro', 'gemini_25pro', 'gemini_25flash']
+
+    def _get_pdf_content_for_context(self, pdf_text: str, max_length: int = 4000, use_long_context: bool = False) -> str:
+        """
+        PDF 텍스트를 컨텍스트에 맞게 자르거나 전체를 반환합니다.
+
+        Args:
+            pdf_text: PDF 텍스트
+            max_length: 최대 길이 (Long Context 모델이 아닐 때 사용)
+            use_long_context: Long Context 모델 여부
+
+        Returns:
+            처리된 PDF 텍스트
+        """
+        if not pdf_text:
+            return "PDF 문서가 없습니다."
+
+        if use_long_context:
+            # Long Context 모델: 전체 텍스트 사용
+            return pdf_text
+        else:
+            # 일반 모델: 지정된 길이로 자르기
+            if len(pdf_text) > max_length:
+                return pdf_text[:max_length] + "\n\n[문서 내용이 길어 일부만 표시됩니다...]"
+            return pdf_text
+
     def _get_output_format_template(self):
         """출력 형식 템플릿을 반환하는 공통 함수"""
         return """
@@ -1501,12 +1776,12 @@ class EnhancedArchAnalyzer:
                     # Long Context 모델 감지 및 제한 완화
                     current_provider = self._active_provider or get_current_provider()
                     is_long_context_model = current_provider in ['gemini', 'gemini_3pro', 'gemini_25pro', 'gemini_25flash']
-                    
+
                     # Long Context 모델의 경우 더 긴 텍스트 허용
                     # 1M 토큰 ≈ 750,000 문자 (대략적인 변환: 1 토큰 ≈ 0.75 문자)
                     # 안전 마진을 두고 500,000 문자로 제한
                     long_context_limit = 500000 if is_long_context_model else 12000
-                    
+
                     if len(pdf_content) > long_context_limit:
                         if is_long_context_model:
                             # Long Context 모델: 경고만 표시하고 전체 사용
@@ -1514,19 +1789,7 @@ class EnhancedArchAnalyzer:
                             print(f"   참고: 매우 긴 컨텍스트는 비용과 지연시간이 증가할 수 있습니다.")
                         else:
                             # 일반 모델: 기존 제한 적용
-                            # Long Context 모델 감지 및 제한 완화
-                            is_long_context = self._is_long_context_model()
-                            
-                            if is_long_context:
-                                # Long Context 모델: 경고만 표시하고 전체 사용
-                                long_context_limit = 500000
-                                if len(pdf_content) > long_context_limit:
-                                    print(f"📄 긴 문서 감지 ({len(pdf_content):,}자). Long Context 모델이므로 전체 내용을 사용합니다.")
-                                    print(f"   참고: 매우 긴 컨텍스트는 비용과 지연시간이 증가할 수 있습니다.")
-                            else:
-                                # 일반 모델: 기존 제한 적용
-                                pdf_content = pdf_content[:12000] + "\n\n[문서 내용이 길어 일부만 표시됩니다. 위 내용을 중심으로 분석해주세요...]"
-                                print(f"⚠️ 문서가 너무 깁니다 ({len(pdf_content)}자). 앞부분만 사용합니다.")
+                            pdf_content = pdf_content[:12000] + "\n\n[문서 내용이 길어 일부만 표시됩니다. 위 내용을 중심으로 분석해주세요...]"
                             print(f"⚠️ 문서가 너무 깁니다 ({len(pdf_content)}자). 앞부분만 사용합니다.")
                 
                 formatted_prompt = prompt.replace("{pdf_text}", pdf_content)
@@ -1974,9 +2237,20 @@ class EnhancedArchAnalyzer:
         cot_session: Dict[str, Any],
         progress_callback=None,
         step_index: Optional[int] = None,
-        feedback: Optional[str] = None
+        feedback: Optional[str] = None,
+        feedback_type: Optional[str] = None
     ) -> Dict[str, Any]:
-        """단일 블록에 대한 CoT 분석을 실행하고 세션 컨텍스트를 갱신합니다."""
+        """단일 블록에 대한 CoT 분석을 실행하고 세션 컨텍스트를 갱신합니다.
+
+        Args:
+            block_id: 블록 ID
+            block_info: 블록 정보
+            cot_session: CoT 세션 컨텍스트
+            progress_callback: 진행 콜백 함수
+            step_index: 현재 단계 인덱스
+            feedback: 피드백 텍스트
+            feedback_type: 피드백 유형 (perspective_shift, constraint_addition 등)
+        """
         try:
             print(f"[DEBUG] run_cot_step 시작: block_id={block_id}")
             print(f"[DEBUG] cot_session previous_results keys: {list(cot_session.get('previous_results', {}).keys())}")
@@ -1986,7 +2260,8 @@ class EnhancedArchAnalyzer:
                 cot_session,
                 block_info,
                 current_step,
-                feedback_notes=feedback
+                feedback_notes=feedback,
+                feedback_type=feedback_type
             )
             project_info = cot_session.get("project_info")
             
@@ -2118,23 +2393,31 @@ class EnhancedArchAnalyzer:
                 "method": "Block Chain of Thought Analysis"
             }
     
-    def _build_cot_context(self, cumulative_context, block_info, current_step, feedback_notes: Optional[str] = None):
-        """현재 블록을 위한 CoT 컨텍스트 구성"""
-        
+    def _build_cot_context(self, cumulative_context, block_info, current_step, feedback_notes: Optional[str] = None, feedback_type: Optional[str] = None):
+        """현재 블록을 위한 CoT 컨텍스트 구성
+
+        Args:
+            cumulative_context: 누적 컨텍스트
+            block_info: 블록 정보
+            current_step: 현재 단계
+            feedback_notes: 피드백 텍스트
+            feedback_type: 피드백 유형 (perspective_shift, constraint_addition 등)
+        """
+
         # 이전 블록들의 핵심 인사이트 요약
         previous_insights_summary = ""
         if cumulative_context["previous_results"]:
             previous_insights_summary = "\n### 🔗 이전 블록들의 핵심 인사이트:\n"
-            
+
             for i, history_item in enumerate(cumulative_context["cot_history"]):
                 previous_insights_summary += f"""
 **{i+1}단계 - {history_item['block_name']}:**
 {history_item['key_insights'][:300]}...
 
 """
-        
+
         project_info = cumulative_context.get('project_info', {})
-        
+
         summary_section = ""
         if isinstance(project_info, dict):
             preprocessed_summary = project_info.get('preprocessed_summary')
@@ -2153,7 +2436,7 @@ class EnhancedArchAnalyzer:
                     stats_parts.append(f"핵심 키워드 {keyword_total}개")
                 if stats_parts:
                     summary_section += "\n**전처리 통계:** " + ", ".join(stats_parts) + "\n"
-        
+
         # 프로젝트 정보를 텍스트로 포맷팅
         if isinstance(project_info, dict):
             project_info_text = f"""
@@ -2164,13 +2447,22 @@ class EnhancedArchAnalyzer:
 """
         else:
             project_info_text = str(project_info)
-        
-        # 사용자 피드백 섹션 구성 (Python 3.11 호환)
+
+        # 사용자 피드백 섹션 구성 (피드백 고도화 적용)
         feedback_section = ""
         if feedback_notes:
-            feedback_section = (
-                "### 🔁 사용자 피드백\n"
-                f"{feedback_notes}\n"
+            # 피드백 의도 분석
+            feedback_intent = parse_feedback_intent(feedback_notes, feedback_type)
+
+            # 이전 분석 결과 가져오기
+            block_id = block_info.get('id', '')
+            previous_result = cumulative_context.get('previous_results', {}).get(block_id, '')
+
+            # 컨텍스트 인식 피드백 프롬프트 생성
+            feedback_section = build_contextual_feedback_prompt(
+                feedback_intent,
+                previous_result,
+                block_info
             )
 
         # 현재 블록을 위한 특별한 컨텍스트 구성

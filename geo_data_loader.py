@@ -526,8 +526,8 @@ def extract_spatial_context_for_ai(gdf: gpd.GeoDataFrame, layer_type: str = 'gen
         
         # 레이어 타입별 특화 정보 추출
         context_parts = []
-        
-        if layer_type in ['administrative', '행정구역', '시군구']:
+
+        if layer_type in ['administrative', '행정구역', '시군구', '시도', '읍면동']:
             # 행정구역 특화: 명칭, 코드, 면적 등
             context_parts.append("**행정구역 경계 데이터:**")
             if 'EMD_NM' in gdf.columns:  # 읍면동명
@@ -535,39 +535,123 @@ def extract_spatial_context_for_ai(gdf: gpd.GeoDataFrame, layer_type: str = 'gen
                 context_parts.append(f"포함된 읍면동 예시: {', '.join(map(str, unique_areas))}")
             if 'SIG_CD' in gdf.columns:  # 시군구 코드
                 context_parts.append(f"시군구 코드: {gdf['SIG_CD'].iloc[0] if len(gdf) > 0 else 'N/A'}")
-                
+            if 'SIG_KOR_NM' in gdf.columns:  # 시군구명
+                unique_sigs = gdf['SIG_KOR_NM'].dropna().unique()
+                context_parts.append(f"포함된 시군구: {', '.join(map(str, unique_sigs))}")
+
         elif layer_type in ['land_price', '개별공시지가', '공시지가']:
             # 공시지가 특화: 지가 범위, 면적 등
             context_parts.append("**개별공시지가 데이터:**")
-            
+
             # 지가 컬럼 찾기 (일반적인 컬럼명)
-            price_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['공시', 'PRICE', '가격', '시가'])]
+            price_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['공시', 'PRICE', '가격', '시가', 'PBLNTF'])]
             if price_columns:
                 price_col = price_columns[0]
                 prices = gdf[price_col].dropna()
                 if len(prices) > 0:
                     context_parts.append(f"공시지가 범위: {prices.min():,.0f}원/㎡ ~ {prices.max():,.0f}원/㎡")
                     context_parts.append(f"평균 공시지가: {prices.mean():,.0f}원/㎡")
-            
+                    context_parts.append(f"중앙값 공시지가: {prices.median():,.0f}원/㎡")
+
             # 면적 정보
-            area_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['AREA', '면적'])]
+            area_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['AREA', '면적', 'LNDCGR'])]
             if area_columns:
                 area_col = area_columns[0]
                 areas = gdf[area_col].dropna()
                 if len(areas) > 0:
                     context_parts.append(f"대지 면적 범위: {areas.min():,.0f}㎡ ~ {areas.max():,.0f}㎡")
-            
+                    context_parts.append(f"평균 면적: {areas.mean():,.0f}㎡")
+
         elif layer_type in ['ownership', '토지소유', '소유']:
             # 토지소유 특화: 소유자 정보
             context_parts.append("**토지소유정보 데이터:**")
-            
+
             # 소유자 컬럼 찾기
-            owner_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['OWNER', '소유', '소재'])]
+            owner_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['OWNER', '소유', '소재', 'OWNSH'])]
             if owner_columns:
                 owner_col = owner_columns[0]
                 unique_owners = gdf[owner_col].dropna().unique()[:5]
                 if len(unique_owners) > 0:
                     context_parts.append(f"주요 소유자 예시: {', '.join(map(str, unique_owners))}")
+
+        elif layer_type in ['building', '건물', 'GIS건물']:
+            # 건물 정보 특화
+            context_parts.append("**건물 데이터:**")
+
+            # 건물명 컬럼
+            name_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['BLDG_NM', '건물명', 'NAME', 'BD_NM'])]
+            if name_columns:
+                name_col = name_columns[0]
+                sample_names = gdf[name_col].dropna().head(5)
+                if len(sample_names) > 0:
+                    context_parts.append(f"건물명 예시: {', '.join(map(str, sample_names))}")
+
+            # 층수 정보
+            floor_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['층', 'FLOOR', 'GRND_FLR', 'UGRND_FLR'])]
+            if floor_columns:
+                floor_col = floor_columns[0]
+                floors = gdf[floor_col].dropna()
+                if len(floors) > 0:
+                    context_parts.append(f"층수 범위: {floors.min():.0f}층 ~ {floors.max():.0f}층")
+
+            # 용도 정보
+            usage_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['용도', 'USE', 'USAGE', 'MAIN_PURPS'])]
+            if usage_columns:
+                usage_col = usage_columns[0]
+                unique_usages = gdf[usage_col].dropna().value_counts().head(5)
+                context_parts.append(f"주요 용도: {', '.join([f'{k}({v}건)' for k, v in unique_usages.items()])}")
+
+        elif layer_type in ['road', '도로']:
+            # 도로 정보 특화
+            context_parts.append("**도로 데이터:**")
+
+            # 도로명 컬럼
+            road_name_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['도로명', 'ROAD', 'RN', 'NAME'])]
+            if road_name_columns:
+                road_col = road_name_columns[0]
+                unique_roads = gdf[road_col].dropna().unique()[:10]
+                context_parts.append(f"포함된 도로 예시: {', '.join(map(str, unique_roads))}")
+
+            # 도로 폭 정보
+            width_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['폭', 'WIDTH', 'BT'])]
+            if width_columns:
+                width_col = width_columns[0]
+                widths = gdf[width_col].dropna()
+                if len(widths) > 0:
+                    context_parts.append(f"도로 폭 범위: {widths.min():.1f}m ~ {widths.max():.1f}m")
+
+        elif layer_type in ['zone', '용도지역', '용도지구', '지역지구']:
+            # 용도지역/지구 특화
+            context_parts.append("**용도지역/지구 데이터:**")
+
+            # 지역지구 구분
+            zone_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['UQ_GB', 'PRPOS', '용도', 'ZONE'])]
+            if zone_columns:
+                zone_col = zone_columns[0]
+                zone_counts = gdf[zone_col].dropna().value_counts()
+                context_parts.append(f"지역지구 구분: {', '.join([f'{k}({v}개)' for k, v in zone_counts.items()])}")
+
+        elif layer_type in ['industrial', '산업단지']:
+            # 산업단지 특화
+            context_parts.append("**산업단지 데이터:**")
+
+            # 단지명 컬럼
+            complex_name_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['단지명', 'COMPLEX', 'NAME', 'IND_NM'])]
+            if complex_name_columns:
+                complex_col = complex_name_columns[0]
+                unique_complexes = gdf[complex_col].dropna().unique()
+                context_parts.append(f"포함된 산업단지: {', '.join(map(str, unique_complexes))}")
+
+        elif layer_type in ['water', '수자원', '소하천', '하천']:
+            # 하천 정보 특화
+            context_parts.append("**수자원 데이터:**")
+
+            # 하천명 컬럼
+            river_columns = [col for col in gdf.columns if any(keyword in col.upper() for keyword in ['하천', 'RIVER', 'STREAM', 'WK_NM'])]
+            if river_columns:
+                river_col = river_columns[0]
+                unique_rivers = gdf[river_col].dropna().unique()[:10]
+                context_parts.append(f"포함된 하천 예시: {', '.join(map(str, unique_rivers))}")
         
         # 일반 속성 정보 (모든 레이어 공통)
         if len(non_geom_columns) > 0:
@@ -611,15 +695,28 @@ LAYER_TYPE_MAPPING = {
     '행정구역': 'administrative',
     '읍면동': 'administrative',
     '법정동': 'administrative',
+    '시군구': 'administrative',
+    '시도': 'administrative',
     '센서스': 'census',
-    '시군구': 'boundary',
     '토지소유': 'ownership',
     '개별공시지가': 'land_price',
+    '공시지가': 'land_price',
     '국토계획': 'national_planning',
     '공간시설': 'spatial_facility',
     '문화재': 'cultural_heritage',
     '도로명주소': 'address',
-    '건물': 'building'
+    '건물': 'building',
+    'GIS건물': 'building',
+    '도로': 'road',
+    '도로중심선': 'road',
+    '용도지역': 'zone',
+    '용도지구': 'zone',
+    '지역지구': 'zone',
+    '산업단지': 'industrial',
+    '소하천': 'water',
+    '하천': 'water',
+    '수자원': 'water',
+    '자연공원': 'natural',
 }
 
 
