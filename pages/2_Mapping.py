@@ -115,48 +115,77 @@ def get_cors_proxy():
 
 CORS_PROXY = get_cors_proxy()
 
-# 여러 CORS 프록시 목록 (fallback용)
-CORS_PROXY_LIST = [
-    "",  # 직접 연결 (한국 서버/로컬에서는 작동)
-    "https://api.allorigins.win/raw?url=",  # allorigins (비교적 안정적)
-    "https://corsproxy.io/?",  # corsproxy.io (불안정할 수 있음)
-]
+# CORS 프록시 설정
+# V-World API는 해외 IP에서 접근 시 차단될 수 있음
+# 프록시 순서: 직접연결 → corsproxy.io (URL 그대로) → allorigins (URL 인코딩 필요)
 
-def try_request_with_fallback(base_url: str, params: dict, headers: dict = None, timeout: int = 15) -> Optional[requests.Response]:
+def try_request_with_fallback(base_url: str, params: dict, headers: dict = None, timeout: int = 20) -> Optional[requests.Response]:
     """
     여러 방법으로 API 요청 시도 (직접 연결 → CORS 프록시 순)
+
+    시도 순서:
+    1. 직접 연결 (한국 서버/로컬)
+    2. corsproxy.io (URL 그대로 전달)
+    3. allorigins.win (URL 인코딩 필요)
     """
     if headers is None:
         headers = get_vworld_headers()
 
-    from urllib.parse import urlencode
+    from urllib.parse import urlencode, quote
     query_string = urlencode(params)
+    full_url = f"{base_url}?{query_string}"
 
-    for proxy in CORS_PROXY_LIST:
+    # 프록시 목록과 URL 생성 방식
+    proxy_configs = [
+        # (이름, URL 생성 함수)
+        ("직접연결", lambda: (base_url, params, False)),  # 직접 연결
+        ("corsproxy.io", lambda: (f"https://corsproxy.io/?{full_url}", None, True)),  # URL 그대로
+        ("allorigins", lambda: (f"https://api.allorigins.win/raw?url={quote(full_url, safe='')}", None, True)),  # URL 인코딩
+    ]
+
+    last_error = None
+
+    for proxy_name, url_generator in proxy_configs:
         try:
-            if proxy:
-                # CORS 프록시 사용
-                full_url = f"{base_url}?{query_string}"
-                url = f"{proxy}{full_url}"
+            url, req_params, is_full_url = url_generator()
+
+            if is_full_url:
+                # 프록시 사용 시 전체 URL로 요청
                 response = requests.get(url, headers=headers, timeout=timeout)
             else:
-                # 직접 연결
-                response = requests.get(base_url, params=params, headers=headers, timeout=timeout)
+                # 직접 연결 시 params 사용
+                response = requests.get(url, params=req_params, headers=headers, timeout=timeout)
 
             # 성공적인 응답 확인
             if response.status_code == 200:
+                # JSON 응답인지 확인
+                content_type = response.headers.get('content-type', '')
+                if 'json' in content_type or 'javascript' in content_type:
+                    return response
+                # XML 응답도 일단 반환 (에러 메시지일 수 있음)
+                if 'xml' in content_type:
+                    return response
+
+            # 4xx 오류는 반환 (API 키 오류 등 - 프록시 문제가 아님)
+            if 400 <= response.status_code < 500:
                 return response
 
             # 5xx 오류는 다음 프록시 시도
-            if response.status_code >= 500:
-                continue
+            last_error = f"{proxy_name}: HTTP {response.status_code}"
 
-            # 4xx 오류는 반환 (API 키 오류 등)
-            return response
-
-        except requests.exceptions.RequestException:
-            # 연결 실패 시 다음 프록시 시도
+        except requests.exceptions.Timeout:
+            last_error = f"{proxy_name}: 타임아웃"
             continue
+        except requests.exceptions.ConnectionError:
+            last_error = f"{proxy_name}: 연결 실패"
+            continue
+        except requests.exceptions.RequestException as e:
+            last_error = f"{proxy_name}: {str(e)}"
+            continue
+
+    # 모든 시도 실패 시 마지막 에러 로깅
+    if last_error:
+        st.warning(f"API 연결 실패: {last_error}")
 
     return None
 
@@ -655,9 +684,10 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
     """
     WFS API로 레이어 데이터 조회 (GeoJSON 반환)
 
-    클라이언트 사이드(브라우저) 우선 방식:
-    - 사용자 브라우저가 한국에 있으면 V-World API 직접 호출 가능
-    - Streamlit Cloud 서버는 해외에 있어 V-World가 차단할 수 있음
+    서버 사이드 프록시 fallback 방식:
+    1. 직접 연결 시도
+    2. corsproxy.io 시도
+    3. allorigins.win 시도
 
     Args:
         layer_code: WFS 레이어 코드 (예: lt_c_adsigg)
@@ -670,19 +700,6 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
     # WFS typename 매핑
     typename = WFS_LAYER_MAPPING.get(layer_code, layer_code)
 
-    # ============================================
-    # 1단계: 클라이언트 사이드 우선 시도 (한국 사용자 브라우저)
-    # ============================================
-    if JS_AVAILABLE:
-        client_result = get_wfs_layer_data_client_side(layer_code, bbox, max_features)
-        if client_result:
-            # 클라이언트 사이드 성공
-            return client_result
-        # 클라이언트 사이드 실패 시 서버 사이드로 fallback
-
-    # ============================================
-    # 2단계: 서버 사이드 시도 (여러 프록시 fallback)
-    # ============================================
     minx, miny, maxx, maxy = bbox
     params = {
         'SERVICE': 'WFS',
@@ -697,10 +714,9 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
     }
 
     # 여러 프록시를 순차적으로 시도
-    response = try_request_with_fallback(VWORLD_WFS_URL, params, timeout=20)
+    response = try_request_with_fallback(VWORLD_WFS_URL, params, timeout=25)
 
     if response is None:
-        st.warning("WFS 요청 실패: 모든 연결 방법 실패")
         return None
 
     try:
@@ -872,13 +888,6 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
     Returns:
         GeoJSON 형식의 피처 데이터 또는 None
     """
-    # 1단계: 클라이언트 사이드 우선 시도
-    if JS_AVAILABLE:
-        client_result = get_wfs_features_client_side(bbox, typename, max_features)
-        if client_result:
-            return client_result
-
-    # 2단계: 서버 사이드 (여러 프록시 fallback)
     minx, miny, maxx, maxy = bbox
 
     params = {
@@ -893,10 +902,9 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
         'key': VWORLD_API_KEY
     }
 
-    response = try_request_with_fallback(VWORLD_WFS_URL, params, timeout=20)
+    response = try_request_with_fallback(VWORLD_WFS_URL, params, timeout=25)
 
     if response is None:
-        st.warning("WFS 요청 실패: 모든 연결 방법 실패")
         return None
 
     try:
