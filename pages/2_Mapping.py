@@ -29,6 +29,7 @@ if AUTH_AVAILABLE:
 
 import pandas as pd
 import requests
+import time
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 import sys
@@ -448,10 +449,34 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
     }
     params = add_domain_param(params)
 
-    try:
-        response = requests.get(VWORLD_WFS_URL, params=params, headers=get_vworld_headers(), timeout=30)
-        response.raise_for_status()
+    # Retry 로직 (502, 503, 504 오류 시 재시도)
+    max_retries = 3
+    retry_delay = 1  # 초
+    response = None
 
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(VWORLD_WFS_URL, params=params, headers=get_vworld_headers(), timeout=30)
+
+            # 5xx 서버 오류 시 재시도
+            if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))  # 점진적 대기
+                continue
+
+            response.raise_for_status()
+            break  # 성공 시 루프 탈출
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1 and ('502' in str(e) or '503' in str(e) or '504' in str(e)):
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            st.error(f"WFS 요청 실패: {str(e)}")
+            return None
+
+    if response is None:
+        st.error("WFS 요청 실패: 응답 없음")
+        return None
+
+    try:
         # JSON 응답 확인
         content_type = response.headers.get('content-type', '')
 
@@ -508,9 +533,6 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
             st.error(f"응답 내용: {response.text[:500]}")
             return None
 
-    except requests.exceptions.RequestException as e:
-        st.error(f"WFS 요청 실패: {str(e)}")
-        return None
     except Exception as e:
         st.error(f"WFS 처리 중 예상치 못한 오류: {str(e)}")
         return None
@@ -618,10 +640,34 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
     }
     params = add_domain_param(params)
 
-    try:
-        response = requests.get(VWORLD_WFS_URL, params=params, headers=get_vworld_headers(), timeout=30)
-        response.raise_for_status()
+    # Retry 로직 (502, 503, 504 오류 시 재시도)
+    max_retries = 3
+    retry_delay = 1  # 초
+    response = None
 
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(VWORLD_WFS_URL, params=params, headers=get_vworld_headers(), timeout=30)
+
+            # 5xx 서버 오류 시 재시도
+            if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+
+            response.raise_for_status()
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1 and ('502' in str(e) or '503' in str(e) or '504' in str(e)):
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            st.error(f"WFS 요청 실패: {str(e)}")
+            return None
+
+    if response is None:
+        st.error("WFS 요청 실패: 응답 없음")
+        return None
+
+    try:
         # JSON 응답 확인
         content_type = response.headers.get('content-type', '')
 
@@ -650,9 +696,6 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
             st.warning("WFS 데이터가 JSON 형식이 아닙니다")
             return None
 
-    except requests.exceptions.RequestException as e:
-        st.error(f"WFS 요청 실패: {str(e)}")
-        return None
     except Exception as e:
         st.error(f"WFS 처리 중 오류: {str(e)}")
         return None
@@ -2148,12 +2191,11 @@ with st.expander("위치 검색 및 설정", expanded=False):
     if search_query:
         if st.button("🔍 검색", type="primary", use_container_width=True):
             with st.spinner("검색 중..."):
+                import time
                 results = []
 
-                # 1. 먼저 주소 검색 시도 (가장 안정적)
+                # 주소 검색만 시도 (V-World 연속 요청 제한 회피)
                 address_result = geocode_address(search_query, address_type="road")
-                if not address_result:
-                    address_result = geocode_address(search_query, address_type="parcel")
 
                 if address_result:
                     results.append({
@@ -2163,17 +2205,19 @@ with st.expander("위치 검색 및 설정", expanded=False):
                         'lon': address_result['lon'],
                         'category': '주소'
                     })
-
-                # 2. POI 검색 시도 (type=place)
-                poi_results = search_address_or_poi(search_query, search_type="place", size=5)
-                if poi_results:
-                    results.extend(poi_results)
-
-                if results:
-                    st.session_state.search_results = results
-                    st.success(f"✅ {len(results)}개의 결과를 찾았습니다")
+                    # 첫 결과 성공 시 바로 지도 이동
+                    st.session_state.cadastral_center_lat = address_result['lat']
+                    st.session_state.cadastral_center_lon = address_result['lon']
+                    st.session_state.selected_location_info = {
+                        'title': search_query,
+                        'address': address_result['address'],
+                        'lat': address_result['lat'],
+                        'lon': address_result['lon']
+                    }
+                    st.success(f"✅ '{address_result['address']}'로 이동합니다")
+                    st.rerun()
                 else:
-                    st.error("검색 결과가 없습니다. 다른 키워드로 시도해보세요.")
+                    st.error("검색 결과가 없습니다. 정확한 주소나 장소명을 입력해보세요.")
 
     # 검색 결과 표시
     if 'search_results' in st.session_state and st.session_state.search_results:
