@@ -2566,7 +2566,7 @@ with st.expander("위치 설정", expanded=False):
         step=0.001
     )
 
-    if st.button("좌표로 이동", type="primary"):
+    if st.button("좌표로 이동", type="primary", use_container_width=True):
         st.session_state.cadastral_center_lat = search_lat
         st.session_state.cadastral_center_lon = search_lon
         st.rerun()
@@ -2630,11 +2630,11 @@ with st.expander("위치 설정", expanded=False):
     # 전체 선택/해제 버튼
     col_sel_all, col_desel_all = st.columns(2)
     with col_sel_all:
-        if st.button("전체 선택", key="select_all_zones"):
+        if st.button("전체 선택", key="select_all_zones", use_container_width=True):
             st.session_state.selected_zone_layers = list(ZONE_LAYERS.keys())
             st.rerun()
     with col_desel_all:
-        if st.button("전체 해제", key="deselect_all_zones"):
+        if st.button("전체 해제", key="deselect_all_zones", use_container_width=True):
             st.session_state.selected_zone_layers = []
             st.rerun()
 
@@ -2750,7 +2750,7 @@ with st.expander("위치 설정", expanded=False):
         click_lat, click_lon = st.session_state.clicked_location
         st.info(f"**클릭 위치**\n위도: {click_lat:.6f}\n경도: {click_lon:.6f}")
 
-        if st.button("이 위치의 지적 정보 조회", type="primary"):
+        if st.button("이 위치의 지적 정보 조회", type="primary", use_container_width=True):
             with st.spinner("지적 정보 조회 중..."):
                 # 조회할 레이어 설정
                 query_layers = []
@@ -2915,7 +2915,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
     wfs_max_features = 1000
 
     # 데이터 조회 버튼
-    query_btn = st.button("선택된 레이어 데이터 조회", type="primary")
+    query_btn = st.button("선택된 레이어 데이터 조회", type="primary", use_container_width=True)
 
     if query_btn:
         if not st.session_state.selected_zone_layers:
@@ -3012,12 +3012,12 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                 data=json_str,
                 file_name=f"spatial_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.geojson",
                 mime="application/json",
-                width="container"
+                use_container_width=True
             )
 
         with col_dl2:
             # 전체 데이터 초기화
-            if st.button("🗑️ 전체 삭제"):
+            if st.button("🗑️ 전체 삭제", use_container_width=True):
                 st.session_state.downloaded_geo_data = {}
                 st.rerun()
 
@@ -3025,7 +3025,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
         with st.expander("📊 조회된 데이터 통계", expanded=False):
             st.caption("조회된 공간 데이터의 통계를 차트로 시각화합니다.")
 
-            if st.button("📈 통계 분석 실행", key="run_viz_stats"):
+            if st.button("📈 통계 분석 실행", use_container_width=True, key="run_viz_stats"):
                 with st.spinner("통계 계산 중..."):
                     # 현재 지도 중심 좌표 사용
                     viz_lat = st.session_state.cadastral_center_lat
@@ -3059,7 +3059,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                 '객체 수': layer_stat.get('count', 0)
                             })
                         if layer_summary:
-                            st.dataframe(pd.DataFrame(layer_summary), width="container", hide_index=True)
+                            st.dataframe(pd.DataFrame(layer_summary), use_container_width=True, hide_index=True)
 
                     # 탭으로 시각화 분리
                     viz_tabs = st.tabs(["용도지역", "공시지가", "면적분포", "건물용도"])
@@ -3073,7 +3073,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                     zoning_df = pd.DataFrame(zoning_data, columns=['용도', '개수'])
                                     fig = px.pie(zoning_df, names='용도', values='개수',
                                                 title=f"반경 {viz_radius}m 내 용도지역 분포")
-                                    st.plotly_chart(fig, width="container")
+                                    st.plotly_chart(fig, use_container_width=True)
                                 else:
                                     st.info("용도지역 데이터가 없습니다.")
                             except Exception as e:
@@ -3091,7 +3091,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                     title=f"반경 {viz_radius}m 내 공시지가 분포",
                                     labels={'x': '공시지가 (원/㎡)', 'y': '필지 수'}
                                 )
-                                st.plotly_chart(fig, width="container")
+                                st.plotly_chart(fig, use_container_width=True)
                                 col_stat1, col_stat2, col_stat3 = st.columns(3)
                                 prices = extended_stats['prices']
                                 with col_stat1:
@@ -3115,7 +3115,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                     title=f"반경 {viz_radius}m 내 면적 분포",
                                     labels={'x': '면적 (㎡)', 'y': '필지 수'}
                                 )
-                                st.plotly_chart(fig, width="container")
+                                st.plotly_chart(fig, use_container_width=True)
                                 st.metric("총 면적", f"{sum(extended_stats['areas']):,.1f}㎡")
                             except Exception as e:
                                 st.warning(f"차트 생성 오류: {e}")
@@ -3131,7 +3131,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                     bldg_df = pd.DataFrame(bldg_data, columns=['용도', '개수'])
                                     fig = px.bar(bldg_df, x='용도', y='개수',
                                                 title=f"반경 {viz_radius}m 내 건물용도 분포 (상위 10개)")
-                                    st.plotly_chart(fig, width="container")
+                                    st.plotly_chart(fig, use_container_width=True)
                                 else:
                                     st.info("건물용도 데이터가 없습니다.")
                             except Exception as e:
@@ -3191,7 +3191,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
 
                 if selected_layers and target_block:
                     target_block_name = get_block_display_name(target_block)
-                    if st.button("🔗 선택 레이어 일괄 연동", key="batch_link_btn"):
+                    if st.button("🔗 선택 레이어 일괄 연동", use_container_width=True, key="batch_link_btn"):
                         # 선택된 레이어들을 블록에 연동
                         combined_features = []
                         total_count = 0
@@ -3244,7 +3244,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
 
                 with col_actions:
                     # 블록 연동 버튼
-                    if st.button("블록 연동", key=f"link_{layer_name}"):
+                    if st.button("블록 연동", key=f"link_{layer_name}", use_container_width=True):
                         st.session_state[f'show_block_selector_{layer_name}'] = True
                         st.rerun()
 
@@ -3256,11 +3256,11 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                         file_name=f"{layer_name.replace('/', '_')}.geojson",
                         mime="application/json",
                         key=f"dl_{layer_name}",
-                        width="container"
+                        use_container_width=True
                     )
 
                     # 개별 삭제
-                    if st.button("삭제", key=f"del_{layer_name}"):
+                    if st.button("삭제", key=f"del_{layer_name}", use_container_width=True):
                         # 연동 해제
                         if linked_block and linked_block in st.session_state.block_spatial_data:
                             del st.session_state.block_spatial_data[linked_block]
@@ -3313,7 +3313,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
 
                         col_btn1, col_btn2 = st.columns(2)
                         with col_btn1:
-                            if st.button("✅ 연동 확인", key=f"confirm_{layer_name}"):
+                            if st.button("✅ 연동 확인", key=f"confirm_{layer_name}", use_container_width=True):
                                 if selected_block == "(연동 해제)":
                                     # 연동 해제
                                     if linked_block and linked_block in st.session_state.block_spatial_data:
@@ -3337,7 +3337,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                 st.rerun()
 
                         with col_btn2:
-                            if st.button("❌ 취소", key=f"cancel_{layer_name}"):
+                            if st.button("❌ 취소", key=f"cancel_{layer_name}", use_container_width=True):
                                 del st.session_state[f'show_block_selector_{layer_name}']
                                 st.rerun()
 
@@ -3349,7 +3349,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
 
                 if records:
                     df_preview = pd.DataFrame(records)
-                    st.dataframe(df_preview, width="container")
+                    st.dataframe(df_preview, use_container_width=True)
                     st.caption(f"(최대 10개 객체만 미리보기)")
     else:
         st.info("위에서 레이어를 선택하고 '데이터 조회' 버튼을 눌러주세요.")
@@ -3398,7 +3398,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                 "레이어": spatial_data['layer_name'],
                 "객체 수": spatial_data['feature_count']
             })
-        st.dataframe(link_data, width="container")
+        st.dataframe(link_data, use_container_width=True)
 
 # API 정보 안내
 st.markdown("---")

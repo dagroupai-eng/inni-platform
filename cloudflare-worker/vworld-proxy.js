@@ -47,13 +47,16 @@ function isAllowedUrl(url) {
 /**
  * V-World API로 요청을 프록시
  */
-async function proxyRequest(targetUrl, method = 'GET', body = null) {
+async function proxyRequest(targetUrl, method = 'GET', body = null, request = null) {
   const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'application/json, text/xml, */*',
-    'Accept-Language': 'ko-KR,ko;q=0.9',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
     'Referer': 'https://map.vworld.kr/',
     'Origin': 'https://map.vworld.kr',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
   };
 
   const fetchOptions = {
@@ -66,20 +69,42 @@ async function proxyRequest(targetUrl, method = 'GET', body = null) {
     fetchOptions.headers['Content-Type'] = 'application/x-www-form-urlencoded';
   }
 
-  const response = await fetch(targetUrl, fetchOptions);
+  // 디버깅용: 요청 정보 로깅
+  const cfInfo = request?.cf || {};
+  console.log(`[PROXY] URL: ${targetUrl}`);
+  console.log(`[PROXY] Method: ${method}`);
+  console.log(`[PROXY] CF Colo: ${cfInfo.colo || 'unknown'}`);
+  console.log(`[PROXY] CF Country: ${cfInfo.country || 'unknown'}`);
 
-  // 응답 본문 읽기
-  const responseBody = await response.text();
+  try {
+    const response = await fetch(targetUrl, fetchOptions);
 
-  // 새 Response 생성 (CORS 헤더 포함)
-  return new Response(responseBody, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': response.headers.get('Content-Type') || 'application/json',
-    },
-  });
+    // 응답 본문 읽기
+    const responseBody = await response.text();
+
+    console.log(`[PROXY] Response Status: ${response.status}`);
+    console.log(`[PROXY] Response Body (first 200 chars): ${responseBody.substring(0, 200)}`);
+
+    // V-World 에러 감지 (IP 차단 등)
+    if (response.status !== 200 || responseBody.includes('blocked') || responseBody.includes('denied') || responseBody.includes('ERROR')) {
+      console.log(`[PROXY] Possible block detected. Full response: ${responseBody.substring(0, 500)}`);
+    }
+
+    // 새 Response 생성 (CORS 헤더 포함)
+    return new Response(responseBody, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': response.headers.get('Content-Type') || 'application/json',
+        'X-CF-Colo': cfInfo.colo || 'unknown',
+        'X-CF-Country': cfInfo.country || 'unknown',
+      },
+    });
+  } catch (fetchError) {
+    console.log(`[PROXY] Fetch error: ${fetchError.message}`);
+    throw fetchError;
+  }
 }
 
 /**
@@ -111,7 +136,7 @@ async function handleGet(request) {
     });
   }
 
-  return proxyRequest(decodedUrl, 'GET');
+  return proxyRequest(decodedUrl, 'GET', null, request);
 }
 
 /**
@@ -157,7 +182,7 @@ async function handlePost(request) {
     finalUrl = `${targetUrl}?${searchParams.toString()}`;
   }
 
-  return proxyRequest(finalUrl, method);
+  return proxyRequest(finalUrl, method, null, request);
 }
 
 /**
