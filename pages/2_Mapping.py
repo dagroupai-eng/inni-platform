@@ -88,13 +88,50 @@ VWORLD_WMS_URL = "https://api.vworld.kr/req/wms"
 VWORLD_WFS_URL = "https://api.vworld.kr/req/wfs"
 
 # CORS 프록시 설정 (Streamlit Cloud에서 VWorld API 사용 시 필요)
-# 로컬에서는 프록시 불필요, 배포 시에만 사용
+def is_streamlit_cloud():
+    """Streamlit Cloud 환경인지 감지"""
+    # Streamlit Cloud 특유의 환경 변수들 확인
+    cloud_indicators = [
+        os.getenv("STREAMLIT_SHARING_MODE"),  # Streamlit Cloud 설정
+        os.getenv("HOSTNAME", "").startswith("streamlit"),
+        "streamlit" in os.getenv("HOME", "").lower(),
+        os.path.exists("/mount/src"),  # Streamlit Cloud 마운트 경로
+    ]
+    return any(cloud_indicators)
+
+def is_local_environment():
+    """로컬 개발 환경인지 감지 (Windows 또는 Mac)"""
+    # Windows 확실히 감지
+    if sys.platform == "win32" or os.name == "nt":
+        return True
+    # Mac 확실히 감지
+    if sys.platform == "darwin":
+        return True
+    return False
+
 def get_cors_proxy():
-    """Streamlit Cloud 배포 시 CORS 프록시 반환"""
-    # Streamlit Cloud 환경 감지
-    if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS"):
+    """CORS 프록시 URL 반환"""
+    # 1. 명시적으로 비활성화된 경우
+    try:
+        if hasattr(st, 'secrets') and 'USE_CORS_PROXY' in st.secrets:
+            if not st.secrets['USE_CORS_PROXY']:
+                return ""
+            else:
+                return "https://corsproxy.io/?"
+    except:
+        pass
+
+    if os.getenv("USE_CORS_PROXY", "").lower() in ("false", "0", "no"):
+        return ""
+    if os.getenv("USE_CORS_PROXY", "").lower() in ("true", "1", "yes"):
         return "https://corsproxy.io/?"
-    return ""  # 로컬에서는 프록시 없이
+
+    # 2. 로컬 환경이면 프록시 불필요
+    if is_local_environment():
+        return ""
+
+    # 3. 그 외 모든 환경 (Linux/Cloud)은 CORS 프록시 사용
+    return "https://corsproxy.io/?"
 
 CORS_PROXY = get_cors_proxy()
 
