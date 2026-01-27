@@ -18,7 +18,9 @@
       "WebFetch(domain:www.housingherald.co.kr)",
       "WebFetch(domain:aptgin.com)",
       "WebFetch(domain:www.bigdata-realestate.kr)",
-      "WebFetch(domain:geobigdata.go.kr)"
+      "WebFetch(domain:geobigdata.go.kr)",
+      "Bash(git add:*)",
+      "Bash(git commit --amend -m \"$\\(cat <<''EOF''\nV-World API 연결 안정성 개선\n\n- CORS 프록시 fallback 시스템 개선\n  - 직접연결 → corsproxy.io → allorigins.win 순서로 시도\n  - allorigins URL 인코딩 처리 수정\n  - 각 프록시별 에러 로깅 추가\n- 타임아웃 25초로 증가\n- 클라이언트 사이드 우선 방식 제거 \\(st_javascript 비동기 문제\\)\n- 주소/장소 검색 UI 제거\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
