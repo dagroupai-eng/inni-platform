@@ -558,14 +558,14 @@ def main():
             col1, col2, col3 = st.columns([1, 3, 1])
             
             with col1:
-                if st.button("◀ 이전", key="prev_slide"):
+                if st.button("◀ 이전", key="prev_slide", use_container_width=True):
                     st.session_state.slide_index = (st.session_state.slide_index - 1) % len(image_slides)
             
             with col2:
                 st.markdown(f"<div style='text-align: center; color: #666;'>{st.session_state.slide_index + 1} / {len(image_slides)}</div>", unsafe_allow_html=True)
             
             with col3:
-                if st.button("다음 ▶", key="next_slide"):
+                if st.button("다음 ▶", key="next_slide", use_container_width=True):
                     st.session_state.slide_index = (st.session_state.slide_index + 1) % len(image_slides)
             
             # 현재 이미지 표시
@@ -576,7 +576,7 @@ def main():
                 image_path = current_slide["path"]
                 
                 if image_path.exists():
-                    st.image(str(image_path), width="container")
+                    st.image(str(image_path), use_container_width=True)
                 else:
                     st.error(f"이미지를 찾을 수 없습니다: {image_path}")
                     st.info("IMAGES 폴더에 BLOCK_GUIDE_01.png ~ BLOCK_GUIDE_10.png 파일이 있는지 확인해주세요.")
@@ -1093,7 +1093,7 @@ def main():
             )
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("✓ 확인", key="confirm_steps", type="primary"):
+            if st.button("✓ 확인", key="confirm_steps", use_container_width=True, type="primary"):
                 st.session_state.confirmed_num_steps = selected_steps
                 st.success("적용됨!")
                 st.rerun()
@@ -1256,7 +1256,7 @@ def main():
         # 제출 버튼 (수정 모드에 따라 텍스트 변경)
         st.markdown("---")
         submit_label = "블록 저장" if edit_block else "블록 생성"
-        submitted = st.button(submit_label, type="primary")
+        submitted = st.button(submit_label, type="primary", use_container_width=True)
 
         if submitted:
             # 입력 검증
