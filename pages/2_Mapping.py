@@ -115,37 +115,47 @@ def get_cors_proxy():
 
 CORS_PROXY = get_cors_proxy()
 
-# Cloudflare Worker 프록시 설정
+# 프록시 설정
 # V-World API는 해외 IP에서 접근 시 차단됨
-# Cloudflare Worker (서울 데이터센터)를 통해 한국 IP로 요청
+# Oracle Cloud 한국 리전 프록시를 통해 한국 IP로 요청
 
-def get_cloudflare_worker_url():
-    """Cloudflare Worker URL을 가져옵니다."""
-    # 1. Streamlit secrets에서 확인
+def get_proxy_url():
+    """프록시 URL을 가져옵니다. (Oracle Cloud 우선, Cloudflare 대체)"""
+    # 1. Oracle Cloud 프록시 (권장)
+    try:
+        if hasattr(st, 'secrets') and 'ORACLE_PROXY_URL' in st.secrets:
+            return st.secrets['ORACLE_PROXY_URL']
+    except Exception:
+        pass
+    env_url = os.getenv("ORACLE_PROXY_URL")
+    if env_url:
+        return env_url
+
+    # 2. Cloudflare Worker (대체)
     try:
         if hasattr(st, 'secrets') and 'CLOUDFLARE_WORKER_URL' in st.secrets:
             return st.secrets['CLOUDFLARE_WORKER_URL']
     except Exception:
         pass
-    # 2. 환경 변수에서 확인
     env_url = os.getenv("CLOUDFLARE_WORKER_URL")
     if env_url:
         return env_url
+
     # 3. 설정되지 않음
     return None
 
-CLOUDFLARE_WORKER_URL = get_cloudflare_worker_url()
+PROXY_URL = get_proxy_url()
 
 
-def try_cloudflare_worker_request(base_url: str, params: dict, timeout: int = 30) -> Optional[requests.Response]:
-    """Cloudflare Worker를 통해 V-World API 요청"""
-    if not CLOUDFLARE_WORKER_URL:
+def try_proxy_request(base_url: str, params: dict, timeout: int = 30) -> Optional[requests.Response]:
+    """프록시를 통해 V-World API 요청 (Oracle Cloud 또는 Cloudflare)"""
+    if not PROXY_URL:
         return None
 
     try:
-        worker_url = f"{CLOUDFLARE_WORKER_URL.rstrip('/')}/proxy"
+        proxy_url = f"{PROXY_URL.rstrip('/')}/proxy"
 
-        # POST 방식으로 요청 (더 안정적)
+        # POST 방식으로 요청
         payload = {
             "url": base_url,
             "params": params,
@@ -153,7 +163,7 @@ def try_cloudflare_worker_request(base_url: str, params: dict, timeout: int = 30
         }
 
         response = requests.post(
-            worker_url,
+            proxy_url,
             json=payload,
             headers={"Content-Type": "application/json"},
             timeout=timeout
@@ -163,10 +173,15 @@ def try_cloudflare_worker_request(base_url: str, params: dict, timeout: int = 30
             return response
 
     except Exception as e:
-        # Worker 실패 시 조용히 None 반환 (다음 방법 시도)
+        # 프록시 실패 시 조용히 None 반환 (다음 방법 시도)
         pass
 
     return None
+
+
+# 하위 호환성을 위한 별칭
+CLOUDFLARE_WORKER_URL = PROXY_URL
+try_cloudflare_worker_request = try_proxy_request
 
 
 def try_request_with_fallback(base_url: str, params: dict, headers: dict = None, timeout: int = 30) -> Optional[requests.Response]:
@@ -242,9 +257,9 @@ def try_request_with_fallback(base_url: str, params: dict, headers: dict = None,
 
     # 모든 시도 실패
     if errors:
-        # Cloudflare Worker가 설정되지 않은 경우 안내 메시지 표시
-        if not CLOUDFLARE_WORKER_URL:
-            st.warning("⚠️ V-World API가 해외 IP를 차단합니다. Cloudflare Worker 프록시를 설정하세요.")
+        # 프록시가 설정되지 않은 경우 안내 메시지 표시
+        if not PROXY_URL:
+            st.warning("⚠️ V-World API가 해외 IP를 차단합니다. ORACLE_PROXY_URL을 설정하세요.")
         else:
             st.warning(f"API 연결 실패: {', '.join(errors[-2:])}")
 
