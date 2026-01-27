@@ -83,17 +83,26 @@ def get_vworld_domain():
     # 1. Streamlit secrets에서 확인
     try:
         if hasattr(st, 'secrets') and 'VWORLD_DOMAIN' in st.secrets:
-            return st.secrets['VWORLD_DOMAIN']
+            domain = st.secrets['VWORLD_DOMAIN']
+            if domain and domain != "*.streamlit.app":  # 와일드카드 무시
+                return domain
     except Exception:
         pass
     # 2. 환경 변수에서 확인
     env_domain = os.getenv("VWORLD_DOMAIN")
-    if env_domain:
+    if env_domain and env_domain != "*.streamlit.app":
         return env_domain
-    # 3. 기본값 (Streamlit Cloud 일반 도메인)
-    return "streamlit.app"
+    # 3. 설정되지 않음 - None 반환 (도메인 파라미터 생략)
+    return None
 
 VWORLD_DOMAIN = get_vworld_domain()
+
+
+def add_domain_param(params: dict) -> dict:
+    """도메인이 설정된 경우에만 파라미터에 추가"""
+    if VWORLD_DOMAIN:
+        params['domain'] = VWORLD_DOMAIN
+    return params
 
 # 연속 지적도 레이어 설정
 CADASTRAL_LAYERS = {
@@ -425,9 +434,9 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
         'OUTPUT': 'application/json',
         'MAXFEATURES': str(max_features),
         'SRSNAME': 'EPSG:4326',
-        'key': VWORLD_API_KEY,
-        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
+        'key': VWORLD_API_KEY
     }
+    params = add_domain_param(params)
 
     try:
         response = requests.get(VWORLD_WFS_URL, params=params, timeout=30)
@@ -549,9 +558,9 @@ def get_feature_info(lat: float, lon: float, layers: str, styles: str,
         'J': str(j),
         'INFO_FORMAT': 'application/json',
         'FEATURE_COUNT': '10',
-        'key': VWORLD_API_KEY,
-        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
+        'key': VWORLD_API_KEY
     }
+    params = add_domain_param(params)
 
     try:
         response = requests.get(VWORLD_WMS_URL, params=params, timeout=10)
@@ -595,9 +604,9 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
         'OUTPUT': 'application/json',
         'MAXFEATURES': str(max_features),
         'SRSNAME': 'EPSG:4326',
-        'key': VWORLD_API_KEY,
-        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
+        'key': VWORLD_API_KEY
     }
+    params = add_domain_param(params)
 
     try:
         response = requests.get(VWORLD_WFS_URL, params=params, timeout=30)
@@ -672,9 +681,9 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
         'simple': 'false',
         'format': 'json',
         'type': address_type,
-        'key': VWORLD_API_KEY,
-        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
+        'key': VWORLD_API_KEY
     }
+    params = add_domain_param(params)
 
     try:
         response = requests.get(GEOCODER_URL, params=params, timeout=10)
@@ -732,9 +741,9 @@ def reverse_geocode(lat: float, lon: float, address_type: str = "both") -> Optio
         'type': address_type,
         'zipcode': 'true',
         'simple': 'false',
-        'key': VWORLD_API_KEY,
-        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
+        'key': VWORLD_API_KEY
     }
+    params = add_domain_param(params)
 
     try:
         response = requests.get(REVERSE_GEOCODER_URL, params=params, timeout=10)
@@ -805,9 +814,9 @@ def search_address_or_poi(query: str, search_type: str = "address",
         'errorformat': 'json',
         'page': str(page),
         'size': str(size),
-        'key': VWORLD_API_KEY,
-        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
+        'key': VWORLD_API_KEY
     }
+    params = add_domain_param(params)
 
     try:
         response = requests.get(SEARCH_URL, params=params, timeout=10)
