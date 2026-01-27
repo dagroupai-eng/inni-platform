@@ -11,10 +11,11 @@ st.set_page_config(
 
 # 세션 초기화 (로그인 + 작업 데이터 복원)
 try:
-    from auth.session_init import init_page_session
+    from auth.session_init import init_page_session, render_session_manager_sidebar
     init_page_session()
 except Exception as e:
     print(f"세션 초기화 오류: {e}")
+    render_session_manager_sidebar = None
 
 # 인증 모듈 import
 try:
@@ -26,6 +27,10 @@ except ImportError:
 # 로그인 체크
 if AUTH_AVAILABLE:
     check_page_access()
+
+# 세션 관리 사이드바 렌더링
+if render_session_manager_sidebar:
+    render_session_manager_sidebar()
 
 import pandas as pd
 import requests
@@ -3161,28 +3166,29 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
             else:
                 st.info("'통계 분석 실행' 버튼을 클릭하여 데이터를 분석하세요.")
 
-        # 다중 레이어 일괄 블록 연동
-        with st.expander("🔗 다중 레이어 블록 일괄 연동", expanded=False):
-            st.caption("여러 레이어를 한 번에 분석 블록에 연동합니다.")
+        # 다중 레이어 블록 사전 연동 (블록 선택 전에 미리 매핑)
+        with st.expander("🔗 레이어-블록 사전 연동", expanded=False):
+            st.caption("레이어를 분석 블록에 미리 연동해두면, 해당 블록 선택 시 자동으로 분석에 사용됩니다.")
 
-            selected_blocks = st.session_state.get('selected_blocks', [])
-            if not selected_blocks:
-                st.warning("Document Analysis에서 먼저 분석 블록을 선택해주세요.")
+            # 블록 이름 조회를 위한 lookup 생성
+            try:
+                from prompt_processor import load_blocks, load_custom_blocks
+                example_blocks = load_blocks()
+                custom_blocks = load_custom_blocks()
+                all_blocks = example_blocks + custom_blocks
+                block_lookup = {
+                    block.get('id'): block.get('name', block.get('id'))
+                    for block in all_blocks
+                    if isinstance(block, dict) and block.get('id')
+                }
+                all_block_ids = list(block_lookup.keys())
+            except Exception:
+                block_lookup = {}
+                all_block_ids = []
+
+            if not all_block_ids:
+                st.warning("사용 가능한 분석 블록이 없습니다.")
             else:
-                # 블록 이름 조회를 위한 lookup 생성
-                try:
-                    from prompt_processor import load_blocks, load_custom_blocks
-                    example_blocks = load_blocks()
-                    custom_blocks = load_custom_blocks()
-                    all_blocks = example_blocks + custom_blocks
-                    block_lookup = {
-                        block.get('id'): block.get('name', block.get('id'))
-                        for block in all_blocks
-                        if isinstance(block, dict) and block.get('id')
-                    }
-                except Exception:
-                    block_lookup = {}
-
                 # 레이어 다중 선택
                 layer_names = list(st.session_state.downloaded_geo_data.keys())
                 selected_layers = st.multiselect(
@@ -3192,21 +3198,21 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                     key="batch_link_layers"
                 )
 
-                # 블록 선택 (한국어 이름 표시)
+                # 블록 선택 (한국어 이름 표시) - 모든 블록에서 선택 가능
                 def get_block_display_name(block_id):
                     name = block_lookup.get(block_id, block_id)
                     return f"{name}" if name != block_id else block_id
 
                 target_block = st.selectbox(
                     "연동할 블록 선택",
-                    options=selected_blocks,
+                    options=all_block_ids,
                     format_func=get_block_display_name,
                     key="batch_link_block"
                 )
 
                 if selected_layers and target_block:
                     target_block_name = get_block_display_name(target_block)
-                    if st.button("🔗 선택 레이어 일괄 연동", use_container_width=True, key="batch_link_btn"):
+                    if st.button("🔗 선택 레이어 사전 연동", use_container_width=True, key="batch_link_btn"):
                         # 선택된 레이어들을 블록에 연동
                         combined_features = []
                         total_count = 0
@@ -3221,7 +3227,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                             data['linked_block'] = target_block
                             data['linked_block_name'] = target_block_name
 
-                        # 블록에 통합 데이터 저장
+                        # 블록에 통합 데이터 저장 (사전 연동)
                         st.session_state.block_spatial_data[target_block] = {
                             'layer_name': ', '.join(selected_layers),
                             'geojson': {
@@ -3229,11 +3235,24 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                 'features': combined_features
                             },
                             'feature_count': total_count,
-                            'layers': selected_layers
+                            'layers': selected_layers,
+                            'prelinked': True  # 사전 연동 표시
                         }
 
-                        st.success(f"'{target_block_name}' 블록에 {len(selected_layers)}개 레이어 ({total_count}개 객체) 연동 완료!")
+                        # 사전 연동 매핑 정보 저장 (블록 선택 시 자동 적용용)
+                        if 'prelinked_block_layers' not in st.session_state:
+                            st.session_state.prelinked_block_layers = {}
+                        st.session_state.prelinked_block_layers[target_block] = selected_layers
+
+                        st.success(f"'{target_block_name}' 블록에 {len(selected_layers)}개 레이어 사전 연동 완료! 해당 블록 선택 시 자동 적용됩니다.")
                         st.rerun()
+
+                # 현재 사전 연동된 블록 표시
+                if st.session_state.get('prelinked_block_layers'):
+                    st.markdown("##### 📋 사전 연동 현황")
+                    for block_id, layers in st.session_state.prelinked_block_layers.items():
+                        block_name = get_block_display_name(block_id)
+                        st.caption(f"• **{block_name}**: {', '.join(layers)}")
 
         st.markdown("---")
 

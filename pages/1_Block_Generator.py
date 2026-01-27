@@ -259,14 +259,19 @@ def main():
 
     # 세션 초기화 (로그인 + 작업 데이터 복원)
     try:
-        from auth.session_init import init_page_session
+        from auth.session_init import init_page_session, render_session_manager_sidebar
         init_page_session()
     except Exception as e:
         print(f"세션 초기화 오류: {e}")
+        render_session_manager_sidebar = None
 
     # 로그인 체크
     if AUTH_AVAILABLE:
         check_page_access()
+
+    # 세션 관리 사이드바 렌더링
+    if render_session_manager_sidebar:
+        render_session_manager_sidebar()
 
     st.title("분석 블록 생성기")
 

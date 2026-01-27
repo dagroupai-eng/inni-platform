@@ -20,31 +20,100 @@ st.set_page_config(
 
 # 세션 초기화 (로그인 + 작업 데이터 복원)
 try:
-    from auth.session_init import init_page_session
+    from auth.session_init import init_page_session, render_session_manager_sidebar
     init_page_session()
 except Exception as e:
     print(f"세션 초기화 오류: {e}")
+    render_session_manager_sidebar = None
 
 # 로그인 체크
 if AUTH_AVAILABLE:
     check_page_access()
 
+# 세션 관리 사이드바 렌더링
+if render_session_manager_sidebar:
+    render_session_manager_sidebar()
 
 # 상수 정의
-CAMERA_ANGLES = ["정면", "측면", "조감", "클로즈업", "와이드"]
-CAMERA_MOVEMENTS = ["고정", "팬", "틸트", "줌", "트래킹"]
+CAMERA_ANGLES = ["정면", "측면", "조감", "클로즈업", "와이드", "아이소메트릭", "FPV 드론", "로우앵글"]
+CAMERA_MOVEMENTS = ["고정", "팬 좌우", "틸트 상하", "줌 인", "줌 아웃", "트래킹", "달리 인", "달리 아웃", "크레인", "FPV 비행"]
 NARRATIVE_TYPES = ["스토리텔링형", "설명형", "감성형", "기술 중심형"]
 NARRATIVE_TONES = ["공식적", "친근한", "열정적", "차분한"]
+
+# 오디오 키워드 정의
+AUDIO_ATMOSPHERES = [
+    "없음",
+    "도시 앰비언스",  # ambient city noise, distant traffic, urban soundscape
+    "자연 환경음",    # birds chirping, soft wind, rustling leaves
+    "실내 정적",      # quiet indoor atmosphere, subtle room tone
+    "활기찬 거리",    # bustling street, footsteps, people chatting
+    "드라마틱 음악",  # cinematic orchestral, epic score
+    "미니멀 음악",    # minimal ambient music, soft piano
+    "테크/모던",      # modern electronic, tech ambience
+]
+
+# 카메라 앵글 영문 키워드 매핑
+ANGLE_KEYWORDS = {
+    "정면": "front view, eye level, symmetrical composition",
+    "측면": "side view, profile shot, lateral perspective",
+    "조감": "aerial view, bird's eye view, overhead shot, top-down perspective",
+    "클로즈업": "close-up shot, detail view, macro perspective",
+    "와이드": "wide angle, panoramic view, expansive shot, establishing shot",
+    "아이소메트릭": "isometric view, 30-degree angle, axonometric projection",
+    "FPV 드론": "FPV drone shot, first-person view, dynamic flight perspective",
+    "로우앵글": "low angle shot, looking up, dramatic perspective, worm's eye view",
+}
+
+# 카메라 움직임 영문 키워드 매핑
+MOVEMENT_KEYWORDS = {
+    "고정": "static shot, steady frame, locked camera",
+    "팬 좌우": "panning motion, horizontal sweep, left to right movement",
+    "틸트 상하": "tilting motion, vertical sweep, looking up and down",
+    "줌 인": "zoom in, push in, focus tightening",
+    "줌 아웃": "zoom out, pull back, revealing shot",
+    "트래킹": "tracking shot, follow through, dynamic movement, dolly alongside",
+    "달리 인": "dolly in, camera approaching, forward movement",
+    "달리 아웃": "dolly out, camera retreating, backward movement",
+    "크레인": "crane shot, vertical elevation change, sweeping overhead",
+    "FPV 비행": "FPV flight, gliding motion, smooth aerial traversal",
+}
+
+# 오디오 영문 키워드 매핑
+AUDIO_KEYWORDS = {
+    "없음": "",
+    "도시 앰비언스": "ambient city noise, distant traffic, urban soundscape",
+    "자연 환경음": "birds chirping, soft wind noise, rustling leaves, nature ambience",
+    "실내 정적": "quiet indoor atmosphere, subtle room tone, soft silence",
+    "활기찬 거리": "bustling street sounds, footsteps on pavement, people chatting",
+    "드라마틱 음악": "cinematic orchestral score, epic dramatic music",
+    "미니멀 음악": "minimal ambient music, soft piano notes, gentle melody",
+    "테크/모던": "modern electronic ambience, tech soundscape, digital tones",
+}
 
 # 템플릿 정의 (마스터플랜 계획 설명 중심)
 STORYBOARD_TEMPLATES = {
     "마스터플랜 기본": [
-        {"name": "대상지 위치", "description": "대상지 위치와 경계, 주변 도시 맥락", "angle": "조감", "movement": "줌", "duration": 4},
-        {"name": "마스터플랜 전체도", "description": "전체 마스터플랜 배치도 조감", "angle": "조감", "movement": "팬", "duration": 5},
-        {"name": "토지이용계획", "description": "용도별 존(Zone) 구분과 면적 배분", "angle": "조감", "movement": "고정", "duration": 5},
-        {"name": "동선 체계", "description": "차량/보행자 동선 네트워크", "angle": "조감", "movement": "고정", "duration": 4},
-        {"name": "오픈스페이스 체계", "description": "공원, 광장, 녹지축 연결", "angle": "조감", "movement": "팬", "duration": 4},
-        {"name": "주요 시설 배치", "description": "주요 시설/건물 위치와 규모", "angle": "조감", "movement": "고정", "duration": 4},
+        {"name": "대상지 위치", "description": "대상지 위치와 경계, 주변 도시 맥락을 보여주는 넓은 조감도", "angle": "조감", "movement": "줌 인", "duration": 5, "audio": "도시 앰비언스"},
+        {"name": "마스터플랜 전체도", "description": "전체 마스터플랜 배치도를 천천히 스캔하며 보여줌", "angle": "조감", "movement": "팬 좌우", "duration": 6, "audio": "미니멀 음악"},
+        {"name": "토지이용계획", "description": "용도별 존(Zone) 구분과 면적 배분을 컬러 코딩으로 시각화", "angle": "조감", "movement": "고정", "duration": 5, "audio": "미니멀 음악"},
+        {"name": "동선 체계", "description": "차량과 보행자 동선 네트워크가 활성화되며 흐름을 보여줌", "angle": "조감", "movement": "고정", "duration": 5, "audio": "도시 앰비언스"},
+        {"name": "오픈스페이스 체계", "description": "공원, 광장, 녹지축이 연결되는 그린 네트워크", "angle": "조감", "movement": "팬 좌우", "duration": 5, "audio": "자연 환경음"},
+        {"name": "주요 시설 배치", "description": "주요 건물과 시설의 위치, 규모, 형태를 하이라이트", "angle": "조감", "movement": "줌 인", "duration": 5, "audio": "드라마틱 음악"},
+    ],
+    "건축물 소개": [
+        {"name": "외관 전경", "description": "건물 전체 외관을 보여주는 확립 샷", "angle": "와이드", "movement": "달리 인", "duration": 5, "audio": "드라마틱 음악"},
+        {"name": "파사드 디테일", "description": "건물 파사드의 재료와 디테일을 클로즈업", "angle": "클로즈업", "movement": "틸트 상하", "duration": 4, "audio": "미니멀 음악"},
+        {"name": "주출입구", "description": "메인 엔트런스와 진입 공간", "angle": "정면", "movement": "달리 인", "duration": 4, "audio": "활기찬 거리"},
+        {"name": "내부 로비", "description": "로비 공간의 규모와 분위기", "angle": "와이드", "movement": "팬 좌우", "duration": 5, "audio": "실내 정적"},
+        {"name": "주요 공간", "description": "핵심 프로그램 공간의 활용 모습", "angle": "와이드", "movement": "트래킹", "duration": 5, "audio": "활기찬 거리"},
+        {"name": "옥상/조망", "description": "옥상 정원 또는 전망 공간에서의 뷰", "angle": "와이드", "movement": "크레인", "duration": 5, "audio": "자연 환경음"},
+    ],
+    "드론 투어": [
+        {"name": "접근 비행", "description": "원거리에서 대상지로 접근하는 드론 비행", "angle": "FPV 드론", "movement": "FPV 비행", "duration": 6, "audio": "드라마틱 음악"},
+        {"name": "상공 선회", "description": "대상지 상공을 원형으로 선회하며 전체 파악", "angle": "조감", "movement": "팬 좌우", "duration": 8, "audio": "자연 환경음"},
+        {"name": "건물 근접", "description": "주요 건물에 근접하며 디테일 확인", "angle": "FPV 드론", "movement": "줌 인", "duration": 5, "audio": "미니멀 음악"},
+        {"name": "스트리트 레벨", "description": "거리 높이까지 하강하여 보행자 시점 제공", "angle": "정면", "movement": "크레인", "duration": 5, "audio": "활기찬 거리"},
+        {"name": "상승 마무리", "description": "다시 상승하며 전체 전경으로 마무리", "angle": "조감", "movement": "줌 아웃", "duration": 6, "audio": "드라마틱 음악"},
     ],
 }
 
@@ -171,42 +240,88 @@ def generate_narrative(scenes, project_info, narrative_type, narrative_tone):
         }
 
 
-def generate_scene_prompts(scenes, project_info):
-    """각 Scene에 대한 Midjourney 프롬프트 생성"""
+def generate_scene_prompts(scenes, project_info, include_timeline=True):
+    """각 Scene에 대한 AI 영상/이미지 프롬프트 생성
 
+    Args:
+        scenes: Scene 목록
+        project_info: 프로젝트 정보
+        include_timeline: 타임라인 스크립트 문법 포함 여부 (Kling AI 등 지원)
+    """
     prompts = []
+    cumulative_time = 0
 
     for i, scene in enumerate(scenes):
-        # 카메라 앵글에 따른 키워드
-        angle_keywords = {
-            "정면": "front view, eye level, symmetrical composition",
-            "측면": "side view, profile shot, lateral perspective",
-            "조감": "aerial view, bird's eye view, overhead shot",
-            "클로즈업": "close-up shot, detail view, macro perspective",
-            "와이드": "wide angle, panoramic view, expansive shot"
-        }
+        # 상단 상수에서 키워드 가져오기
+        angle_kw = ANGLE_KEYWORDS.get(scene['angle'], '')
+        movement_kw = MOVEMENT_KEYWORDS.get(scene['movement'], '')
+        audio_kw = AUDIO_KEYWORDS.get(scene.get('audio', '없음'), '')
 
-        # 카메라 무브먼트에 따른 키워드
-        movement_keywords = {
-            "고정": "static shot, steady frame",
-            "팬": "panning motion blur, horizontal sweep",
-            "틸트": "vertical sweep, looking up",
-            "줌": "depth focus, zoom perspective",
-            "트래킹": "tracking shot, follow through, dynamic movement"
-        }
+        duration = scene.get('duration', 5)
+        start_time = cumulative_time
+        end_time = cumulative_time + duration
 
-        angle_kw = angle_keywords.get(scene['angle'], '')
-        movement_kw = movement_keywords.get(scene['movement'], '')
+        # 기본 이미지 프롬프트 (Midjourney 호환)
+        base_prompt = f"architectural visualization, {project_info.get('building_type', 'modern building')}, {scene['description']}, {angle_kw}, {movement_kw}, professional architectural photography, hyperrealistic, 8k, high quality, cinematic lighting"
 
-        prompt = f"architectural visualization, {project_info.get('building_type', 'modern building')}, {scene['description']}, {angle_kw}, {movement_kw}, professional architectural photography, hyperrealistic, 8k, high quality, cinematic lighting --ar 16:9 --v 6"
+        # Midjourney 프롬프트
+        midjourney_prompt = f"{base_prompt} --ar 16:9 --v 6"
+
+        # 타임라인 스크립트 프롬프트 (Kling AI, Runway 등 영상 AI용)
+        timeline_prompt = ""
+        if include_timeline:
+            timeline_prompt = f"[{start_time}~{end_time}s] {scene['description']}. Camera: {movement_kw}. View: {angle_kw}."
+            if audio_kw:
+                timeline_prompt += f" Audio: {audio_kw}."
+
+        # 영상 AI용 통합 프롬프트 (물리적 상호작용 포함)
+        video_prompt = f"[Camera] {movement_kw}, {angle_kw}. [Scene] {scene['description']}, architectural visualization of {project_info.get('building_type', 'modern building')}. [Physics] Subtle environmental movement, realistic lighting transitions. [Tech] 4k resolution, cinematic lighting, photorealistic, fluid motion."
+        if audio_kw:
+            video_prompt += f" [Audio] {audio_kw}."
 
         prompts.append({
             'scene_number': i + 1,
             'scene_name': scene['name'],
-            'prompt': prompt
+            'prompt': midjourney_prompt,  # 기존 호환성 유지
+            'midjourney_prompt': midjourney_prompt,
+            'timeline_prompt': timeline_prompt,
+            'video_prompt': video_prompt,
+            'start_time': start_time,
+            'end_time': end_time,
+            'duration': duration
         })
 
+        cumulative_time = end_time
+
     return prompts
+
+
+def generate_full_timeline_script(scenes, project_info):
+    """전체 영상에 대한 타임라인 스크립트 생성 (Kling AI 등 지원)"""
+    script_lines = []
+    cumulative_time = 0
+
+    script_lines.append(f"# {project_info.get('project_name', 'Architectural Project')} - Video Timeline Script")
+    script_lines.append(f"# Total Duration: {sum(s.get('duration', 5) for s in scenes)}s")
+    script_lines.append("")
+
+    for i, scene in enumerate(scenes):
+        duration = scene.get('duration', 5)
+        start_time = cumulative_time
+        end_time = cumulative_time + duration
+
+        angle_kw = ANGLE_KEYWORDS.get(scene['angle'], '')
+        movement_kw = MOVEMENT_KEYWORDS.get(scene['movement'], '')
+        audio_kw = AUDIO_KEYWORDS.get(scene.get('audio', '없음'), '')
+
+        line = f"{start_time}~{end_time}s: {scene['description']}. {movement_kw}. {angle_kw}."
+        if audio_kw:
+            line += f" ({audio_kw})"
+
+        script_lines.append(line)
+        cumulative_time = end_time
+
+    return "\n".join(script_lines)
 
 
 def main():
@@ -333,7 +448,8 @@ def main():
         with template_col2:
             if st.button("템플릿 적용", type="secondary"):
                 if selected_template != "직접 구성":
-                    st.session_state.storyboard_scenes = STORYBOARD_TEMPLATES[selected_template].copy()
+                    import copy
+                    st.session_state.storyboard_scenes = copy.deepcopy(STORYBOARD_TEMPLATES[selected_template])
                     st.session_state.scene_count_confirmed = True
                     st.success(f"'{selected_template}' 템플릿이 적용되었습니다.")
                     st.rerun()
@@ -356,6 +472,7 @@ def main():
                             'description': '',
                             'angle': '정면',
                             'movement': '고정',
+                            'audio': '없음',
                             'duration': 5,
                             'narrative': ''
                         })
@@ -401,6 +518,12 @@ def main():
                             index=CAMERA_MOVEMENTS.index(scene.get('movement', '고정')),
                             key=f"scene_movement_{i}"
                         )
+                        new_audio = st.selectbox(
+                            "오디오 분위기",
+                            AUDIO_ATMOSPHERES,
+                            index=AUDIO_ATMOSPHERES.index(scene.get('audio', '없음')),
+                            key=f"scene_audio_{i}"
+                        )
                         new_duration = st.number_input(
                             "예상 시간 (초)",
                             min_value=1,
@@ -415,6 +538,7 @@ def main():
                         'description': new_description,
                         'angle': new_angle,
                         'movement': new_movement,
+                        'audio': new_audio,
                         'duration': new_duration,
                         'narrative': scene.get('narrative', '')  # 기존 narrative 보존
                     }
@@ -438,6 +562,7 @@ def main():
                                 'description': '',
                                 'angle': '정면',
                                 'movement': '고정',
+                                'audio': '없음',
                                 'duration': 5,
                                 'narrative': ''
                             }
@@ -588,11 +713,34 @@ def main():
             if 'scene_prompts' in st.session_state and st.session_state.scene_prompts:
                 for prompt_data in st.session_state.scene_prompts:
                     with st.expander(f"Scene {prompt_data['scene_number']}: {prompt_data['scene_name']}"):
+                        st.markdown("**이미지 프롬프트:**")
                         st.code(prompt_data['prompt'], language="text")
+
+                        if prompt_data.get('video_prompt'):
+                            st.markdown("**비디오 프롬프트:**")
+                            st.code(prompt_data['video_prompt'], language="text")
+
+                        if prompt_data.get('timeline_prompt'):
+                            st.markdown("**타임라인 스크립트:**")
+                            st.code(prompt_data['timeline_prompt'], language="text")
+
+                # 전체 타임라인 스크립트 생성 및 표시
+                project_info_for_timeline = st.session_state.get('storyboard_project_info', {})
+                full_timeline = generate_full_timeline_script(st.session_state.storyboard_scenes, project_info_for_timeline)
+                if full_timeline:
+                    st.markdown("---")
+                    st.subheader("전체 타임라인 스크립트")
+                    st.code(full_timeline, language="text")
+                    st.download_button(
+                        "타임라인 스크립트 다운로드",
+                        data=full_timeline,
+                        file_name="timeline_script.txt",
+                        mime="text/plain"
+                    )
 
                 # 전체 프롬프트 복사
                 all_prompts = "\n\n".join([
-                    f"Scene {p['scene_number']} ({p['scene_name']}):\n{p['prompt']}"
+                    f"Scene {p['scene_number']} ({p['scene_name']}):\n[이미지]\n{p['prompt']}\n[비디오]\n{p.get('video_prompt', '')}\n[타임라인]\n{p.get('timeline_prompt', '')}"
                     for p in st.session_state.scene_prompts
                 ])
 
@@ -632,6 +780,13 @@ def main():
                 if 'scene_prompts' in st.session_state and st.session_state.scene_prompts:
                     prompt_dict = {p['scene_number']: p['prompt'] for p in st.session_state.scene_prompts}
 
+                # 비디오 프롬프트 딕셔너리
+                video_prompt_dict = {}
+                timeline_prompt_dict = {}
+                if 'scene_prompts' in st.session_state and st.session_state.scene_prompts:
+                    video_prompt_dict = {p['scene_number']: p.get('video_prompt', '') for p in st.session_state.scene_prompts}
+                    timeline_prompt_dict = {p['scene_number']: p.get('timeline_prompt', '') for p in st.session_state.scene_prompts}
+
                 # Excel 데이터 생성
                 excel_data = []
                 cumulative_time = 0
@@ -644,8 +799,11 @@ def main():
                         "설명": scene.get('description', ''),
                         "Narrative": scene.get('narrative', ''),
                         "이미지 프롬프트": prompt_dict.get(scene_num, ''),
+                        "비디오 프롬프트": video_prompt_dict.get(scene_num, ''),
+                        "타임라인 스크립트": timeline_prompt_dict.get(scene_num, ''),
                         "촬영 각도": scene.get('angle', ''),
                         "카메라 움직임": scene.get('movement', ''),
+                        "오디오 분위기": scene.get('audio', '없음'),
                         "시간(초)": scene.get('duration', 0),
                         "누적(초)": cumulative_time
                     })

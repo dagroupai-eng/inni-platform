@@ -53,10 +53,11 @@ st.set_page_config(
 
 # 세션 초기화 (로그인 + 작업 데이터 복원)
 try:
-    from auth.session_init import init_page_session
+    from auth.session_init import init_page_session, render_session_manager_sidebar
     init_page_session()
 except Exception as e:
     print(f"세션 초기화 오류: {e}")
+    render_session_manager_sidebar = None
 
 # 로그인 체크
 if AUTH_AVAILABLE:
@@ -76,6 +77,10 @@ if AUTH_AVAILABLE:
             st.warning("로그인이 필요합니다")
             st.info("사이드바에서 '로그인' 페이지로 이동하세요.")
         st.markdown("---")
+
+# 세션 관리 사이드바 렌더링
+if render_session_manager_sidebar:
+    render_session_manager_sidebar()
 
 # 페이지 네비게이션 처리
 # (st.switch_page는 사이드바에서 직접 호출하면 오류 발생 가능하므로 제거)
@@ -2621,6 +2626,30 @@ with tab_blocks:
                     
                     if checkbox_value and not is_selected:
                         st.session_state['selected_blocks'].append(block_id)
+                        # 사전 연동된 레이어가 있으면 자동 적용
+                        prelinked = st.session_state.get('prelinked_block_layers', {})
+                        if block_id in prelinked and st.session_state.get('downloaded_geo_data'):
+                            layers = prelinked[block_id]
+                            combined_features = []
+                            total_count = 0
+                            for layer_name in layers:
+                                if layer_name in st.session_state.downloaded_geo_data:
+                                    data = st.session_state.downloaded_geo_data[layer_name]
+                                    geojson = data.get('geojson', {})
+                                    for feature in geojson.get('features', []):
+                                        feature['properties']['_layer'] = layer_name
+                                        combined_features.append(feature)
+                                    total_count += data.get('feature_count', 0)
+                            if combined_features:
+                                if 'block_spatial_data' not in st.session_state:
+                                    st.session_state.block_spatial_data = {}
+                                st.session_state.block_spatial_data[block_id] = {
+                                    'layer_name': ', '.join(layers),
+                                    'geojson': {'type': 'FeatureCollection', 'features': combined_features},
+                                    'feature_count': total_count,
+                                    'layers': layers,
+                                    'prelinked': True
+                                }
                     elif not checkbox_value and is_selected:
                         # 분석 세션 진행 중이고 cot_plan에 있는 블록은 제거하지 않음
                         if st.session_state.get('cot_session') and block_id in st.session_state.get('cot_plan', []):

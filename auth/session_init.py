@@ -372,3 +372,64 @@ def reset_analysis_state_selective(
         st.session_state[key] = value
 
     return preserved
+
+
+def render_session_manager_sidebar():
+    """
+    모든 페이지의 사이드바에 세션 관리 UI를 렌더링합니다.
+    각 페이지에서 st.sidebar 컨텍스트 내에서 호출해야 합니다.
+    """
+    with st.sidebar.expander("🔄 세션 관리", expanded=False):
+        # 복원 대기 중인 상태 확인
+        if 'pending_restore' in st.session_state and st.session_state.pending_restore:
+            restored_progress = st.session_state.pending_restore
+            restored_time = restored_progress.get('_restored_from', '')[:16].replace('T', ' ')
+            results_count = len(restored_progress.get('cot_results', {}))
+
+            st.warning(f"📂 중단된 세션 발견")
+            st.caption(f"저장: {restored_time}, 완료 블록: {results_count}개")
+
+            col_r, col_d = st.columns(2)
+            with col_r:
+                if st.button("✅ 복원", key="sidebar_restore_btn", use_container_width=True):
+                    if apply_restored_progress(restored_progress):
+                        st.session_state.pop('pending_restore', None)
+                        st.success("복원됨")
+                        st.rerun()
+            with col_d:
+                if st.button("❌ 삭제", key="sidebar_discard_btn", use_container_width=True):
+                    st.session_state.pop('pending_restore', None)
+                    st.rerun()
+
+        # 현재 세션 상태 표시
+        cot_results = st.session_state.get('cot_results', {})
+        selected_blocks = st.session_state.get('selected_blocks', [])
+        if cot_results:
+            st.success(f"✓ 분석 완료: {len(cot_results)}개 블록")
+        if selected_blocks:
+            st.info(f"선택된 블록: {len(selected_blocks)}개")
+
+        # 초기화 버튼들
+        st.caption("초기화 옵션")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 분석만", key="sidebar_reset_analysis_btn", use_container_width=True, help="분석 결과만 초기화"):
+                reset_analysis_state_selective(
+                    reset_results=True,
+                    reset_session=True,
+                    preserve_api_keys=True,
+                    preserve_blocks=True,
+                    preserve_project_info=True
+                )
+                st.success("초기화됨")
+                st.rerun()
+        with col2:
+            if st.button("🗑️ 전체", key="sidebar_reset_all_btn", use_container_width=True, help="모든 데이터 초기화"):
+                # 전체 초기화 (로그인, API 키 제외)
+                keys_to_keep = ['authenticated', 'user', 'api_keys_loaded', 'pms_session_token', 'pms_current_user']
+                api_key_prefix = 'user_api_key_'
+                for key in list(st.session_state.keys()):
+                    if key not in keys_to_keep and not key.startswith(api_key_prefix):
+                        del st.session_state[key]
+                st.success("전체 초기화됨")
+                st.rerun()

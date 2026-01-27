@@ -147,6 +147,64 @@ def show_main_app():
         if st.button("로그아웃", key="main_logout", use_container_width=True):
             logout()
             st.rerun()
+
+        # 세션 관리 섹션
+        st.markdown("---")
+        with st.expander("🔄 세션 관리", expanded=False):
+            # 분석 진행 상태 복원 확인
+            try:
+                from auth.session_init import restore_analysis_progress, apply_restored_progress, reset_analysis_state_selective
+
+                # 복원 대기 중인 상태가 있으면 알림 표시
+                if 'pending_restore' in st.session_state and st.session_state.pending_restore:
+                    restored_progress = st.session_state.pending_restore
+                    restored_time = restored_progress.get('_restored_from', '')[:16].replace('T', ' ')
+                    results_count = len(restored_progress.get('cot_results', {}))
+
+                    st.warning(f"📂 중단된 세션 발견")
+                    st.caption(f"저장: {restored_time}, 완료 블록: {results_count}개")
+
+                    col_r, col_d = st.columns(2)
+                    with col_r:
+                        if st.button("✅ 복원", key="sidebar_restore", use_container_width=True):
+                            if apply_restored_progress(restored_progress):
+                                st.session_state.pop('pending_restore', None)
+                                st.success("복원됨")
+                                st.rerun()
+                    with col_d:
+                        if st.button("❌ 삭제", key="sidebar_discard", use_container_width=True):
+                            st.session_state.pop('pending_restore', None)
+                            st.rerun()
+
+                # 초기화 버튼들
+                st.caption("초기화 옵션")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔄 분석 초기화", key="sidebar_reset_analysis", use_container_width=True, help="분석 결과만 초기화"):
+                        try:
+                            reset_analysis_state_selective(
+                                reset_results=True,
+                                reset_session=True,
+                                preserve_api_keys=True,
+                                preserve_blocks=True,
+                                preserve_project_info=True
+                            )
+                            st.success("초기화 완료")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"오류: {e}")
+                with col2:
+                    if st.button("🗑️ 전체 초기화", key="sidebar_reset_all", use_container_width=True, help="모든 데이터 초기화"):
+                        # 전체 초기화
+                        keys_to_keep = ['authenticated', 'user', 'api_keys_loaded']
+                        for key in list(st.session_state.keys()):
+                            if key not in keys_to_keep and not key.startswith('user_api_key_'):
+                                del st.session_state[key]
+                        st.success("전체 초기화 완료")
+                        st.rerun()
+            except ImportError:
+                st.caption("세션 관리 모듈 로드 실패")
+
         st.markdown("---")
 
     # 제목
