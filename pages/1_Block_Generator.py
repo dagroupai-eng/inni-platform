@@ -121,7 +121,7 @@ def update_dspy_analyzer(block_id, signature_code, signature_name):
             
             # 생성된 Signature 코드 검증 (기본적인 문법 체크)
             if signature_name not in new_content:
-                st.warning(f"⚠️ 생성된 Signature 클래스 '{signature_name}'가 파일에 올바르게 추가되었는지 확인이 필요합니다.")
+                st.warning(f"생성된 Signature 클래스 '{signature_name}'가 파일에 올바르게 추가되었는지 확인이 필요합니다.")
                 st.warning("파일 저장은 완료되었지만, Signature 클래스 정의를 확인해주세요.")
                 return False
             
@@ -269,15 +269,46 @@ def main():
         check_page_access()
 
     st.title("분석 블록 생성기")
+
+    # 블록 생성 성공 메시지 표시 (rerun 후)
+    if 'block_created_success' in st.session_state and st.session_state['block_created_success']:
+        success_info = st.session_state['block_created_success']
+        st.success(f"✅ 블록 '{success_info['name']}'이(가) 성공적으로 생성되었습니다!")
+
+        # 상세 정보 표시
+        with st.expander("생성된 블록 상세 정보", expanded=False):
+            st.write(f"**블록명:** {success_info['name']}")
+            st.write(f"**Signature:** {success_info.get('signature_name', 'N/A')}")
+            if success_info.get('db_saved'):
+                st.write("💾 데이터베이스에 저장됨")
+            if success_info.get('signature_code'):
+                st.code(success_info['signature_code'], language='python')
+
+        # 성공 상태 초기화
+        st.session_state['block_created_success'] = None
+
     st.markdown("---")
     
     # 기존 블록 로드 (prompt_processor의 함수 사용)
     existing_blocks = load_blocks_from_processor()  # 리스트 반환
+    
+    # 제외할 카테고리 목록
+    excluded_categories = {
+        'Phase 1 · 요구사항 정리',
+        'Phase 1 · 프로그램 설계',
+        'Phase 1 · 후보지 분석'
+    }
+    
+    # 기존 블록의 카테고리 중 제외 목록에 없는 것만 가져오기
     existing_categories = sorted({
         block.get("category")
         for block in existing_blocks
-        if isinstance(block, dict) and block.get("category")
+        if isinstance(block, dict) and block.get("category") and block.get("category") not in excluded_categories
     })
+    
+    # "기타" 카테고리 추가
+    if "기타" not in existing_categories:
+        existing_categories.append("기타")
     
     # 수정 모드 세션 상태 초기화
     if 'edit_mode' not in st.session_state:
@@ -291,7 +322,7 @@ def main():
 
         # 수정 모드 해제 버튼
         if st.session_state.edit_mode:
-            st.info(f"📝 수정 중: {st.session_state.edit_block_data.get('name', '')}")
+            st.info(f"수정 중: {st.session_state.edit_block_data.get('name', '')}")
             if st.button("수정 취소", type="secondary"):
                 st.session_state.edit_mode = False
                 st.session_state.edit_block_data = None
@@ -301,16 +332,16 @@ def main():
         if existing_blocks:
             for i, block in enumerate(existing_blocks):
                 block_name = block.get('name', 'Unknown')
-                block_source = "🗄️ DB" if block.get('_db_id') else "📄 File"
+                block_source = "[DB]" if block.get('_db_id') else "[File]"
 
                 # 공개 범위 아이콘
                 visibility = block.get('_visibility', 'personal')
                 visibility_icons = {
-                    'personal': '🔒',
-                    'team': '👥',
-                    'public': '🌐'
+                    'personal': '[개인]',
+                    'team': '[팀]',
+                    'public': '[공개]'
                 }
-                visibility_icon = visibility_icons.get(visibility, '🔒')
+                visibility_icon = visibility_icons.get(visibility, '[개인]')
 
                 with st.expander(f"{visibility_icon} {block_source} {block_name}"):
                     # 기본 정보
@@ -327,7 +358,7 @@ def main():
                     st.write(f"**공개 범위:** {visibility_labels.get(visibility, visibility)}")
 
                     # 블록 상세 보기 (RISEN 구조)
-                    with st.expander("📋 상세 보기", expanded=False):
+                    with st.expander("상세 보기", expanded=False):
                         # Role
                         if block.get('role'):
                             st.markdown("**역할 (Role):**")
@@ -407,14 +438,14 @@ def main():
                         col_edit, col_delete = st.columns(2)
 
                         with col_edit:
-                            if st.button("✏️ 수정", key=f"edit_{i}"):
+                            if st.button("수정", key=f"edit_{i}"):
                                 st.session_state.edit_mode = True
                                 st.session_state.edit_block_data = block.copy()
                                 st.session_state.edit_block_index = i
                                 st.rerun()
 
                         with col_delete:
-                            if st.button("🗑️ 삭제", key=f"delete_{i}"):
+                            if st.button("삭제", key=f"delete_{i}"):
                                 block_to_delete = existing_blocks[i]
                                 block_id = block_to_delete.get('id')
 
@@ -493,658 +524,927 @@ def main():
                     else:
                         # 권한 없는 경우 안내
                         if db_id:
-                            st.caption("🔒 다른 사용자가 생성한 블록입니다")
+                            st.caption("다른 사용자가 생성한 블록입니다")
                         else:
-                            st.caption("🔒 기존 시스템 블록 (수정 불가)")
+                            st.caption("기존 시스템 블록 (수정 불가)")
         else:
             st.info("생성된 블록이 없습니다.")
     
-    # 메인 컨텐츠 영역
-    col1, col2 = st.columns([2, 1])
+    # 메인 컨텐츠 영역 - 탭 구조
+    tab1, tab2 = st.tabs(["도움말", "블록 생성"])
+    
+    # 도움말 탭
+    with tab1:
+        # 블록 기반 분석 시스템 완전 가이드
+        st.title("블록(Block) 기반 분석 시스템 완전 가이드")
+        
+        st.info("이미지를 넘기면서 블록 생성 가이드를 확인하세요!")
+        
+        # 이미지 목록 - IMAGES 폴더의 10개 이미지
+        from pathlib import Path
+        images_dir = Path(__file__).parent.parent / "IMAGES"
+        
+        image_slides = [
+            {"path": images_dir / f"BLOCK_GUIDE_{i:02d}.png", "caption": f"가이드 {i}/10"}
+            for i in range(1, 11)
+        ]
+        
+        # 세션 상태 초기화
+        if 'slide_index' not in st.session_state:
+            st.session_state.slide_index = 0
+        
+        # 이미지 슬라이더 UI
+        if len(image_slides) > 0:
+            col1, col2, col3 = st.columns([1, 3, 1])
+            
+            with col1:
+                if st.button("◀ 이전", key="prev_slide", use_container_width=True):
+                    st.session_state.slide_index = (st.session_state.slide_index - 1) % len(image_slides)
+            
+            with col2:
+                st.markdown(f"<div style='text-align: center; color: #666;'>{st.session_state.slide_index + 1} / {len(image_slides)}</div>", unsafe_allow_html=True)
+            
+            with col3:
+                if st.button("다음 ▶", key="next_slide", use_container_width=True):
+                    st.session_state.slide_index = (st.session_state.slide_index + 1) % len(image_slides)
+            
+            # 현재 이미지 표시
+            current_slide = image_slides[st.session_state.slide_index]
+            current_index = st.session_state.slide_index
+            
+            try:
+                image_path = current_slide["path"]
+                
+                if image_path.exists():
+                    st.image(str(image_path), use_container_width=True)
+                else:
+                    st.error(f"이미지를 찾을 수 없습니다: {image_path}")
+                    st.info("IMAGES 폴더에 BLOCK_GUIDE_01.png ~ BLOCK_GUIDE_10.png 파일이 있는지 확인해주세요.")
+            except Exception as e:
+                st.error(f"이미지를 표시할 수 없습니다: {e}")
+                st.info("IMAGES 폴더 경로와 파일을 확인해주세요.")
+            
+            # 각 이미지별 설명
+            st.markdown("---")
+            
+            if current_index == 0:  # 슬라이드 1: 블록이란 무엇인가?
+                st.header("블록이란 무엇인가?")
+                st.info("""
+                **블록(Block)**은 하나의 독립적인 분석 작업 단위입니다. 마치 레고 블록처럼, 여러 개의 블록을 조합하여 
+                복잡한 도시 프로젝트 분석 시스템을 구축할 수 있습니다.
+                """)
+                
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.success("**하나의 블록**")
+                    st.write("= 하나의 전문가")
+                    st.write("= 하나의 특정 분석")
+                
+                with col2:
+                    st.markdown("""
+                    예를 들어, 도시 재개발 프로젝트를 분석한다면:
+                    - **블록 1**: 환경 영향 평가 전문가
+                    - **블록 2**: 교통 영향 분석 전문가
+                    - **블록 3**: 사회경제적 영향 분석 전문가
+                    - **블록 4**: 종합 의사결정 지원 전문가
+                    """)
+            
+            elif current_index == 1:  # 슬라이드 2: 블록 시스템의 구조
+                st.header("블록 시스템의 구조")
+                
+                st.subheader("블록의 특징")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.success("**1. 독립성**")
+                    st.caption("각 블록은 독립적으로 작동하며, 자신의 전문 분야에만 집중합니다.")
+                    
+                    st.success("**2. 재사용성**")
+                    st.caption("한 번 만든 블록은 다른 프로젝트에서도 재사용할 수 있습니다.")
+                
+                with col2:
+                    st.success("**3. 연결성**")
+                    st.caption("블록의 출력을 다른 블록의 입력으로 연결하여 복잡한 분석 파이프라인을 구성할 수 있습니다.")
+                    
+                    st.success("**4. 확장성**")
+                    st.caption("필요에 따라 블록을 추가하거나 제거하여 시스템을 쉽게 확장할 수 있습니다.")
+            
+            elif current_index == 2:  # 슬라이드 3: RISEN 프레임워크
+                st.header("RISEN 프레임워크")
 
-    with col1:
+                st.info("""
+                각 블록의 내부는 **RISEN 프레임워크**로 구성됩니다.
+                RISEN은 AI가 정확하고 일관되게 분석을 수행하도록 돕는 5가지 핵심 요소입니다.
+                """)
+
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.markdown("### R")
+                    st.caption("**Role**\n역할")
+                with col2:
+                    st.markdown("### I")
+                    st.caption("**Instructions**\n지시사항")
+                with col3:
+                    st.markdown("### S")
+                    st.caption("**Steps**\n단계")
+                with col4:
+                    st.markdown("### E")
+                    st.caption("**End Goal**\n최종 목표")
+                with col5:
+                    st.markdown("### N")
+                    st.caption("**Narrowing**\n구체화")
+            
+            elif current_index == 3:  # 슬라이드 4: Role (역할)
+                st.header("Role (역할) - '당신은 누구입니까?'")
+                
+                st.markdown("""
+                블록이 수행할 **전문가 역할**을 명확히 정의합니다. 
+                역할이 구체적일수록 AI의 응답 품질이 높아집니다.
+                """)
+                
+                st.subheader("작성 원칙")
+                st.markdown("""
+                - **구체적인 전문 분야 명시**: "전문가"보다는 "도시 환경 영향 평가 전문가"
+                - **수행할 작업의 범위 포함**: 역할에 주요 책임을 간단히 포함
+                - **도시 프로젝트 맥락 반영**: 도시 계획, 지속가능성, 사회적 영향 등의 관점
+                """)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.success("#### 좋은 예시")
+                    st.code("""
+"도시 환경 영향 평가 전문가로서, 
+재개발 프로젝트가 지역 생태계, 
+대기 질, 소음 수준에 미치는 영향을 
+과학적으로 분석하고 평가하는 
+역할을 수행합니다"
+                    """)
+                
+                with col2:
+                    st.error("#### 나쁜 예시")
+                    st.code('"분석 전문가"')
+                    st.caption("너무 일반적이고 불명확")
+            
+            elif current_index == 4:  # 슬라이드 5: Instructions (지시사항)
+                st.header("Instructions (지시사항) - '정확히 무엇을 해야 합니까?'")
+                
+                st.markdown("""
+                역할이 **구체적으로 수행해야 할 작업**을 명시합니다. 모호함이 없어야 합니다.
+                """)
+                
+                st.subheader("작성 원칙")
+                st.markdown("""
+                - **동사 중심으로 작성**: "식별하고", "분류하며", "평가하고", "도출합니다"
+                - **입력과 출력을 명확히**: 무엇을 받아서 무엇을 만드는지
+                - **작업 범위 한정**: 해야 할 일과 하지 말아야 할 일을 구분
+                """)
+                
+                st.success("#### 좋은 예시")
+                st.code("""
+"제공된 도시 재개발 문서에서 다음을 수행합니다:
+1) 환경 영향 요인들(대기질, 소음, 녹지 면적)을 식별하고
+2) 각 요인의 현재 상태와 예상 변화를 정량적으로 분석하며
+3) 환경 기준 충족 여부를 평가하고
+4) 완화 방안과 개선 권고사항을 도출합니다"
+                """)
+            
+            elif current_index == 5:  # 슬라이드 6: Steps (단계)
+                st.header("Steps (단계) - '어떤 순서로 진행합니까?'")
+                
+                st.markdown("""
+                분석을 **논리적인 단계**로 나누어 순차적으로 수행하도록 합니다. 
+                이는 AI가 체계적으로 사고하도록 돕습니다.
+                """)
+                
+                st.subheader("작성 원칙")
+                st.markdown("""
+                - **논리적 순서**: 각 단계가 이전 단계의 결과를 기반으로 진행
+                - **단계당 하나의 명확한 목표**: 각 단계는 하나의 구체적인 작업에 집중
+                - **3-5단계 권장**: 너무 세분화하면 복잡하고, 너무 단순하면 비효율적
+                """)
+                
+                st.success("**단계 예시**")
+                st.markdown("""
+                1. **데이터 수집 및 정리** - 문서에서 환경 관련 수치 데이터 추출
+                2. **정량적 분석** - 각 지표의 변화율 계산 및 기준과 비교
+                3. **영향 평가** - 긍정적/부정적 영향 분류 및 심각도 등급화
+                4. **완화 방안 도출** - 구체적 완화 방안 제시 및 우선순위 설정
+                """)
+            
+            elif current_index == 6:  # 슬라이드 7: End Goal (최종 목표)
+                st.header("End Goal (최종 목표) - '무엇을 달성해야 합니까?'")
+                
+                st.markdown("""
+                블록이 **최종적으로 만들어내야 할 결과**와 그것이 
+                **누구에게 어떤 가치를 제공하는지**를 명시합니다.
+                """)
+                
+                st.subheader("작성 원칙")
+                st.markdown("""
+                - **구체적인 산출물 명시**: "보고서"보다는 "5개 섹션으로 구성된 환경 영향 평가 보고서"
+                - **사용자와 목적 명시**: 누가 이 결과를 어떻게 사용할 것인가
+                - **가치 제안 포함**: 이 결과가 왜 중요하고 어떤 도움이 되는가
+                """)
+                
+                st.success("#### 좋은 예시")
+                st.code("""
+"도시 재개발 프로젝트의 환경 영향을 정량적으로 평가하여, 
+프로젝트 관리자와 의사결정자들이 환경 리스크를 명확히 이해하고 
+적절한 완화 조치를 수립할 수 있도록 지원합니다."
+                """)
+            
+            elif current_index == 7:  # 슬라이드 8: Narrowing (구체화)
+                st.header("Narrowing (구체화) - '어떤 형식과 제약이 있습니까?'")
+                
+                st.markdown("""
+                **출력 형식, 필수 포함 항목, 제약 조건, 품질 기준**을 명확히 정의합니다. 
+                이는 일관성 있는 결과를 보장합니다.
+                """)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.info("**출력 형식**")
+                    st.caption("- 구조화된 보고서\n- 표와 그래프 활용\n- 명확한 섹션 구분")
+                    
+                    st.info("**필수 항목**")
+                    st.caption("- 반드시 포함할 내용\n- 최소 개수 명시\n- 구체적 요구사항")
+                
+                with col2:
+                    st.info("**제약 조건**")
+                    st.caption("- 사용 가능한 데이터\n- 하지 말아야 할 것\n- 준수 법규")
+                    
+                    st.info("**품질 기준**")
+                    st.caption("- 근거 제시 방법\n- 신뢰성 확보\n- 검증 가능성")
+            
+            elif current_index == 8:  # 슬라이드 9: 실전 예시 + 블록 간 연결하기
+                st.header("실전 예시")
+                
+                st.success("**환경 영향 평가 블록**")
+                st.markdown("""
+                **Role**: 도시 환경 영향 평가 전문가로서, 재개발 프로젝트가 지역 생태계,
+                대기 질, 소음 수준에 미치는 영향을 과학적으로 분석하고 평가
+
+                **Instructions**: 환경 관련 정량 데이터를 추출하고, 현재 상태와 예상 상태를 비교 분석하며,
+                환경 법규 기준과 대조하여 충족 여부를 판정
+
+                **Steps**:
+                1. 환경 데이터 추출 및 정리
+                2. 정량적 비교 분석
+                3. 영향 범위 및 심각도 평가
+                4. 완화 및 강화 방안 도출
+                """)
+                
+                st.markdown("---")
+                
+                st.header("블록 간 연결하기")
+                
+                st.info("""
+                블록은 독립적으로도 사용할 수 있지만, 여러 블록을 연결하여 
+                복잡한 분석 파이프라인을 구축할 수 있습니다.
+                """)
+                
+                st.subheader("연결 예시: 도시 재개발 종합 분석")
+                
+                st.code("""
+입력: 재개발 계획서
+       ↓
+┌──────────────────┐
+│  블록 1: 환경    │ → 환경 영향 보고서
+│  영향 평가       │
+└──────────────────┘
+       ↓
+┌──────────────────┐
+│  블록 2: 교통    │ → 교통 영향 보고서
+│  영향 분석       │
+└──────────────────┘
+       ↓
+┌──────────────────┐
+│  블록 3: 사회경제│ → 사회경제 영향 보고서
+│  영향 분석       │
+└──────────────────┘
+       ↓
+┌──────────────────┐
+│  블록 4: 종합    │ → 최종 의사결정 지원 보고서
+│  의사결정 지원   │
+└──────────────────┘
+       ↓
+최종 출력: 종합 평가 및 권고안
+                """, language="text")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.success("**순차 실행**")
+                    st.caption("각 블록이 순서대로\n실행되며 결과 전달")
+                with col2:
+                    st.success("**데이터 흐름**")
+                    st.caption("이전 블록의 출력이\n다음 블록의 입력")
+                with col3:
+                    st.success("**종합 분석**")
+                    st.caption("여러 관점의 분석을\n하나로 통합")
+            
+            elif current_index == 9:  # 슬라이드 10: 블록 작성 팁 + 연습 워크플로우
+                st.header("블록 작성 실전 팁")
+
+                st.subheader("효과적인 블록 작성을 위한 핵심 원칙")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.success("**1. 하나의 블록 = 하나의 전문가**")
+                    st.success("**2. 구체성이 핵심**")
+                    st.success("**3. 도시 프로젝트 맥락 반영**")
+                    st.success("**4. 단계는 3-5개가 적절**")
+                    st.success("**5. 사용자와 목적을 명확히**")
+                
+                with col2:
+                    st.success("**6. 출력 형식을 상세히**")
+                    st.success("**7. 제약 조건을 명확히**")
+                    st.success("**8. 품질 기준을 측정 가능하게**")
+                    st.success("**9. 정량적 요소 포함**")
+                    st.success("**10. 검증 가능하게 작성**")
+                
+                st.markdown("---")
+                
+                st.header("블록 작성 연습 워크플로우")
+                
+                st.info("초보자를 위한 단계별 가이드 - 따라하면서 배우세요!")
+                
+                with st.expander("Step 1: 분석 주제 명확히 하기", expanded=False):
+                    st.markdown("""
+                    **질문:**
+                    - 어떤 도시 프로젝트를 분석하는가?
+                    - 어떤 측면을 분석하는가? (환경? 교통? 경제?)
+                    
+                    **예시:** "강남구 주거 재개발 프로젝트의 교통 영향"
+                    """)
+                
+                with st.expander("Step 2: 역할(Role) 작성하기", expanded=False):
+                    st.markdown("**템플릿:**")
+                    st.code("""
+"[전문 분야] 전문가로서, [대상]에 대한 [분석 유형]을 수행하여 
+[목적]을 달성하는 역할을 수행합니다"
+                    """, language="text")
+                    
+                    st.markdown("**연습:**")
+                    st.code("""
+"교통 공학 전문가로서, 강남구 주거 재개발 프로젝트에 대한 
+교통 영향 분석을 수행하여 교통 혼잡 완화 방안을 제시하는 
+역할을 수행합니다"
+                    """, language="text")
+                
+                with st.expander("Step 3: 지시사항(Instructions) 작성하기", expanded=False):
+                    st.markdown("""
+                    **자문:**
+                    - 입력 데이터는 무엇인가?
+                    - 구체적으로 무엇을 해야 하는가? (동사 중심)
+                    - 최종 출력물은 무엇인가?
+                    """)
+                    
+                    st.markdown("**연습:**")
+                    st.code("""
+"제공된 교통 영향 평가서를 기반으로:
+1) 예상 교통량 증가를 정량적으로 분석하고
+2) 주요 교차로의 서비스 수준 변화를 평가하며
+3) 교통 혼잡 완화를 위한 구체적 개선 방안을 도출합니다"
+                    """, language="text")
+                
+                with st.expander("Step 4: 단계(Steps) 작성하기", expanded=False):
+                    st.markdown("""
+                    **원칙:**
+                    - 논리적 순서: 데이터 수집 → 분석 → 평가 → 방안 도출
+                    - 각 단계는 구체적인 작업 포함
+                    - 3-5단계 권장
+                    
+                    **연습:**
+                    """)
+                    
+                    st.code("""
+단계 1: 교통 수요 예측
+- 세대수로부터 일일 교통 발생량 산출
+- 첨두시 교통량 계산
+- 수단 분담률 적용
+
+단계 2: 서비스 수준 분석
+- 주요 교차로 V/C비 계산
+- LOS 등급 판정
+- 혼잡 구간 식별
+
+단계 3: 개선 방안 도출
+- 신호 체계 개선 방안
+- 도로 확장 필요성 평가
+- 우선순위 및 예산 추정
+                    """, language="text")
+                
+                with st.expander("Step 5: 최종 목표(End Goal) 작성하기", expanded=False):
+                    st.markdown("**템플릿:**")
+                    st.code("""
+"[분석 대상]을 [분석 방법]하여, [사용자]가 [활용 목적]을 
+달성할 수 있도록 지원합니다. 최종 결과물은 [구성요소]를 
+포함한 [산출물 형태]입니다."
+                    """, language="text")
+                    
+                    st.markdown("**연습:**")
+                    st.code("""
+"강남구 주거 재개발 프로젝트의 교통 영향을 정량적으로 분석하여, 
+프로젝트 관리자와 구청이 교통 혼잡을 최소화하는 개선 방안을 
+수립할 수 있도록 지원합니다. 최종 결과물은 교통량 예측, 
+서비스 수준 분석, 구체적인 개선 방안을 포함한 종합 교통 영향 
+분석 보고서입니다."
+                    """, language="text")
+                
+                with st.expander("Step 6: 구체화(Narrowing) 작성하기", expanded=False):
+                    st.markdown("**4가지 핵심 요소:**")
+                    
+                    st.markdown("**1. 출력 형식**")
+                    st.code("""
+- 4개 장으로 구성된 보고서
+- 교통량 비교표 (현재/개발후)
+- LOS 등급 표 및 위치 지도
+                    """, language="text")
+                    
+                    st.markdown("**2. 필수 포함 항목**")
+                    st.code("""
+- 일일 및 첨두시 교통 발생량
+- 주요 교차로 5개 이상의 LOS 등급
+- LOS D 이하 구간에 대한 개선 방안
+                    """, language="text")
+                    
+                    st.markdown("**3. 제약 조건**")
+                    st.code("""
+- 한국 도로용량편람 기준 적용
+- 제공된 평가서 데이터만 사용
+- 실행 가능한 방안만 제시
+                    """, language="text")
+                    
+                    st.markdown("**4. 품질 기준**")
+                    st.code("""
+- 교통량 산출 근거 명시
+- V/C비 계산 과정 표로 제시
+- 각 개선 방안에 효과, 비용, 기간 포함
+                    """, language="text")
+                
+                st.success("이제 '블록 생성' 탭으로 이동하여 여러분만의 첫 번째 블록을 만들어보세요!")
+    
+    # 블록 생성 탭
+    with tab2:
         # 수정 모드 여부에 따라 헤더 변경
         if st.session_state.edit_mode and st.session_state.edit_block_data:
-            st.header("📝 블록 수정")
+            st.header("블록 수정")
             edit_block = st.session_state.edit_block_data
             st.info(f"수정 중인 블록: **{edit_block.get('name', '')}**")
         else:
             st.header("새 블록 생성")
             edit_block = None
 
-        # 단계 개수 선택 (폼 밖에서 처리)
-        st.markdown("**단계 개수 설정**")
-
-        # 수정 모드일 때 기존 단계 수 사용
-        default_steps = len(edit_block.get('steps', [])) if edit_block and edit_block.get('steps') else 3
-
-        num_steps = st.number_input(
-            "단계 개수",
-            min_value=1,
-            max_value=10,
-            value=default_steps,
-            key="num_steps",
-            help="분석에 필요한 단계의 개수를 선택하세요"
-        )
-
-        # 블록 생성기 리셋 버튼 (폼 밖에 위치)
-        if st.button("🔄 블록 생성기 리셋", help="모든 입력값을 초기화하고 기본 설정으로 돌아갑니다"):
+        # 블록 생성기 리셋 버튼
+        if st.button("블록 생성기 리셋", help="모든 입력값을 초기화하고 기본 설정으로 돌아갑니다"):
             # 리셋 플래그 설정
             st.session_state['form_reset'] = True
             st.session_state.edit_mode = False
             st.session_state.edit_block_data = None
+            if 'confirmed_num_steps' in st.session_state:
+                del st.session_state['confirmed_num_steps']
             st.rerun()
 
-        # 블록 정보 입력 폼
-        with st.form("block_creation_form"):
-            # 리셋 플래그 확인 및 처리
-            reset_form = st.session_state.get('form_reset', False)
-            if reset_form:
-                st.session_state['form_reset'] = False
-                st.session_state.edit_mode = False
-                st.session_state.edit_block_data = None
-                # 모든 폼 관련 세션 상태 초기화
-                for key in list(st.session_state.keys()):
-                    if key.startswith(('step_', 'block_', 'role_', 'instructions_', 'end_goal_', 'output_format_', 'required_items_', 'constraints_', 'quality_standards_', 'evaluation_criteria_', 'scoring_system_', 'custom_id_', 'num_steps')):
-                        del st.session_state[key]
+        # 리셋 플래그 확인
+        reset_form = st.session_state.get('form_reset', False)
+        if reset_form:
+            st.session_state['form_reset'] = False
+            st.session_state.edit_mode = False
+            st.session_state.edit_block_data = None
+            # 모든 폼 관련 세션 상태 초기화
+            for key in list(st.session_state.keys()):
+                if key.startswith(('step_', 'block_', 'role_', 'instructions_', 'end_goal_', 'output_format_', 'required_items_', 'constraints_', 'quality_standards_', 'evaluation_criteria_', 'scoring_system_', 'custom_id_', 'num_steps')):
+                    del st.session_state[key]
 
-            # 블록 이름 (수정 모드일 때 기존 값 표시)
-            block_name = st.text_input(
-                "블록 이름",
-                placeholder="예: 도시 재개발 사회경제적 영향 분석",
-                help="블록의 표시 이름을 입력하세요.",
-                value=edit_block.get('name', '') if edit_block else ("" if reset_form else None)
-            )
-            
-            # 블록 설명
-            block_description = st.text_area(
-                "블록 설명",
-                placeholder="예: 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가합니다",
-                help="블록의 기능을 설명하는 간단한 문장을 입력하세요.",
-                value=edit_block.get('description', '') if edit_block else ("" if reset_form else None)
-            )
-            
-            category_prompt = "새 카테고리 입력"
-            category_options = [category_prompt] + existing_categories
+        # 블록 이름 (수정 모드일 때 기존 값 표시)
+        block_name = st.text_input(
+            "블록 이름",
+            placeholder="예: 도시 재개발 사회경제적 영향 분석",
+            help="블록의 표시 이름을 입력하세요.",
+            value=edit_block.get('name', '') if edit_block else ("" if reset_form else None)
+        )
+        
+        # 블록 설명
+        block_description = st.text_area(
+            "블록 설명",
+            placeholder="예: 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가합니다",
+            help="블록의 기능을 설명하는 간단한 문장을 입력하세요.",
+            value=edit_block.get('description', '') if edit_block else ("" if reset_form else None)
+        )
+        
+        # 카테고리 선택 (고정 목록)
+        if not existing_categories:
+            existing_categories = ["기타"]
+        
+        # 수정 모드일 때 기존 카테고리 인덱스 찾기
+        if edit_block and edit_block.get('category') in existing_categories:
+            default_category_index = existing_categories.index(edit_block.get('category'))
+        else:
+            default_category_index = 0
 
-            # 수정 모드일 때 기존 카테고리 인덱스 찾기
-            if edit_block and edit_block.get('category') in existing_categories:
-                default_category_index = existing_categories.index(edit_block.get('category')) + 1
+        category_value = st.selectbox(
+            "카테고리",
+            options=existing_categories,
+            index=default_category_index,
+            help="블록의 카테고리를 선택하세요."
+        )
+        
+        # RISEN 구조 입력
+        st.subheader("RISEN 프롬프트 구조")
+        
+        # Role (역할)
+        role = st.text_area(
+            "역할 (Role)",
+            placeholder="도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다",
+            height=80,
+            help="AI가 수행할 전문가 역할을 정의해주세요.",
+            value=edit_block.get('role', '') if edit_block else ("" if reset_form else None)
+        )
+
+        # Instructions (지시)
+        instructions = st.text_area(
+            "지시 (Instructions)",
+            placeholder="제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다",
+            height=80,
+            help="AI에게 수행해야 할 작업의 구체적인 지시사항을 작성해주세요.",
+            value=edit_block.get('instructions', '') if edit_block else ("" if reset_form else None)
+        )
+        
+        # 단계 개수 설정
+        st.markdown("---")
+        
+        # 수정 모드일 때 기존 단계 수 사용
+        default_steps = len(edit_block.get('steps', [])) if edit_block and edit_block.get('steps') else 3
+        
+        # session_state에 단계 개수 초기화
+        if 'confirmed_num_steps' not in st.session_state:
+            st.session_state.confirmed_num_steps = default_steps
+        
+        # 단계 개수 선택 및 확인 버튼
+        st.markdown("**단계 개수 설정**")
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            selected_steps = st.selectbox(
+                "단계 (Steps) 개수",
+                options=list(range(1, 11)),
+                index=st.session_state.confirmed_num_steps - 1 if 1 <= st.session_state.confirmed_num_steps <= 10 else 2,
+                key="temp_num_steps",
+                help="분석에 필요한 단계의 개수를 선택하고 확인 버튼을 누르세요"
+            )
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("✓ 확인", key="confirm_steps", use_container_width=True, type="primary"):
+                st.session_state.confirmed_num_steps = selected_steps
+                st.success("적용됨!")
+                st.rerun()
+        
+        num_steps = st.session_state.confirmed_num_steps
+        st.info(f"총 **{num_steps}개**의 단계를 작성합니다")
+        
+        # Steps (단계) 입력
+        st.markdown("---")
+        st.markdown(f"**단계 (Steps) - {num_steps}개**")
+        st.caption("각 단계의 구체적인 내용을 작성하세요")
+
+        # 수정 모드일 때 기존 단계 가져오기
+        edit_steps = edit_block.get('steps', []) if edit_block else []
+
+        # 단계 입력 필드들을 동적으로 생성
+        steps = []
+        for i in range(num_steps):
+            # 수정 모드일 때 기존 값 사용
+            if edit_block and i < len(edit_steps):
+                default_value = edit_steps[i]
             else:
-                default_category_index = 1 if len(category_options) > 1 else 0
+                default_value = "" if reset_form else None
 
-            category_choice = st.selectbox(
-                "카테고리",
-                options=category_options,
-                index=default_category_index,
-                help="기존 카테고리를 선택하거나 새 카테고리를 입력하세요."
-            )
-            if category_choice == category_prompt:
-                category_value = st.text_input(
-                    "새 카테고리",
-                    placeholder="예: Phase 1 · 후보지 분석",
-                    help="블록을 묶을 새 카테고리를 직접 입력하세요."
-                ).strip()
+            # 실제 예시 placeholder 설정
+            if i == 0:
+                placeholder = "사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출"
+            elif i == 1:
+                placeholder = "영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리"
+            elif i == 2:
+                placeholder = "종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시"
             else:
-                category_value = category_choice.strip()
-            
-            # RISEN 구조 입력
-            st.subheader("RISEN 프롬프트 구조")
-            
-            # Role (역할)
-            role = st.text_area(
-                "역할 (Role)",
-                placeholder="도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다",
-                height=80,
-                help="AI가 수행할 전문가 역할을 정의해주세요.",
-                value=edit_block.get('role', '') if edit_block else ("" if reset_form else None)
+                placeholder = f"단계 {i+1} 내용 - 구체적 지시사항"
+
+            step_text = st.text_input(
+                f"단계 {i+1}",
+                placeholder=placeholder,
+                key=f"step_{i}",
+                help=f"단계 {i+1}의 구체적인 내용을 입력하세요",
+                value=default_value
+            )
+            if step_text and step_text.strip():
+                steps.append(step_text.strip())
+        
+        # 단계 미리보기
+        if steps:
+            with st.expander("입력된 단계 미리보기", expanded=False):
+                for i, step in enumerate(steps, 1):
+                    st.write(f"**{i}단계:** {step}")
+        
+        # 단계 개수 변경 안내
+        if num_steps > 3:
+            st.info(f"{num_steps}개의 단계를 설정했습니다. 각 단계를 구체적으로 작성해주세요.")
+        
+        # End Goal (최종 목표)
+        end_goal = st.text_area(
+            "최종 목표 (End Goal)",
+            placeholder="도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다",
+            height=80,
+            help="이 분석을 통해 달성하고자 하는 최종 목표를 명시해주세요.",
+            value=edit_block.get('end_goal', '') if edit_block else ("" if reset_form else None)
+        )
+        
+        # Narrowing (구체화/제약 조건)
+        st.markdown("**구체화/제약 조건 (Narrowing)**")
+
+        # 수정 모드일 때 기존 narrowing 값 가져오기
+        edit_narrowing = edit_block.get('narrowing', {}) if edit_block else {}
+
+        col_narrowing1, col_narrowing2 = st.columns(2)
+
+        with col_narrowing1:
+            # 출력 형식
+            default_output_format = edit_narrowing.get('output_format', '') if edit_block else ("" if reset_form else "표와 차트를 포함한 구조화된 보고서 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수")
+            output_format = st.text_input(
+                "출력 형식",
+                value=default_output_format,
+                help="분석 결과의 출력 형식을 지정해주세요."
             )
 
-            # Instructions (지시)
-            instructions = st.text_area(
-                "지시 (Instructions)",
-                placeholder="제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다",
-                height=80,
-                help="AI에게 수행해야 할 작업의 구체적인 지시사항을 작성해주세요.",
-                value=edit_block.get('instructions', '') if edit_block else ("" if reset_form else None)
+            # 필수 항목
+            default_required_items = edit_narrowing.get('required_items', '') if edit_block else ("" if reset_form else None)
+            required_items = st.text_input(
+                "필수 항목/섹션",
+                placeholder="긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항",
+                help="분석 결과에 반드시 포함되어야 할 항목들을 나열해주세요.",
+                value=default_required_items
             )
-            
-            # Steps (단계)
-            st.markdown("**단계 (Steps)**")
 
-            # 수정 모드일 때 기존 단계 가져오기
-            edit_steps = edit_block.get('steps', []) if edit_block else []
-
-            # 단계 입력 필드들을 동적으로 생성
-            steps = []
-            for i in range(num_steps):
-                # 수정 모드일 때 기존 값 사용
-                if edit_block and i < len(edit_steps):
-                    default_value = edit_steps[i]
-                else:
-                    default_value = "" if reset_form else None
-
-                # 실제 예시 placeholder 설정
-                if i == 0:
-                    placeholder = "사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출"
-                elif i == 1:
-                    placeholder = "영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리"
-                elif i == 2:
-                    placeholder = "종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시"
-                else:
-                    placeholder = f"단계 {i+1} 내용 - 구체적 지시사항"
-
-                step_text = st.text_input(
-                    f"단계 {i+1}",
-                    placeholder=placeholder,
-                    key=f"step_{i}",
-                    help=f"단계 {i+1}의 구체적인 내용을 입력하세요",
-                    value=default_value
-                )
-                if step_text and step_text.strip():
-                    steps.append(step_text.strip())
-            
-            # 단계 미리보기
-            if steps:
-                with st.expander("입력된 단계 미리보기", expanded=False):
-                    for i, step in enumerate(steps, 1):
-                        st.write(f"**{i}단계:** {step}")
-            
-            # 단계 개수 변경 안내
-            if num_steps > 3:
-                st.info(f"{num_steps}개의 단계를 설정했습니다. 각 단계를 구체적으로 작성해주세요.")
-            
-            # End Goal (최종 목표)
-            end_goal = st.text_area(
-                "최종 목표 (End Goal)",
-                placeholder="도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다",
-                height=80,
-                help="이 분석을 통해 달성하고자 하는 최종 목표를 명시해주세요.",
-                value=edit_block.get('end_goal', '') if edit_block else ("" if reset_form else None)
+            # 제약 조건
+            default_constraints = edit_narrowing.get('constraints', '') if edit_block else ("" if reset_form else "문서에 명시된 데이터만 사용, 추측 금지")
+            constraints = st.text_input(
+                "제약 조건",
+                value=default_constraints,
+                help="분석 시 준수해야 할 제약 조건을 명시해주세요."
             )
-            
-            # Narrowing (구체화/제약 조건)
-            st.markdown("**구체화/제약 조건 (Narrowing)**")
 
-            # 수정 모드일 때 기존 narrowing 값 가져오기
-            edit_narrowing = edit_block.get('narrowing', {}) if edit_block else {}
+        with col_narrowing2:
+            # 품질 기준
+            default_quality = edit_narrowing.get('quality_standards', '') if edit_block else ("" if reset_form else "각 결론에 근거 제시, 출처 명시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상")
+            quality_standards = st.text_input(
+                "품질 기준",
+                value=default_quality,
+                help="분석 결과의 품질 기준을 명시해주세요."
+            )
 
-            col_narrowing1, col_narrowing2 = st.columns(2)
+            # 평가 기준
+            default_eval = edit_narrowing.get('evaluation_criteria', '') if edit_block else ("" if reset_form else None)
+            evaluation_criteria = st.text_input(
+                "평가 기준/분석 영역",
+                placeholder="고용, 주거비, 상권 변화, 교통, 환경, 사회적 영향",
+                help="평가나 분석의 기준이나 영역을 명시해주세요.",
+                value=default_eval
+            )
 
-            with col_narrowing1:
-                # 출력 형식
-                default_output_format = edit_narrowing.get('output_format', '') if edit_block else ("" if reset_form else "표와 차트를 포함한 구조화된 보고서 + 각 표 하단에 상세 해설(4-8문장, 300-600자) + 모든 소제목별 서술형 설명(3-5문장, 200-400자) 필수")
-                output_format = st.text_input(
-                    "출력 형식",
-                    value=default_output_format,
-                    help="분석 결과의 출력 형식을 지정해주세요."
+            # 점수 체계
+            default_scoring = edit_narrowing.get('scoring_system', '') if edit_block else ("" if reset_form else "정량적 지표 기반 영향도 평가 + 가중치 적용 종합 점수 산출")
+            scoring_system = st.text_input(
+                "점수 체계/계산 방법",
+                value=default_scoring,
+                help="평가 점수 체계나 계산 방법을 명시해주세요."
+            )
+        
+        # 고급 옵션
+        with st.expander("고급 옵션"):
+            # 수정 모드일 때는 기존 ID 표시 (수정 불가)
+            if edit_block:
+                st.text_input(
+                    "블록 ID (수정 불가)",
+                    value=edit_block.get('id', ''),
+                    disabled=True
+                )
+                custom_id = edit_block.get('id', '')
+            else:
+                custom_id = st.text_input(
+                    "커스텀 ID (선택사항)",
+                    placeholder="자동 생성됩니다",
+                    help="블록의 고유 ID를 직접 지정할 수 있습니다. 비워두면 이름에서 자동 생성됩니다.",
+                    value="" if reset_form else None
                 )
 
-                # 필수 항목
-                default_required_items = edit_narrowing.get('required_items', '') if edit_block else ("" if reset_form else None)
-                required_items = st.text_input(
-                    "필수 항목/섹션",
-                    placeholder="긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항",
-                    help="분석 결과에 반드시 포함되어야 할 항목들을 나열해주세요.",
-                    value=default_required_items
+            # 공개 범위 옵션 (로그인한 경우만)
+            if AUTH_AVAILABLE and is_authenticated():
+                visibility_options = {
+                    "personal": "나만 보기 (비공개)",
+                    "team": "팀 공유",
+                    "public": "전체 공개"
+                }
+                visibility = st.selectbox(
+                    "공개 범위",
+                    options=list(visibility_options.keys()),
+                    format_func=lambda x: visibility_options[x],
+                    index=0,
+                    help="블록의 공개 범위를 설정합니다."
                 )
+            else:
+                visibility = "personal"
 
-                # 제약 조건
-                default_constraints = edit_narrowing.get('constraints', '') if edit_block else ("" if reset_form else "문서에 명시된 데이터만 사용, 추측 금지")
-                constraints = st.text_input(
-                    "제약 조건",
-                    value=default_constraints,
-                    help="분석 시 준수해야 할 제약 조건을 명시해주세요."
-                )
+        
+        # 제출 버튼 (수정 모드에 따라 텍스트 변경)
+        st.markdown("---")
+        submit_label = "블록 저장" if edit_block else "블록 생성"
+        submitted = st.button(submit_label, type="primary", use_container_width=True)
 
-            with col_narrowing2:
-                # 품질 기준
-                default_quality = edit_narrowing.get('quality_standards', '') if edit_block else ("" if reset_form else "각 결론에 근거 제시, 출처 명시 + 모든 표 하단에 상세 해설 필수 + 모든 소제목별 서술형 설명 필수 + 전체 분량 2000자 이상")
-                quality_standards = st.text_input(
-                    "품질 기준",
-                    value=default_quality,
-                    help="분석 결과의 품질 기준을 명시해주세요."
-                )
-
-                # 평가 기준
-                default_eval = edit_narrowing.get('evaluation_criteria', '') if edit_block else ("" if reset_form else None)
-                evaluation_criteria = st.text_input(
-                    "평가 기준/분석 영역",
-                    placeholder="고용, 주거비, 상권 변화, 교통, 환경, 사회적 영향",
-                    help="평가나 분석의 기준이나 영역을 명시해주세요.",
-                    value=default_eval
-                )
-
-                # 점수 체계
-                default_scoring = edit_narrowing.get('scoring_system', '') if edit_block else ("" if reset_form else "정량적 지표 기반 영향도 평가 + 가중치 적용 종합 점수 산출")
-                scoring_system = st.text_input(
-                    "점수 체계/계산 방법",
-                    value=default_scoring,
-                    help="평가 점수 체계나 계산 방법을 명시해주세요."
-                )
-            
-            # 고급 옵션
-            with st.expander("고급 옵션"):
-                # 수정 모드일 때는 기존 ID 표시 (수정 불가)
+        if submitted:
+            # 입력 검증
+            if not block_name or not block_name.strip():
+                st.error("블록 이름을 입력해주세요.")
+            elif not block_description or not block_description.strip():
+                st.error("블록 설명을 입력해주세요.")
+            elif not category_value:
+                st.error("카테고리를 선택하거나 입력해주세요.")
+            elif not role or not role.strip():
+                st.error("역할(Role)을 입력해주세요.")
+            elif not instructions or not instructions.strip():
+                st.error("지시(Instructions)를 입력해주세요.")
+            elif len(steps) == 0:
+                st.error("최소 하나의 단계를 입력해주세요.")
+            elif not end_goal or not end_goal.strip():
+                st.error("최종 목표(End Goal)를 입력해주세요.")
+            else:
+                # 수정 모드인 경우 기존 ID 사용
                 if edit_block:
-                    st.text_input(
-                        "블록 ID (수정 불가)",
-                        value=edit_block.get('id', ''),
-                        disabled=True
-                    )
-                    custom_id = edit_block.get('id', '')
+                    block_id = edit_block.get('id')
+                elif custom_id and custom_id.strip():
+                    block_id = custom_id.strip()
                 else:
-                    custom_id = st.text_input(
-                        "커스텀 ID (선택사항)",
-                        placeholder="자동 생성됩니다",
-                        help="블록의 고유 ID를 직접 지정할 수 있습니다. 비워두면 이름에서 자동 생성됩니다.",
-                        value="" if reset_form else None
-                    )
+                    block_id = generate_block_id(block_name)
 
-                # 공개 범위 옵션 (로그인한 경우만)
-                if AUTH_AVAILABLE and is_authenticated():
-                    visibility_options = {
-                        "personal": "나만 보기 (비공개)",
-                        "team": "팀 공유",
-                        "public": "전체 공개"
+                # 블록 이름 그대로 사용
+                final_name = block_name
+
+                # 중복 ID 체크 (수정 모드가 아닐 때만)
+                existing_ids = [block.get('id') for block in existing_blocks]
+                if not edit_block and block_id in existing_ids:
+                    st.error(f"ID '{block_id}'가 이미 존재합니다. 다른 이름을 사용하거나 커스텀 ID를 입력해주세요.")
+                else:
+                    # narrowing 객체 구성
+                    narrowing = {}
+                    if output_format and output_format.strip():
+                        narrowing['output_format'] = output_format.strip()
+                    if required_items and required_items.strip():
+                        narrowing['required_items'] = required_items.strip()
+                    if constraints and constraints.strip():
+                        narrowing['constraints'] = constraints.strip()
+                    if quality_standards and quality_standards.strip():
+                        narrowing['quality_standards'] = quality_standards.strip()
+                    if evaluation_criteria and evaluation_criteria.strip():
+                        narrowing['evaluation_criteria'] = evaluation_criteria.strip()
+                    if scoring_system and scoring_system.strip():
+                        narrowing['scoring_system'] = scoring_system.strip()
+                    
+                    # 블록 데이터 구성 (RISEN 구조)
+                    updated_block = {
+                        "id": block_id,
+                        "name": final_name,
+                        "description": block_description,
+                        "category": category_value,
+                        "role": role.strip(),
+                        "instructions": instructions.strip(),
+                        "steps": steps,
+                        "end_goal": end_goal.strip(),
+                        "narrowing": narrowing,
+                        "updated_at": datetime.now().isoformat(),
+                        "created_by": "user"
                     }
-                    visibility = st.selectbox(
-                        "공개 범위",
-                        options=list(visibility_options.keys()),
-                        format_func=lambda x: visibility_options[x],
-                        index=0,
-                        help="블록의 공개 범위를 설정합니다."
-                    )
-                else:
-                    visibility = "personal"
 
-            
-            # 제출 버튼 (수정 모드에 따라 텍스트 변경)
-            submit_label = "💾 블록 저장" if edit_block else "블록 생성"
-            submitted = st.form_submit_button(submit_label, type="primary")
+                    # 수정 모드일 때 기존 created_at 유지
+                    if edit_block and edit_block.get('created_at'):
+                        updated_block['created_at'] = edit_block.get('created_at')
+                    else:
+                        updated_block['created_at'] = datetime.now().isoformat()
 
-            if submitted:
-                # 입력 검증
-                if not block_name or not block_name.strip():
-                    st.error("블록 이름을 입력해주세요.")
-                elif not block_description or not block_description.strip():
-                    st.error("블록 설명을 입력해주세요.")
-                elif not category_value:
-                    st.error("카테고리를 선택하거나 입력해주세요.")
-                elif not role or not role.strip():
-                    st.error("역할(Role)을 입력해주세요.")
-                elif not instructions or not instructions.strip():
-                    st.error("지시(Instructions)를 입력해주세요.")
-                elif len(steps) == 0:
-                    st.error("최소 하나의 단계를 입력해주세요.")
-                elif not end_goal or not end_goal.strip():
-                    st.error("최종 목표(End Goal)를 입력해주세요.")
-                else:
-                    # 수정 모드인 경우 기존 ID 사용
+                    # 저장 로직: 수정 모드와 생성 모드 분기
+                    save_success = False
+                    db_saved = False
+
+                    # 수정 모드인 경우
                     if edit_block:
-                        block_id = edit_block.get('id')
-                    elif custom_id and custom_id.strip():
-                        block_id = custom_id.strip()
-                    else:
-                        block_id = generate_block_id(block_name)
+                        db_id = edit_block.get('_db_id')
 
-                    # 블록 이름 그대로 사용
-                    final_name = block_name
+                        # DB 블록 수정
+                        if db_id and AUTH_AVAILABLE and BLOCKS_DB_AVAILABLE:
+                            try:
+                                from blocks.block_manager import update_user_block
+                                from auth.authentication import get_current_user_id
 
-                    # 중복 ID 체크 (수정 모드가 아닐 때만)
-                    existing_ids = [block.get('id') for block in existing_blocks]
-                    if not edit_block and block_id in existing_ids:
-                        st.error(f"ID '{block_id}'가 이미 존재합니다. 다른 이름을 사용하거나 커스텀 ID를 입력해주세요.")
-                    else:
-                        # narrowing 객체 구성
-                        narrowing = {}
-                        if output_format and output_format.strip():
-                            narrowing['output_format'] = output_format.strip()
-                        if required_items and required_items.strip():
-                            narrowing['required_items'] = required_items.strip()
-                        if constraints and constraints.strip():
-                            narrowing['constraints'] = constraints.strip()
-                        if quality_standards and quality_standards.strip():
-                            narrowing['quality_standards'] = quality_standards.strip()
-                        if evaluation_criteria and evaluation_criteria.strip():
-                            narrowing['evaluation_criteria'] = evaluation_criteria.strip()
-                        if scoring_system and scoring_system.strip():
-                            narrowing['scoring_system'] = scoring_system.strip()
-                        
-                        # 블록 데이터 구성 (RISEN 구조)
-                        updated_block = {
-                            "id": block_id,
-                            "name": final_name,
-                            "description": block_description,
-                            "category": category_value,
-                            "role": role.strip(),
-                            "instructions": instructions.strip(),
-                            "steps": steps,
-                            "end_goal": end_goal.strip(),
-                            "narrowing": narrowing,
-                            "updated_at": datetime.now().isoformat(),
-                            "created_by": "user"
-                        }
-
-                        # 수정 모드일 때 기존 created_at 유지
-                        if edit_block and edit_block.get('created_at'):
-                            updated_block['created_at'] = edit_block.get('created_at')
-                        else:
-                            updated_block['created_at'] = datetime.now().isoformat()
-
-                        # 저장 로직: 수정 모드와 생성 모드 분기
-                        save_success = False
-                        db_saved = False
-
-                        # 수정 모드인 경우
-                        if edit_block:
-                            db_id = edit_block.get('_db_id')
-
-                            # DB 블록 수정
-                            if db_id and AUTH_AVAILABLE and BLOCKS_DB_AVAILABLE:
-                                try:
-                                    from blocks.block_manager import update_user_block
-                                    from auth.authentication import get_current_user_id
-
-                                    current_user_id = get_current_user_id()
-                                    if current_user_id and update_user_block(
-                                        db_id,
-                                        current_user_id,
-                                        name=final_name,
-                                        block_data=updated_block,
-                                        category=category_value
-                                    ):
-                                        save_success = True
-                                        db_saved = True
-                                        st.success(f"블록 '{final_name}'이 수정되었습니다!")
-                                except Exception as e:
-                                    st.error(f"블록 수정 오류: {e}")
-
-                            # blocks.json 블록 수정
-                            else:
-                                json_blocks = []
-                                try:
-                                    with open('blocks.json', 'r', encoding='utf-8') as f:
-                                        data = json.load(f)
-                                        json_blocks = data.get('blocks', [])
-                                except:
-                                    pass
-
-                                # 기존 블록 찾아서 업데이트
-                                for idx, b in enumerate(json_blocks):
-                                    if b.get('id') == block_id:
-                                        json_blocks[idx] = updated_block
-                                        break
-
-                                blocks_data = {"blocks": json_blocks}
-                                if save_blocks(blocks_data):
+                                current_user_id = get_current_user_id()
+                                if current_user_id and update_user_block(
+                                    db_id,
+                                    current_user_id,
+                                    name=final_name,
+                                    block_data=updated_block,
+                                    category=category_value
+                                ):
                                     save_success = True
+                                    db_saved = True
                                     st.success(f"블록 '{final_name}'이 수정되었습니다!")
+                            except Exception as e:
+                                st.error(f"블록 수정 오류: {e}")
 
-                            # 수정 모드 해제
-                            if save_success:
-                                st.session_state.edit_mode = False
-                                st.session_state.edit_block_data = None
-                                st.balloons()
-                                st.rerun()
-
-                        # 생성 모드인 경우
+                        # blocks.json 블록 수정
                         else:
-                            # 로그인한 경우: DB에 저장
-                            if AUTH_AVAILABLE and BLOCKS_DB_AVAILABLE and is_authenticated():
-                                user = get_current_user()
-                                if user:
-                                    visibility_enum = BlockVisibility(visibility) if visibility else BlockVisibility.PERSONAL
+                            json_blocks = []
+                            try:
+                                with open('blocks.json', 'r', encoding='utf-8') as f:
+                                    data = json.load(f)
+                                    json_blocks = data.get('blocks', [])
+                            except:
+                                pass
 
-                                    # 팀 공유인 경우 shared_with_teams에 현재 사용자의 팀 추가
-                                    shared_teams = []
-                                    if visibility == "team" and user.get("team_id"):
-                                        shared_teams = [user["team_id"]]
+                            # 기존 블록 찾아서 업데이트
+                            for idx, b in enumerate(json_blocks):
+                                if b.get('id') == block_id:
+                                    json_blocks[idx] = updated_block
+                                    break
 
-                                    new_db_id = create_user_block(
-                                        owner_id=user["id"],
-                                        name=final_name,
-                                        block_data=updated_block,
-                                        category=category_value,
-                                        visibility=visibility_enum,
-                                        shared_with_teams=shared_teams,
-                                        block_id=block_id
-                                    )
-                                    if new_db_id:
-                                        save_success = True
-                                        db_saved = True
-                                        st.success(f"블록 '{final_name}'이 데이터베이스에 저장되었습니다!")
-                                        visibility_msg = {"personal": "나만 볼 수 있음", "team": "팀 공유됨", "public": "전체 공개됨"}
-                                        st.info(f"공개 범위: {visibility_msg.get(visibility, visibility)}")
+                            blocks_data = {"blocks": json_blocks}
+                            if save_blocks(blocks_data):
+                                save_success = True
+                                st.success(f"블록 '{final_name}'이 수정되었습니다!")
 
-                            # 비로그인 또는 DB 저장 실패: blocks.json에 저장
-                            if not save_success:
-                                existing_blocks.append(updated_block)
-                                blocks_data = {"blocks": existing_blocks}
-                                if save_blocks(blocks_data):
+                        # 수정 모드 해제
+                        if save_success:
+                            st.session_state.edit_mode = False
+                            st.session_state.edit_block_data = None
+                            st.balloons()
+                            st.rerun()
+
+                    # 생성 모드인 경우
+                    else:
+                        # 로그인한 경우: DB에 저장
+                        if AUTH_AVAILABLE and BLOCKS_DB_AVAILABLE and is_authenticated():
+                            user = get_current_user()
+                            if user:
+                                visibility_enum = BlockVisibility(visibility) if visibility else BlockVisibility.PERSONAL
+
+                                # 팀 공유인 경우 shared_with_teams에 현재 사용자의 팀 추가
+                                shared_teams = []
+                                if visibility == "team" and user.get("team_id"):
+                                    shared_teams = [user["team_id"]]
+
+                                new_db_id = create_user_block(
+                                    owner_id=user["id"],
+                                    name=final_name,
+                                    block_data=updated_block,
+                                    category=category_value,
+                                    visibility=visibility_enum,
+                                    shared_with_teams=shared_teams,
+                                    block_id=block_id
+                                )
+                                if new_db_id:
                                     save_success = True
-
-                            if save_success:
-                                # DSPy Signature 자동 생성 (blocks.json 저장 시에만)
-                                signature_code = None
-                                signature_name = None
-
-                                if not db_saved:
-                                    signature_code, signature_name = generate_dspy_signature(
-                                        block_id, final_name, block_description
-                                    )
-
-                                    # dspy_analyzer.py 파일 업데이트
-                                    if update_dspy_analyzer(block_id, signature_code, signature_name):
-                                        st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
-                                        st.success(f"DSPy Signature '{signature_name}'도 자동으로 생성되었습니다!")
-                                    else:
-                                        st.success(f"블록 '{final_name}'이 성공적으로 생성되었습니다!")
-                                        st.warning("DSPy Signature 자동 생성에 실패했습니다.")
-                                else:
+                                    db_saved = True
                                     st.success(f"블록 '{final_name}'이 데이터베이스에 저장되었습니다!")
+                                    visibility_msg = {"personal": "나만 볼 수 있음", "team": "팀 공유됨", "public": "전체 공개됨"}
+                                    st.info(f"공개 범위: {visibility_msg.get(visibility, visibility)}")
 
-                                st.balloons()
+                        # 비로그인 또는 DB 저장 실패: blocks.json에 저장
+                        if not save_success:
+                            existing_blocks.append(updated_block)
+                            blocks_data = {"blocks": existing_blocks}
+                            if save_blocks(blocks_data):
+                                save_success = True
 
-                                # 생성된 블록 정보 표시
-                                with st.expander("생성된 블록 정보", expanded=True):
-                                    st.json(updated_block)
+                        if save_success:
+                            # DSPy Signature 자동 생성 (blocks.json 저장 시에만)
+                            signature_code = None
+                            signature_name = None
 
-                                # 생성된 DSPy Signature 코드 표시 (blocks.json 저장 시에만)
-                                if signature_code:
-                                    with st.expander("생성된 DSPy Signature", expanded=False):
-                                        st.code(signature_code, language="python")
+                            if not db_saved:
+                                signature_code, signature_name = generate_dspy_signature(
+                                    block_id, final_name, block_description
+                                )
 
-                                # 사이드바 새로고침을 위해 rerun
-                                st.rerun()
-                            else:
-                                st.error("블록 저장 중 오류가 발생했습니다.")
-    
-    with col2:
-        st.header("도움말")
-        
-        st.markdown("""
-        ### RISEN 프롬프트 구조 가이드
-        
-        **RISEN이란?**
-        - **R**ole (역할): AI가 수행할 전문가 역할
-        - **I**nstructions (지시): 구체적인 작업 지시사항
-        - **S**teps (단계): 단계별 분석 과정
-        - **E**nd Goal (최종 목표): 달성하고자 하는 결과
-        - **N**arrowing (구체화): 제약조건 및 출력 형식
-        
-        **🔧 자동 DSPy Signature 생성**
-        - 새 블록 생성 시 자동으로 DSPy Signature 클래스가 생성됩니다
-        - 블록 ID를 기반으로 고유한 Signature 클래스명이 생성됩니다
-        - 예: `my_analysis` → `MyAnalysisSignature`
-        - 삭제 시에도 자동으로 Signature가 제거됩니다
-        
-        **1. 역할 (Role) - 전문가 역할 정의**
-        ```
-        ✅ 좋은 예시:
-        "도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다"
-        
-        ❌ 나쁜 예시:
-        "분석 전문가"
-        ```
-        
-        **2. 지시 (Instructions) - 구체적인 작업 지시**
-        ```
-        ✅ 좋은 예시:
-        "제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다"
-        
-        ❌ 나쁜 예시:
-        "문서를 분석하세요"
-        ```
-        
-        **3. 단계 (Steps) - 논리적 분석 과정**
-        ```
-        ✅ 좋은 예시:
-        1. "사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출"
-        2. "영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리"
-        3. "종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시"
-        
-        ❌ 나쁜 예시:
-        1. "분석하기"
-        2. "결과 만들기"
-        ```
-        
-        **4. 최종 목표 (End Goal) - 달성하고자 하는 결과**
-        ```
-        ✅ 좋은 예시:
-        "도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다"
-        
-        ❌ 나쁜 예시:
-        "분석 결과를 제공합니다"
-        ```
-        
-        **5. 구체화/제약 조건 (Narrowing) - 출력 형식 및 기준**
-        ```
-        ✅ 좋은 예시:
-        - 출력 형식: "표와 차트를 포함한 구조화된 보고서"
-        - 필수 항목: "긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항"
-        - 제약 조건: "문서에 명시된 데이터만 사용, 추측 금지"
-        - 품질 기준: "각 결론에 근거 제시, 출처 명시"
-        
-        ❌ 나쁜 예시:
-        - 출력 형식: "보고서"
-        - 필수 항목: "결과"
-        ```
-        """)
-        
-        st.markdown("---")
-        
-        st.subheader("📖 실제 사용 예시")
-        
-        with st.expander("도시 재개발 프로젝트 분석 예시"):
-            st.markdown("""
-            **블록 이름:** 도시 재개발 사회경제적 영향 분석
-            
-            **역할 (Role):**
-            도시 계획 전문가로서 도시 재개발 프로젝트의 사회경제적 영향을 종합적으로 분석하고 평가하는 역할을 수행합니다
-            
-            **지시 (Instructions):**
-            제공된 도시 재개발 문서에서 사회경제적 영향 요인들을 식별하고, 긍정적/부정적 영향을 분류하며, 정량적 지표를 도출하여 종합 평가를 수행합니다
-            
-            **단계 (Steps):**
-            1. 사회경제적 영향 요인 식별 - 문서에서 고용, 주거비, 상권 변화 등 관련 정보 추출
-            2. 영향 분류 및 정량화 - 긍정적/부정적 영향을 구분하고 수치 데이터 정리
-            3. 종합 평가 및 권고사항 도출 - 분석 결과를 바탕으로 개선 방안 제시
-            
-            **최종 목표 (End Goal):**
-            도시 재개발 프로젝트의 사회경제적 영향을 체계적으로 분석하여 의사결정자들이 참고할 수 있는 종합적인 평가 보고서를 제공하고, 지속가능한 도시 발전을 위한 구체적인 권고사항을 제시합니다
-            
-            **구체화/제약 조건 (Narrowing):**
-            - 출력 형식: 표와 차트를 포함한 구조화된 보고서
-            - 필수 항목: 긍정적 영향, 부정적 영향, 정량적 지표, 개선 권고사항
-            - 제약 조건: 문서에 명시된 데이터만 사용, 추측 금지
-            - 품질 기준: 각 결론에 근거 제시, 출처 명시
-            """)
-        
-        with st.expander("환경 영향 평가 예시"):
-            st.markdown("""
-            **블록 이름:** 도시 프로젝트 환경 영향 평가
-            
-            **역할 (Role):**
-            환경 전문가로서 도시 개발 프로젝트가 지역 환경에 미치는 영향을 과학적이고 객관적으로 평가하는 역할을 수행합니다
-            
-            **지시 (Instructions):**
-            제공된 도시 개발 문서에서 환경 관련 정보를 추출하고, 대기질, 수질, 생태계, 소음 등 다양한 환경 요소별로 영향을 분석하여 종합적인 환경 평가를 수행합니다
-            
-            **단계 (Steps):**
-            1. 환경 영향 요소 식별 - 대기, 수질, 토양, 생태계, 소음 등 영향 요소 파악
-            2. 영향 정도 평가 - 각 환경 요소별 영향의 규모와 심각도 분석
-            3. 완화 방안 도출 - 부정적 환경 영향을 최소화할 수 있는 대안 제시
-            
-            **최종 목표 (End Goal):**
-            도시 개발 프로젝트의 환경적 지속가능성을 확보할 수 있도록 환경 영향 평가 결과를 제공하고, 친환경적인 개발 방향을 제시합니다
-            
-            **구체화/제약 조건 (Narrowing):**
-            - 출력 형식: 환경 영향 매트릭스와 개선 방안 목록
-            - 필수 항목: 영향 요소별 분석, 영향 정도 평가, 완화 방안
-            - 제약 조건: 객관적 데이터 기반 평가, 환경 기준 준수
-            - 품질 기준: 환경 법규 및 기준 참조, 전문가 의견 반영
-            """)
-        
-        with st.expander("교통 영향 분석 예시"):
-            st.markdown("""
-            **블록 이름:** 도시 프로젝트 교통 영향 분석
-            
-            **역할 (Role):**
-            교통 전문가로서 도시 개발 프로젝트가 지역 교통 체계에 미치는 영향을 분석하고 교통 개선 방안을 제시하는 역할을 수행합니다
-            
-            **지시 (Instructions):**
-            제공된 도시 개발 문서에서 교통 관련 정보를 분석하고, 교통량 변화, 접근성 개선, 교통 혼잡도 등 다양한 교통 요소를 평가하여 종합적인 교통 영향 분석을 수행합니다
-            
-            **단계 (Steps):**
-            1. 교통 현황 파악 - 기존 교통 인프라 및 교통량 분석
-            2. 개발 영향 평가 - 프로젝트로 인한 교통량 변화 및 접근성 변화 분석
-            3. 교통 개선 방안 제시 - 교통 혼잡 완화 및 접근성 향상 방안 도출
-            
-            **최종 목표 (End Goal):**
-            도시 개발 프로젝트가 지역 교통 체계에 미치는 영향을 체계적으로 분석하여 교통 효율성을 높이고 주민들의 이동 편의성을 개선할 수 있는 구체적인 교통 개선 방안을 제시합니다
-            
-            **구체화/제약 조건 (Narrowing):**
-            - 출력 형식: 교통 영향 분석표와 개선 방안 도표
-            - 필수 항목: 교통량 변화, 접근성 분석, 혼잡도 평가, 개선 방안
-            - 제약 조건: 교통 데이터 기반 분석, 현실적 개선 방안
-            - 품질 기준: 교통 전문 지식 반영, 실현 가능성 검토
-            """)
-        
-        st.markdown("---")
-        
-        st.subheader("📝 작성 가이드라인")
-        
-        st.markdown("""
-        ### ✅ 효과적인 블록 작성 팁
-        
-        **1. 구체적이고 명확하게 작성하세요**
-        - 모호한 표현보다는 구체적인 용어 사용
-        - "분석하세요" → "식별하고 분류하며 평가하세요"
-        
-        **2. 도시 프로젝트에 특화된 내용으로 작성하세요**
-        - 건축 중심이 아닌 도시 계획 관점에서 접근
-        - 사회적, 경제적, 환경적 영향 고려
-        
-        **3. 단계는 논리적 순서로 구성하세요**
-        - 정보 수집 → 분석 → 평가 → 결론 도출
-        - 각 단계가 다음 단계의 기반이 되도록
-        
-        **4. 출력 형식을 구체적으로 명시하세요**
-        - "보고서" → "표와 차트를 포함한 구조화된 보고서"
-        - "분석 결과" → "긍정적/부정적 영향 분석표와 개선 권고사항"
-        
-        **5. 제약 조건을 명확히 하세요**
-        - 문서 기반 분석인지, 추가 조사가 필요한지
-        - 추측이나 가정의 범위 설정
-        
-        ### ❌ 피해야 할 표현들
-        
-        - "분석하세요", "검토하세요" (너무 일반적)
-        - "자세히", "구체적으로" (구체성이 부족)
-        - "적절한", "합리적인" (기준이 모호)
-        - "가능한 한", "최대한" (범위가 불분명)
-        """)
+                                # dspy_analyzer.py 파일 업데이트
+                                update_dspy_analyzer(block_id, signature_code, signature_name)
+
+                            # 성공 메시지를 세션에 저장 (rerun 후에도 표시)
+                            st.session_state['block_created_success'] = {
+                                'name': final_name,
+                                'db_saved': db_saved,
+                                'signature_name': signature_name,
+                                'block_data': updated_block,
+                                'signature_code': signature_code
+                            }
+
+                            # 사이드바 새로고침을 위해 즉시 rerun
+                            st.rerun()
+                        else:
+                            st.error("블록 저장 중 오류가 발생했습니다.")
 
 if __name__ == "__main__":
     main()

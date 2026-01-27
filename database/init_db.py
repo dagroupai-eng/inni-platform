@@ -70,12 +70,21 @@ CREATE TABLE IF NOT EXISTS user_settings (
     settings_data TEXT NOT NULL DEFAULT '{}'
 );
 
+-- 분석 진행 상태 (실시간 저장용)
+CREATE TABLE IF NOT EXISTS analysis_progress (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    progress_data TEXT NOT NULL,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 인덱스 생성
 CREATE INDEX IF NOT EXISTS idx_users_personal_number ON users(personal_number);
 CREATE INDEX IF NOT EXISTS idx_blocks_owner ON blocks(owner_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_visibility ON blocks(visibility);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_sessions_user ON analysis_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_analysis_progress_user ON analysis_progress(user_id);
 """
 
 
@@ -137,7 +146,7 @@ def reset_database():
     cursor = conn.cursor()
 
     # 모든 테이블 삭제
-    tables = ["user_settings", "analysis_sessions", "blocks", "api_keys", "users", "teams"]
+    tables = ["user_settings", "analysis_progress", "analysis_sessions", "blocks", "api_keys", "users", "teams"]
     for table in tables:
         cursor.execute(f"DROP TABLE IF EXISTS {table}")
 

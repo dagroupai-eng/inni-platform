@@ -181,19 +181,19 @@ def build_fixed_program_markdown() -> str:
         "",
         st.session_state.get("phase1_program_intro", "").strip(),
         "",
-        "### 🏫 교육 시설",
+        "### 교육 시설",
         st.session_state.get("phase1_program_education", "").strip(),
         "",
-        "### 🏃 스포츠 지원시설",
+        "### 스포츠 지원시설",
         st.session_state.get("phase1_program_sports", "").strip(),
         "",
-        "### 🏨 컨벤션 시설",
+        "### 컨벤션 시설",
         st.session_state.get("phase1_program_convention", "").strip(),
         "",
-        "### 🏥 재활/웰니스",
+        "### 재활/웰니스",
         st.session_state.get("phase1_program_wellness", "").strip(),
         "",
-        "### 🏛️ 기타 시설",
+        "### 기타 시설",
         st.session_state.get("phase1_program_other", "").strip()
     ])
 
@@ -286,7 +286,7 @@ def get_cot_analyzer() -> Optional[EnhancedArchAnalyzer]:
                 if hasattr(analyzer, '_init_error'):
                     init_error = analyzer._init_error
                     st.error(f"분석기 초기화 실패: {init_error}")
-                    st.info("💡 **해결 방법**:")
+                    st.info(" **해결 방법**:")
                     provider_config = PROVIDER_CONFIG.get(current_provider, {})
                     api_key_env = provider_config.get('api_key_env', '')
                     display_name = provider_config.get('display_name', current_provider)
@@ -309,9 +309,9 @@ def get_cot_analyzer() -> Optional[EnhancedArchAnalyzer]:
                 import traceback
                 error_detail = traceback.format_exc()
                 st.error(f"분석기 초기화 실패: {str(e)}")
-                with st.expander("🔍 상세 오류 정보", expanded=False):
+                with st.expander("상세 오류 정보", expanded=False):
                     st.code(error_detail, language='python')
-                st.info("💡 **해결 방법**:")
+                st.info(" **해결 방법**:")
                 provider_config = PROVIDER_CONFIG.get(current_provider, {})
                 api_key_env = provider_config.get('api_key_env', '')
                 display_name = provider_config.get('display_name', current_provider)
@@ -338,7 +338,7 @@ def get_cot_analyzer() -> Optional[EnhancedArchAnalyzer]:
         # analyzer에 초기화 오류가 있는지 확인
         if hasattr(analyzer, '_init_error'):
             st.error(f"분석기 초기화 오류: {analyzer._init_error}")
-            st.info("💡 위의 오류 메시지를 확인하고 API 키 설정을 확인하세요.")
+            st.info(" 위의 오류 메시지를 확인하고 API 키 설정을 확인하세요.")
             return None
         
         return analyzer
@@ -377,7 +377,7 @@ def parse_result_into_sections(text: str) -> List[Dict[str, str]]:
             level = len(match.group(1))
             title = match.group(2).strip()
             # 이모지나 특수문자 제거 (탭 이름에 사용하기 위해)
-            clean_title = re.sub(r'[🔗📋⚠️✅❌⏳🟡⚪📊📘📈🏫🏃🏨🏥🏛️]', '', title).strip()
+            clean_title = re.sub(r'[\[\]연동대기진행완료블록결과]', '', title).strip()
             current_section = {'title': clean_title, 'content': line + '\n'}
         else:
             current_section['content'] += line + '\n'
@@ -885,7 +885,7 @@ def ensure_pandas_available(feature_name: str) -> bool:
     session_flag = "_pandas_warning_shown"
     if not st.session_state.get(session_flag):
         st.error(
-            f"📦 `{feature_name}` 기능을 사용하려면 pandas 라이브러리가 필요합니다. "
+            f"`{feature_name}` 기능을 사용하려면 pandas 라이브러리가 필요합니다. "
             "명령어 `pip install pandas` 또는 requirements 설치를 완료해주세요."
         )
         st.session_state[session_flag] = True
@@ -1308,7 +1308,7 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
     st.markdown("### Mission 1 · Phase 1.1 — 요구사항 정리")
     st.caption("🟨 학생 입력 → 🟦 자체 프로그램\n\n1) 고정 프로그램 사양 확인\n2) 학생이 워크시트 내용을 자유롭게 입력하고\n3) 프로그램이 구조화된 요구사항 요약(블록 1)과 데이터 체크리스트(블록 2)를 생성합니다.")
 
-    with st.expander("📋 고정 프로그램 사양 (삼척 스포츠아카데미)", expanded=False):
+    with st.expander("고정 프로그램 사양 (삼척 스포츠아카데미)", expanded=False):
         st.write("아래 항목은 학생이 직접 수정할 수 있으며, 블록 1과 블록 2 실행 시 함께 전달됩니다.")
         st.text_area(
             "도입 설명",
@@ -1317,7 +1317,7 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
             placeholder="예: 삼척 스포츠아카데미의 핵심 방향성과 기본 요구사항을 간단히 입력하세요.",
             help="프로그램 전반에 대한 소개나 주의사항을 입력하세요."
         )
-        st.markdown("#### 🏫 교육 시설")
+        st.markdown("#### 교육 시설")
         st.text_area(
             "교육 시설 항목",
             key="phase1_program_education",
@@ -1325,7 +1325,7 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
             placeholder="- 학교: 국제학교(중/고)와 국내 고등학교 (학년 당 약 100명 정원)\n- 부대시설: 식당, 생활관, 강당 등\n- 참고 사례: 제주 국제학교 및 서울체육고등학교",
             help="교육 시설 관련 요구사항을 자유롭게 입력하세요."
         )
-        st.markdown("#### 🏃 스포츠 지원시설")
+        st.markdown("#### 스포츠 지원시설")
         st.text_area(
             "스포츠 지원시설 항목",
             key="phase1_program_sports",
@@ -1333,7 +1333,7 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
             placeholder="- 핵심종목: 테니스, 양궁, 배드민턴, 펜싱\n- 추가종목: 아이스하키, 컬링 등\n- 확장종목: 러닝마라톤, 야구, 축구 등\n- 확장 전략: 단계적 확대 계획",
             help="핵심/추가/확장 종목 등을 입력하세요."
         )
-        st.markdown("#### 🏨 컨벤션 시설")
+        st.markdown("#### 컨벤션 시설")
         st.text_area(
             "컨벤션 시설 항목",
             key="phase1_program_convention",
@@ -1341,7 +1341,7 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
             placeholder="- 200실 규모 호텔\n- 국제 컨벤션 홀\n- 선수/방문객 편의 리테일 시설",
             help="호텔, 컨벤션, 리테일 등 방문객 관련 시설을 입력하세요."
         )
-        st.markdown("#### 🏥 재활/웰니스")
+        st.markdown("#### 재활/웰니스")
         st.text_area(
             "재활/웰니스 항목",
             key="phase1_program_wellness",
@@ -1349,7 +1349,7 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
             placeholder="- 스포츠 의학·재활센터\n- 웰니스 프로그램 및 기업 입주시설",
             help="재활센터, 웰니스 프로그램 등의 요구사항을 입력하세요."
         )
-        st.markdown("#### 🏛️ 기타 시설")
+        st.markdown("#### 기타 시설")
         st.text_area(
             "기타 시설 항목",
             key="phase1_program_other",
@@ -1375,11 +1375,11 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
 
     **2. 규모**  
     - 학생 수: 약 _____명 (필수)  
-    💡 TIP: 100-300명 사이가 일반적  
+    TIP: 100-300명 사이가 일반적  
     - 면적: 대략 _____만 평 (선택)  
-    💡 TIP: 모르면 비워두세요  
+    TIP: 모르면 비워두세요  
     - 예산: _____억 (선택)  
-    💡 TIP: "모르겠음" 또는 "제약 없음" 선택 가능  
+    TIP: "모르겠음" 또는 "제약 없음" 선택 가능  
 
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
 
@@ -1405,7 +1405,7 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
     [  ] 주민 접근성  
     [  ] 좋은 경관/환경  
     [  ] 기타: _____________  
-    💡 TIP:  
+    TIP:  
     - 1, 2, 3... 순서대로 번호 매기기  
     - 최소 3개는 선택해주세요  
     - "왜 이게 중요한가?" 간단히 메모해도 좋아요  
@@ -1494,10 +1494,10 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
                 except Exception as e:
                     st.error(f"블록 1 실행 중 오류가 발생했습니다: {e}")
         if st.session_state.get('phase1_requirements_structured'):
-            st.markdown("#### 📘 블록 1 결과")
+            st.markdown("#### 블록 1 결과")
             st.markdown(st.session_state['phase1_requirements_structured'])
             st.download_button(
-                label="📥 요구사항 구조화 결과 다운로드",
+                label="요구사항 구조화 결과 다운로드",
                 data=st.session_state['phase1_requirements_structured'],
                 file_name="phase1_requirements_structuring.txt",
                 mime="text/plain",
@@ -1563,10 +1563,10 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
                     except Exception as e:
                         st.error(f"블록 2 실행 중 오류가 발생했습니다: {e}")
         if st.session_state.get('phase1_data_inventory'):
-            st.markdown("#### 📊 블록 2 결과")
+            st.markdown("#### 블록 2 결과")
             st.markdown(st.session_state['phase1_data_inventory'])
             st.download_button(
-                label="📥 데이터 체크리스트 다운로드",
+                label="데이터 체크리스트 다운로드",
                 data=st.session_state['phase1_data_inventory'],
                 file_name="phase1_data_inventory.txt",
                 mime="text/plain",
@@ -1639,20 +1639,20 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
             )
 
             st.download_button(
-                label="📥 Felo AI 전달 데이터 다운로드",
+                label="Felo AI 전달 데이터 다운로드",
                 data=felo_data,
                 file_name="felo_ai_input_data.txt",
                 mime="text/plain",
                 key="download_felo_data"
             )
 
-            st.info("💡 이 데이터를 Felo AI에 전달하면 후보지 추출 결과를 받을 수 있습니다.")
+            st.info(" 이 데이터를 Felo AI에 전달하면 후보지 추출 결과를 받을 수 있습니다.")
 
 def render_phase1_2(project_name, location, project_goals, additional_info):
     st.markdown("### Mission 1 · Phase 1.2 — 후보지 탐색 & 검토")
 
-    # 1. 🗺️ 후보지 공간 데이터 (Shapefile 업로드)
-    with st.expander("🗺️ 후보지 공간 데이터 (Shapefile 업로드)", expanded=False):
+    # 1. 후보지 공간 데이터 (Shapefile 업로드)
+    with st.expander("후보지 공간 데이터 (Shapefile 업로드)", expanded=False):
         st.caption("Felo 또는 외부 분석에서 받은 후보지 Shapefile(ZIP)을 업로드하면 지도에서 시각화할 수 있습니다.")
         uploaded_shapefiles = st.file_uploader(
             "Shapefile ZIP 업로드 (복수 선택 가능)",
@@ -1663,7 +1663,7 @@ def render_phase1_2(project_name, location, project_goals, additional_info):
 
         if uploaded_shapefiles:
             if not GEO_LOADER_AVAILABLE or GeoDataLoader is None:
-                st.error("⚠️ GeoDataLoader를 사용할 수 없습니다. geopandas가 설치되지 않았습니다.")
+                st.error("GeoDataLoader를 사용할 수 없습니다. geopandas가 설치되지 않았습니다.")
                 st.info("""
                 **설치 방법:**
                 
@@ -1698,11 +1698,11 @@ def render_phase1_2(project_name, location, project_goals, additional_info):
                             loaded += 1
                         else:
                             issues = ", ".join(validation.get("issues", []))
-                            errors.append(f"⚠️ {layer_name}: {issues or '데이터 검증 실패'}")
+                            errors.append(f" {layer_name}: {issues or '데이터 검증 실패'}")
                     else:
-                        errors.append(f"❌ {layer_name}: {result.get('error', '알 수 없는 오류')}")
+                        errors.append(f"[실패] {layer_name}: {result.get('error', '알 수 없는 오류')}")
             if loaded:
-                st.success(f"✅ {loaded}개 레이어를 불러왔습니다.")
+                st.success(f" {loaded}개 레이어를 불러왔습니다.")
             for err in errors:
                 st.warning(err)
 
@@ -1839,7 +1839,7 @@ def render_phase1_3(project_name, location, project_goals, additional_info):
         col_req_source = st.columns([1, 1])
         with col_req_source[0]:
             if st.session_state.get('phase1_requirements_structured'):
-                st.success("✅ Phase 1.1 요구사항이 있습니다.")
+                st.success(" Phase 1.1 요구사항이 있습니다.")
                 if st.button("Phase 1.1 요구사항 사용", key="phase1_3_use_phase1_requirements"):
                     st.session_state['phase1_3_requirements_text'] = st.session_state['phase1_requirements_structured']
                     st.session_state['phase1_3_requirements_loaded'] = True
@@ -2277,17 +2277,17 @@ with st.sidebar:
             st.markdown("2. Get API Key 클릭")
             st.markdown("3. 새 프로젝트 생성 또는 기존 프로젝트 선택")
             st.markdown("4. 생성된 API 키를 복사")
-            st.info("💡 **참고**: Google AI Studio API 키는 무료로 사용할 수 있으며, Vertex AI보다 설정이 간단합니다.")
+            st.info(" **참고**: Google AI Studio API 키는 무료로 사용할 수 있으며, Vertex AI보다 설정이 간단합니다.")
         elif selected_provider == 'deepseek':
             st.markdown("1. [DeepSeek Platform](https://platform.deepseek.com/) 접속")
             st.markdown("2. API Keys 섹션으로 이동")
             st.markdown("3. 'Create API Key' 클릭")
             st.markdown("4. 생성된 키를 복사")
         
-        st.warning("⚠️ **중요**: API 키 설정 후 앱을 재시작해야 변경사항이 적용됩니다.")
+        st.warning(" **중요**: API 키 설정 후 앱을 재시작해야 변경사항이 적용됩니다.")
     else:
         # API 키가 설정된 경우
-        st.success(f"✅ {provider_name} API 키가 설정되었습니다!")
+        st.success(f" {provider_name} API 키가 설정되었습니다!")
         if api_key:
             st.info(f"API 키 길이: {len(api_key)}자")
         # 키 소스 확인 (secrets 파일이 없을 수 있으므로 안전하게 처리)
@@ -2312,37 +2312,102 @@ with st.sidebar:
                 except Exception:
                     pass
     
-    # 공간 데이터 상태 표시
-    st.markdown("---")
-    st.subheader("📍 공간 데이터 상태")
+    # WFS 다운로드 데이터 상태 표시 (Mapping 페이지에서 다운로드)
+    downloaded_geo_data = st.session_state.get('downloaded_geo_data', {})
+    if downloaded_geo_data:
+        st.markdown("---")
+        st.subheader("🗺️ WFS 레이어 현황")
+        st.caption("블록 분석 시 사용할 레이어를 선택할 수 있습니다.")
+
+        for layer_name, data in downloaded_geo_data.items():
+            st.write(f"- **{layer_name}**: {data['feature_count']}개 피처")
+
+        st.info(f"총 {len(downloaded_geo_data)}개 레이어 사용 가능")
     
-    if st.session_state.get('uploaded_gdf') is not None:
-        layer_info = st.session_state.get('uploaded_layer_info', {})
-        st.success("✅ Shapefile 로드됨")
-        st.info(f"피처 수: {layer_info.get('feature_count', 0):,}개")
-        
-        # 여러 레이어 지원
-        if st.session_state.get('geo_layers'):
-            st.caption(f"📚 {len(st.session_state.geo_layers)}개 레이어 활성화")
-        else:
-            st.caption("AI 분석에 공간 데이터가 활용됩니다")
-    elif st.session_state.get('geo_layers'):
-        st.success(f"✅ {len(st.session_state.geo_layers)}개 레이어 로드됨")
-        total_features = sum(data['info'].get('feature_count', 0) for data in st.session_state.geo_layers.values())
-        st.info(f"총 피처 수: {total_features:,}개")
-        st.caption("AI 분석에 공간 데이터가 활용됩니다")
-    else:
-        st.warning("⚠️ 공간 데이터 미업로드")
-        st.caption("정확한 분석을 위해 Mapping에서 Shapefile을 업로드하세요")
-        st.info("💡 왼쪽 사이드바에서 '3_🗺️_Mapping'을 클릭하여 이동하세요")
-    
-    # 전체 초기화 버튼
+    # 세션 관리 섹션
     st.markdown("---")
     st.subheader("🔄 세션 관리")
-    if st.button("🗑️ 전체 초기화", use_container_width=True, type="secondary"):
-        reset_all_state()
-        st.success("모든 데이터가 초기화되었습니다.")
-        st.rerun()
+
+    # 분석 진행 상태 복원 확인
+    try:
+        from auth.session_init import restore_analysis_progress, apply_restored_progress, reset_analysis_state_selective
+
+        # 페이지 로드 시 한 번만 복원 확인
+        if 'analysis_restore_checked' not in st.session_state:
+            st.session_state.analysis_restore_checked = True
+            restored_progress = restore_analysis_progress()
+            if restored_progress:
+                st.session_state.pending_restore = restored_progress
+
+        # 복원 대기 중인 상태가 있으면 알림 표시
+        if 'pending_restore' in st.session_state and st.session_state.pending_restore:
+            restored_progress = st.session_state.pending_restore
+            restored_time = restored_progress.get('_restored_from', '')[:16].replace('T', ' ')
+            results_count = len(restored_progress.get('cot_results', {}))
+            current_idx = restored_progress.get('cot_current_index', 0)
+
+            st.warning(f"📂 중단된 분석 세션이 발견되었습니다. (저장 시간: {restored_time})")
+            st.info(f"완료된 블록: {results_count}개, 진행 위치: {current_idx}단계")
+
+            col_restore, col_discard = st.columns(2)
+            with col_restore:
+                if st.button("✅ 분석 계속하기", use_container_width=True, type="primary"):
+                    if apply_restored_progress(restored_progress):
+                        st.session_state.pop('pending_restore', None)
+                        st.success("분석 상태가 복원되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("복원 실패")
+            with col_discard:
+                if st.button("❌ 새로 시작하기", use_container_width=True):
+                    st.session_state.pop('pending_restore', None)
+                    st.info("새 분석을 시작합니다.")
+                    st.rerun()
+    except ImportError:
+        pass
+
+    # 선택적 초기화 옵션
+    with st.expander("⚙️ 초기화 옵션", expanded=False):
+        st.caption("초기화할 항목과 유지할 항목을 선택하세요.")
+
+        col_reset, col_preserve = st.columns(2)
+        with col_reset:
+            st.markdown("**초기화 항목**")
+            reset_results = st.checkbox("분석 결과", value=True, key="reset_opt_results",
+                                       help="모든 분석 결과를 삭제합니다.")
+            reset_session = st.checkbox("CoT 세션", value=True, key="reset_opt_session",
+                                       help="분석 진행 상태를 초기화합니다.")
+
+        with col_preserve:
+            st.markdown("**유지 항목**")
+            preserve_api_keys = st.checkbox("API 키", value=True, key="reset_preserve_api",
+                                           help="입력된 API 키를 유지합니다.")
+            preserve_blocks = st.checkbox("선택된 블록", value=True, key="reset_preserve_blocks",
+                                         help="블록 선택 상태를 유지합니다.")
+            preserve_project = st.checkbox("프로젝트 정보", value=True, key="reset_preserve_project",
+                                          help="프로젝트명, 위치, 파일 등을 유지합니다.")
+
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("🔄 선택 항목 초기화", use_container_width=True):
+                try:
+                    reset_analysis_state_selective(
+                        reset_results=reset_results,
+                        reset_session=reset_session,
+                        preserve_api_keys=preserve_api_keys,
+                        preserve_blocks=preserve_blocks,
+                        preserve_project_info=preserve_project
+                    )
+                    st.success("선택 항목이 초기화되었습니다.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"초기화 오류: {e}")
+
+        with col_btn2:
+            if st.button("🗑️ 전체 초기화", use_container_width=True, type="secondary"):
+                reset_all_state()
+                st.success("모든 데이터가 초기화되었습니다.")
+                st.rerun()
 
 # 메인 컨텐츠
 tab_project = tab_blocks = tab_run = tab_download = None  # type: ignore
@@ -2393,9 +2458,9 @@ with tab_project:
                 lat = float(st.session_state.latitude)
                 lon = float(st.session_state.longitude)
                 if -90 <= lat <= 90 and -180 <= lon <= 180:
-                    st.success(f"✅ 좌표 확인: ({lat}, {lon})")
+                    st.success(f" 좌표 확인: ({lat}, {lon})")
                 else:
-                    st.warning("⚠️ 좌표 범위를 확인하세요. 위도: -90~90, 경도: -180~180")
+                    st.warning(" 좌표 범위를 확인하세요. 위도: -90~90, 경도: -180~180")
             except ValueError:
                 st.error("❌ 좌표는 숫자여야 합니다.")
     
@@ -2411,7 +2476,19 @@ with tab_project:
         height=80,
         key="additional_info"
     )
-    
+
+    # 프로젝트 정보 완료 버튼
+    if st.button("✅ 프로젝트 정보 저장", use_container_width=True, type="primary", key="save_project_info"):
+        # 세션 저장
+        try:
+            from auth.session_init import save_work_session, save_analysis_progress
+            save_work_session()
+            save_analysis_progress(force=True)
+            st.success("프로젝트 정보가 저장되었습니다!")
+        except Exception as e:
+            st.warning(f"저장 중 오류: {e}")
+            st.success("프로젝트 정보가 입력되었습니다.")
+
     st.markdown("---")
     st.header("파일 업로드")
     
@@ -2461,52 +2538,20 @@ with tab_project:
             # 텍스트 미리보기
             with st.expander(f"{file_extension.upper()} 내용 미리보기"):
                 st.text(analysis_result['preview'])
+
+            # 파일 업로드 확인 버튼
+            if st.button("✅ 파일 분석 완료 확인", use_container_width=True, type="primary", key="confirm_file_upload"):
+                try:
+                    from auth.session_init import save_work_session, save_analysis_progress
+                    save_work_session()
+                    save_analysis_progress(force=True)
+                    st.success("파일 분석 결과가 저장되었습니다! '분석 블록 선택' 탭으로 이동하세요.")
+                except Exception as e:
+                    st.warning(f"저장 중 오류: {e}")
+                    st.success("파일 분석이 확인되었습니다. '분석 블록 선택' 탭으로 이동하세요.")
         else:
             st.error(f"{file_extension.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
 
-    # 참고 URL 입력 섹션
-    st.markdown("#### 참고 URL 입력 (선택)")
-    st.caption("분석 시 참고할 웹 페이지 URL을 입력하세요. 최대 20개까지 입력 가능합니다.")
-    
-    if 'reference_urls' not in st.session_state:
-        st.session_state.reference_urls = []
-    
-    url_input = st.text_input(
-        "참고 URL 입력 (한 줄에 하나씩, 최대 20개)",
-        key="reference_url_input",
-        help="예: https://example.com/document.pdf"
-    )
-    
-    if st.button("URL 추가", key="add_reference_url"):
-        if url_input:
-            # URL 유효성 검사
-            if url_input.startswith(('http://', 'https://')):
-                if len(st.session_state.reference_urls) < 20:
-                    if url_input not in st.session_state.reference_urls:
-                        st.session_state.reference_urls.append(url_input)
-                        st.success(f"URL 추가됨: {url_input}")
-                    else:
-                        st.warning("이미 추가된 URL입니다.")
-                else:
-                    st.warning("최대 20개까지만 추가할 수 있습니다.")
-            else:
-                st.warning("올바른 URL 형식이 아닙니다. http:// 또는 https://로 시작해야 합니다.")
-    
-    if st.session_state.reference_urls:
-        st.markdown("**현재 참고 URL:**")
-        for idx, url in enumerate(st.session_state.reference_urls):
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                st.write(f"{idx + 1}. {url}")
-            with col2:
-                if st.button("삭제", key=f"remove_url_{idx}"):
-                    st.session_state.reference_urls.pop(idx)
-                    st.rerun()
-        
-        if st.button("모든 URL 삭제", key="clear_all_urls"):
-            st.session_state.reference_urls = []
-            st.rerun()
-    
     # 입력값 최신화
     project_name = st.session_state.get("project_name", "")
     location = st.session_state.get("location", "")
@@ -2713,6 +2758,18 @@ with tab_blocks:
                     st.session_state.selected_block_row_index = selected_row_index + 1
                     st.success("블록이 아래로 이동되었습니다!")
                     st.rerun()
+
+        # 블록 선택 완료 버튼
+        st.markdown("---")
+        if st.button("✅ 블록 선택 완료", use_container_width=True, type="primary", key="confirm_block_selection"):
+            try:
+                from auth.session_init import save_work_session, save_analysis_progress
+                save_work_session()
+                save_analysis_progress(force=True)
+                st.success(f"{len(selected_blocks)}개 블록이 선택되었습니다! '분석 실행' 탭으로 이동하세요.")
+            except Exception as e:
+                st.warning(f"저장 중 오류: {e}")
+                st.success(f"{len(selected_blocks)}개 블록 선택 완료! '분석 실행' 탭으로 이동하세요.")
     else:
         st.warning("분석할 블록을 선택해주세요.")
 
@@ -2775,6 +2832,19 @@ with tab_run:
             total_chars = sum(doc.get('char_count', 0) for doc in reference_docs)
             st.write(f"• 참고 자료: {len(reference_docs)}건 ({total_chars:,}자)")
 
+    # 공간 데이터 연동 상태 표시
+    if st.session_state.get('block_spatial_data'):
+        st.markdown("---")
+        st.markdown("**🔗 Mapping 블록 연동 데이터**")
+        block_spatial_data = st.session_state.block_spatial_data
+        linked_blocks = [bid for bid in selected_blocks if bid in block_spatial_data]
+        if linked_blocks:
+            for block_id in linked_blocks:
+                spatial_info = block_spatial_data[block_id]
+                st.success(f"✓ {block_id}: {spatial_info['layer_name']} ({spatial_info['feature_count']}개 피처)")
+        else:
+            st.info(" Mapping 페이지에서 블록에 공간 데이터를 연동할 수 있습니다.")
+
     st.markdown("---")
 
     base_text_candidates: List[str] = []
@@ -2801,11 +2871,7 @@ with tab_run:
         project_info_payload["reference_documents"] = reference_docs_meta
     if reference_combined_text:
         project_info_payload["reference_text"] = reference_combined_text
-    
-    # 참고 URL 추가
-    if st.session_state.get('reference_urls'):
-        project_info_payload["reference_urls"] = st.session_state.reference_urls
-    
+
     # 위치 좌표 추가 (Google Maps용)
     if st.session_state.get('latitude') and st.session_state.get('longitude'):
         try:
@@ -2816,9 +2882,11 @@ with tab_run:
 
     spatial_notice = None
     try:
+        spatial_contexts = []
+
+        # 1. 업로드된 Shapefile 레이어
         if st.session_state.get('geo_layers') and len(st.session_state.geo_layers) > 0:
             from geo_data_loader import extract_spatial_context_for_ai
-            spatial_contexts = []
             for layer_name, layer_data in st.session_state.geo_layers.items():
                 gdf = layer_data['gdf']
                 layer_type = 'general'
@@ -2830,18 +2898,51 @@ with tab_run:
                     layer_type = 'ownership'
                 spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
                 spatial_contexts.append(f"**레이어: {layer_name}**\n{spatial_text}")
-            if spatial_contexts:
-                project_info_payload["spatial_data_context"] = "\n\n---\n\n".join(spatial_contexts)
-                project_info_payload["has_geo_data"] = True
-                spatial_notice = f"📍 {len(spatial_contexts)}개 공간 레이어 정보가 분석에 포함됩니다."
         elif st.session_state.get('uploaded_gdf') is not None:
             from geo_data_loader import extract_spatial_context_for_ai
             gdf = st.session_state.uploaded_gdf
             layer_type = st.session_state.get('layer_type', 'general')
             spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
-            project_info_payload["spatial_data_context"] = spatial_text
+            spatial_contexts.append(f"**업로드 레이어**\n{spatial_text}")
+
+        # WFS 다운로드 데이터는 블록별로 선택되므로 여기서는 제외
+        # (각 블록 실행 시점에 선택한 레이어가 feedback으로 추가됨)
+
+        # 2. Mapping 페이지에서 블록에 연동된 공간 데이터
+        if st.session_state.get('block_spatial_data'):
+            block_spatial_data = st.session_state.block_spatial_data
+            for block_id in selected_blocks:
+                if block_id in block_spatial_data:
+                    spatial_info = block_spatial_data[block_id]
+                    layer_name = spatial_info['layer_name']
+                    feature_count = spatial_info['feature_count']
+
+                    # GeoJSON 요약 정보 추출
+                    geojson = spatial_info.get('geojson', {})
+                    features = geojson.get('features', [])
+
+                    summary_text = f"**Mapping 연동 레이어: {layer_name}** (블록: {block_id})\n"
+                    summary_text += f"- 총 피처 수: {feature_count}개\n"
+
+                    # 샘플 속성 정보 추출 (첫 3개 피처)
+                    if features:
+                        summary_text += "- 샘플 데이터:\n"
+                        for i, feature in enumerate(features[:3], 1):
+                            props = feature.get('properties', {})
+                            if props:
+                                key_props = list(props.items())[:5]  # 주요 속성 5개만
+                                props_str = ', '.join([f"{k}: {v}" for k, v in key_props])
+                                summary_text += f"  {i}. {props_str}\n"
+
+                    spatial_contexts.append(summary_text)
+
+        # 공간 컨텍스트 통합 (업로드된 Shapefile만)
+        if spatial_contexts:
+            project_info_payload["spatial_data_context"] = "\n\n---\n\n".join(spatial_contexts)
             project_info_payload["has_geo_data"] = True
-            spatial_notice = "📍 업로드된 공간 데이터가 분석에 포함됩니다."
+            spatial_notice = f"📍 {len(spatial_contexts)}개 공간 레이어 정보가 분석에 포함됩니다."
+        else:
+            project_info_payload["has_geo_data"] = False
     except Exception as e:
         st.warning(f"공간 데이터 통합 중 오류: {e}")
         project_info_payload["has_geo_data"] = False
@@ -3076,14 +3177,46 @@ with tab_run:
                         mime="text/plain",
                         key=f"download_result_{block_id}"
                     )
+                    # 피드백 유형 선택
+                    from dspy_analyzer import FEEDBACK_TYPES
+                    feedback_type_options = {
+                        'auto': '자동 감지',
+                        **{k: v['name'] for k, v in FEEDBACK_TYPES.items()}
+                    }
+                    feedback_type_key = f"feedback_type_{block_id}"
+                    if feedback_type_key not in st.session_state:
+                        st.session_state[feedback_type_key] = 'auto'
+
+                    col_type, col_hint = st.columns([1, 2])
+                    with col_type:
+                        selected_feedback_type = st.selectbox(
+                            "피드백 유형",
+                            options=list(feedback_type_options.keys()),
+                            format_func=lambda x: feedback_type_options[x],
+                            key=feedback_type_key,
+                            help="피드백 유형을 선택하면 AI가 해당 관점에서 재분석합니다."
+                        )
+                    with col_hint:
+                        # 선택된 유형에 대한 힌트 표시
+                        if selected_feedback_type != 'auto' and selected_feedback_type in FEEDBACK_TYPES:
+                            hint_info = FEEDBACK_TYPES[selected_feedback_type]
+                            st.caption(f"**{hint_info['description']}**")
+                            st.caption(f"_{hint_info['hint']}_")
+
                     feedback_state_key = f"feedback_input_{block_id}"
                     if feedback_state_key not in st.session_state:
                         st.session_state[feedback_state_key] = st.session_state.cot_feedback_inputs.get(block_id, "")
+
+                    # 유형별 placeholder 설정
+                    placeholder_text = "재분석 시 반영할 메모, 수정 요청, 추가 지시사항을 입력하세요."
+                    if selected_feedback_type != 'auto' and selected_feedback_type in FEEDBACK_TYPES:
+                        placeholder_text = FEEDBACK_TYPES[selected_feedback_type]['hint']
+
                     feedback_text = st.text_area(
                         "피드백 입력",
                         key=feedback_state_key,
                         height=120,
-                        placeholder="재분석 시 반영할 메모, 수정 요청, 추가 지시사항을 입력하세요."
+                        placeholder=placeholder_text
                     )
                     st.session_state.cot_feedback_inputs[block_id] = feedback_text
                     rerun_disabled = st.session_state.cot_running_block is not None or not feedback_text.strip()
@@ -3102,6 +3235,9 @@ with tab_run:
                         def rerun_progress(message: str) -> None:
                             progress_placeholder.info(message)
 
+                        # 피드백 유형 전달 (auto이면 None)
+                        actual_feedback_type = None if selected_feedback_type == 'auto' else selected_feedback_type
+
                         try:
                             with st.spinner("피드백 기반 재분석 중..."):
                                 step_result = analyzer.run_cot_step(
@@ -3112,7 +3248,8 @@ with tab_run:
                                     else analyzer.initialize_cot_session(project_info_payload, analysis_text, len(active_plan)),
                                     progress_callback=rerun_progress,
                                     step_index=rerun_step_index,
-                                    feedback=feedback_text.strip()
+                                    feedback=feedback_text.strip(),
+                                    feedback_type=actual_feedback_type
                                 )
                         finally:
                             st.session_state.cot_running_block = None
@@ -3132,7 +3269,14 @@ with tab_run:
                                 "location": st.session_state.get('location', '')
                             }
                             save_analysis_result(block_id, analysis_result, project_info)
-                            
+
+                            # 분석 진행 상태 실시간 저장
+                            try:
+                                from auth.session_init import save_analysis_progress
+                                save_analysis_progress(force=True)
+                            except Exception as e:
+                                print(f"분석 진행 저장 오류: {e}")
+
                             st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
                             st.success(f"{block_name} 블록을 피드백에 맞춰 재분석했습니다.")
                             st.rerun()
@@ -3146,9 +3290,40 @@ with tab_run:
         next_block = block_lookup.get(next_block_id, {"id": next_block_id})
         next_block_name = next_block.get('name', next_block_id)
 
+        # 블록별 공간 데이터 선택 UI
+        downloaded_geo_data = st.session_state.get('downloaded_geo_data', {})
+        if downloaded_geo_data:
+            with st.expander("🗺️ 이 블록에 공간 데이터 연결", expanded=False):
+                st.caption("분석에 포함할 WFS 레이어를 선택하세요.")
+
+                # 블록별 선택 상태 초기화
+                if 'block_spatial_selection' not in st.session_state:
+                    st.session_state.block_spatial_selection = {}
+
+                # 현재 블록의 선택 상태
+                current_selection = st.session_state.block_spatial_selection.get(next_block_id, [])
+
+                # 레이어 선택 체크박스
+                new_selection = []
+                for layer_name, data in downloaded_geo_data.items():
+                    is_checked = st.checkbox(
+                        f"{layer_name} ({data['feature_count']}개)",
+                        value=layer_name in current_selection,
+                        key=f"spatial_block_{next_block_id}_{layer_name}"
+                    )
+                    if is_checked:
+                        new_selection.append(layer_name)
+
+                st.session_state.block_spatial_selection[next_block_id] = new_selection
+
+                if new_selection:
+                    st.success(f"선택: {len(new_selection)}개 레이어")
+                else:
+                    st.info("공간 데이터 없이 분석합니다.")
+
         # 실행, 멈춤, 건너뛰기 버튼
         is_running = st.session_state.cot_running_block is not None
-        
+
         run_col, stop_col, skip_col = st.columns([3, 1, 1])
         with run_col:
             run_clicked = st.button(
@@ -3219,6 +3394,51 @@ with tab_run:
                     st.session_state.cot_progress_messages = st.session_state.cot_progress_messages[-50:]
                 progress_placeholder.info(message)
 
+            # 블록별 공간 데이터 컨텍스트 생성
+            block_spatial_context = ""
+            block_spatial_selection = st.session_state.get('block_spatial_selection', {})
+            selected_layers = block_spatial_selection.get(next_block_id, [])
+            downloaded_geo_data = st.session_state.get('downloaded_geo_data', {})
+
+            if selected_layers and downloaded_geo_data:
+                try:
+                    import geopandas as gpd
+                    from geo_data_loader import extract_spatial_context_for_ai
+                    spatial_parts = []
+                    for layer_name in selected_layers:
+                        if layer_name in downloaded_geo_data:
+                            geo_data = downloaded_geo_data[layer_name]
+                            geojson = geo_data.get('geojson', {})
+                            features = geojson.get('features', [])
+                            if features:
+                                gdf = gpd.GeoDataFrame.from_features(features, crs='EPSG:4326')
+                                # 레이어 타입 추정
+                                layer_type = 'general'
+                                if any(kw in layer_name for kw in ['행정', '시군', '읍면', '경계']):
+                                    layer_type = 'administrative'
+                                elif any(kw in layer_name for kw in ['용도', '지역', '지구']):
+                                    layer_type = 'zoning'
+                                elif any(kw in layer_name for kw in ['도시계획', '시설']):
+                                    layer_type = 'urban_planning'
+                                spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
+                                spatial_parts.append(f"**{layer_name}**\n{spatial_text}")
+                    if spatial_parts:
+                        block_spatial_context = "\n\n[공간 데이터 컨텍스트]\n" + "\n\n---\n\n".join(spatial_parts)
+                        st.caption(f"📍 {len(spatial_parts)}개 공간 레이어 포함")
+                except Exception as e:
+                    st.warning(f"공간 데이터 처리 오류: {e}")
+
+            # 피드백과 공간 컨텍스트 결합
+            user_feedback = st.session_state.cot_feedback_inputs.get(next_block_id, "").strip()
+            combined_feedback = None
+            if user_feedback or block_spatial_context:
+                parts = []
+                if user_feedback:
+                    parts.append(user_feedback)
+                if block_spatial_context:
+                    parts.append(block_spatial_context)
+                combined_feedback = "\n\n".join(parts) if parts else None
+
             try:
                 with st.spinner("분석 실행 중..."):
                     step_result = analyzer.run_cot_step(
@@ -3227,7 +3447,7 @@ with tab_run:
                         st.session_state.cot_session,
                         progress_callback=step_progress,
                         step_index=st.session_state.cot_current_index + 1,
-                        feedback=st.session_state.cot_feedback_inputs.get(next_block_id, "").strip() or None
+                        feedback=combined_feedback
                     )
             finally:
                 st.session_state.cot_running_block = None
@@ -3251,14 +3471,15 @@ with tab_run:
                 
                 st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
                 st.session_state.cot_current_index += 1
-                
-                # 세션 저장 후 재시작
+
+                # 분석 진행 상태 실시간 저장
                 try:
-                    from auth.session_init import save_work_session
+                    from auth.session_init import save_analysis_progress, save_work_session
+                    save_analysis_progress(force=True)  # 즉시 저장
                     save_work_session()
                 except Exception as e:
                     print(f"세션 저장 오류: {e}")
-                
+
                 st.success(f"{next_block_name} 블록 분석이 완료되었습니다.")
                 st.rerun()
             else:
