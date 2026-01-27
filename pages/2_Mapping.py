@@ -104,6 +104,16 @@ def add_domain_param(params: dict) -> dict:
         params['domain'] = VWORLD_DOMAIN
     return params
 
+
+def get_vworld_headers() -> dict:
+    """V-World API 요청용 헤더 (Referer 포함)"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    if VWORLD_DOMAIN:
+        headers['Referer'] = f'https://{VWORLD_DOMAIN}/'
+    return headers
+
 # 연속 지적도 레이어 설정
 CADASTRAL_LAYERS = {
     'bonbun': {
@@ -439,7 +449,7 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
     params = add_domain_param(params)
 
     try:
-        response = requests.get(VWORLD_WFS_URL, params=params, timeout=30)
+        response = requests.get(VWORLD_WFS_URL, params=params, headers=get_vworld_headers(), timeout=30)
         response.raise_for_status()
 
         # JSON 응답 확인
@@ -563,7 +573,7 @@ def get_feature_info(lat: float, lon: float, layers: str, styles: str,
     params = add_domain_param(params)
 
     try:
-        response = requests.get(VWORLD_WMS_URL, params=params, timeout=10)
+        response = requests.get(VWORLD_WMS_URL, params=params, headers=get_vworld_headers(), timeout=10)
         response.raise_for_status()
 
         # JSON 응답 파싱
@@ -609,7 +619,7 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
     params = add_domain_param(params)
 
     try:
-        response = requests.get(VWORLD_WFS_URL, params=params, timeout=30)
+        response = requests.get(VWORLD_WFS_URL, params=params, headers=get_vworld_headers(), timeout=30)
         response.raise_for_status()
 
         # JSON 응답 확인
@@ -686,7 +696,7 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
     params = add_domain_param(params)
 
     try:
-        response = requests.get(GEOCODER_URL, params=params, timeout=10)
+        response = requests.get(GEOCODER_URL, params=params, headers=get_vworld_headers(), timeout=10)
         response.raise_for_status()
 
         data = response.json()
@@ -746,7 +756,7 @@ def reverse_geocode(lat: float, lon: float, address_type: str = "both") -> Optio
     params = add_domain_param(params)
 
     try:
-        response = requests.get(REVERSE_GEOCODER_URL, params=params, timeout=10)
+        response = requests.get(REVERSE_GEOCODER_URL, params=params, headers=get_vworld_headers(), timeout=10)
         response.raise_for_status()
 
         data = response.json()
@@ -819,7 +829,7 @@ def search_address_or_poi(query: str, search_type: str = "address",
     params = add_domain_param(params)
 
     try:
-        response = requests.get(SEARCH_URL, params=params, timeout=10)
+        response = requests.get(SEARCH_URL, params=params, headers=get_vworld_headers(), timeout=10)
         response.raise_for_status()
 
         data = response.json()
