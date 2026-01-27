@@ -44,6 +44,7 @@ chardet>=5.2.0
 # Maps
 folium>=0.20.0
 streamlit-folium>=0.25.1
+streamlit-javascript>=0.1.5
 
 # Visualization
 matplotlib>=3.9.0

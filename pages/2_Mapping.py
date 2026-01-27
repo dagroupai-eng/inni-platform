@@ -30,7 +30,15 @@ if AUTH_AVAILABLE:
 import pandas as pd
 import requests
 import time
+import json
 from datetime import datetime
+
+# 클라이언트 사이드 JavaScript API 호출용
+try:
+    from streamlit_javascript import st_javascript
+    JS_AVAILABLE = True
+except ImportError:
+    JS_AVAILABLE = False
 from typing import Optional, Dict, Any, List, Tuple
 import sys
 import os
@@ -114,6 +122,101 @@ def get_vworld_headers() -> dict:
     if VWORLD_DOMAIN:
         headers['Referer'] = f'https://{VWORLD_DOMAIN}/'
     return headers
+
+
+# ========================================
+# 클라이언트 사이드 API 호출 (JavaScript)
+# Streamlit Cloud에서 서버사이드 요청이 차단될 때 사용
+# ========================================
+
+def fetch_vworld_api_client_side(url: str, timeout_ms: int = 10000) -> Optional[Dict[str, Any]]:
+    """
+    클라이언트 사이드(브라우저)에서 VWorld API 호출
+    Streamlit Cloud 서버가 해외 IP라서 차단될 때 우회용
+    """
+    if not JS_AVAILABLE:
+        return None
+
+    try:
+        # JavaScript fetch API로 호출
+        js_code = f"""
+        await fetch("{url}")
+            .then(response => response.json())
+            .then(data => data)
+            .catch(error => ({{ "error": error.message }}))
+        """
+        result = st_javascript(js_code, key=f"vworld_fetch_{hash(url)}")
+
+        if result and isinstance(result, dict) and 'error' not in result:
+            return result
+        return None
+    except Exception as e:
+        return None
+
+
+def geocode_address_client_side(address: str, address_type: str = "road") -> Optional[Dict[str, Any]]:
+    """클라이언트 사이드에서 지오코딩 (브라우저에서 직접 API 호출)"""
+    if not JS_AVAILABLE:
+        return None
+
+    import urllib.parse
+    encoded_address = urllib.parse.quote(address)
+
+    url = (
+        f"https://api.vworld.kr/req/address?"
+        f"service=address&request=getcoord&version=2.0&crs=EPSG:4326"
+        f"&address={encoded_address}&refine=true&simple=false&format=json"
+        f"&type={address_type}&key={VWORLD_API_KEY}"
+    )
+
+    data = fetch_vworld_api_client_side(url)
+
+    if data and data.get('response', {}).get('status') == 'OK':
+        result = data['response'].get('result')
+        if result and 'point' in result:
+            point = result['point']
+            return {
+                'lat': float(point['y']),
+                'lon': float(point['x']),
+                'address': data['response'].get('refined', {}).get('text', address),
+                'road_address': data['response'].get('refined', {}).get('structure', {}).get('level4A', ''),
+                'parcel_address': ''
+            }
+    return None
+
+
+def get_wfs_layer_data_client_side(layer_code: str, bbox: Tuple[float, float, float, float],
+                                    max_features: int = 1000) -> Optional[Dict[str, Any]]:
+    """클라이언트 사이드에서 WFS 데이터 조회 (layer_code 기반)"""
+    if not JS_AVAILABLE:
+        return None
+
+    # WFS typename 매핑
+    typename = WFS_LAYER_MAPPING.get(layer_code, layer_code)
+    return get_wfs_features_client_side(bbox, typename, max_features)
+
+
+def get_wfs_features_client_side(bbox: Tuple[float, float, float, float],
+                                  typename: str = "lp_pa_cbnd_bonbun",
+                                  max_features: int = 100) -> Optional[Dict[str, Any]]:
+    """클라이언트 사이드에서 WFS 데이터 조회 (typename 직접 지정)"""
+    if not JS_AVAILABLE:
+        return None
+
+    minx, miny, maxx, maxy = bbox
+    url = (
+        f"{VWORLD_WFS_URL}?"
+        f"SERVICE=WFS&VERSION=1.1.0&REQUEST=GetFeature"
+        f"&TYPENAME={typename}"
+        f"&BBOX={miny},{minx},{maxy},{maxx}"
+        f"&OUTPUT=application/json"
+        f"&MAXFEATURES={max_features}"
+        f"&SRSNAME=EPSG:4326"
+        f"&key={VWORLD_API_KEY}"
+    )
+
+    return fetch_vworld_api_client_side(url, timeout_ms=30000)
+
 
 # 연속 지적도 레이어 설정
 CADASTRAL_LAYERS = {
@@ -448,7 +551,7 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
-    # params = add_domain_param(params)
+    params = add_domain_param(params)
 
     # Retry 로직 (502, 503, 504 오류 시 재시도)
     max_retries = 3
@@ -470,10 +573,19 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
                 continue
+            # 서버사이드 실패 시 클라이언트 사이드로 fallback
+            st.info("서버 요청 실패, 클라이언트 측에서 재시도 중...")
+            client_result = get_wfs_layer_data_client_side(layer_code, bbox, max_features)
+            if client_result:
+                return client_result
             st.error(f"WFS 요청 실패: {str(e)}")
             return None
 
     if response is None:
+        # 서버사이드 실패 시 클라이언트 사이드로 fallback
+        client_result = get_wfs_layer_data_client_side(layer_code, bbox, max_features)
+        if client_result:
+            return client_result
         st.error("WFS 요청 실패: 응답 없음")
         return None
 
@@ -594,7 +706,7 @@ def get_feature_info(lat: float, lon: float, layers: str, styles: str,
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략
-    # params = add_domain_param(params)
+    params = add_domain_param(params)
 
     # Retry 로직
     max_retries = 3
@@ -660,7 +772,7 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
-    # params = add_domain_param(params)
+    params = add_domain_param(params)
 
     # Retry 로직 (502, 503, 504, Connection 오류 시 재시도)
     max_retries = 3
@@ -682,10 +794,19 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
                 continue
+            # 서버사이드 실패 시 클라이언트 사이드로 fallback
+            st.info("서버 요청 실패, 클라이언트 측에서 재시도 중...")
+            client_result = get_wfs_features_client_side(bbox, typename, max_features)
+            if client_result:
+                return client_result
             st.error(f"WFS 요청 실패: {str(e)}")
             return None
 
     if response is None:
+        # 서버사이드 실패 시 클라이언트 사이드로 fallback
+        client_result = get_wfs_features_client_side(bbox, typename, max_features)
+        if client_result:
+            return client_result
         st.error("WFS 요청 실패: 응답 없음")
         return None
 
@@ -759,7 +880,7 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
-    # params = add_domain_param(params)
+    params = add_domain_param(params)
 
     # Retry 로직
     max_retries = 3
@@ -780,10 +901,19 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
             if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
                 continue
+            # 서버사이드 실패 시 클라이언트 사이드로 fallback
+            st.info("서버 요청 실패, 클라이언트 측에서 재시도 중...")
+            client_result = geocode_address_client_side(address, address_type)
+            if client_result:
+                return client_result
             st.warning(f"지오코딩 요청 실패: {str(e)}")
             return None
 
     if response is None:
+        # 서버사이드 실패 시 클라이언트 사이드로 fallback
+        client_result = geocode_address_client_side(address, address_type)
+        if client_result:
+            return client_result
         return None
 
     try:
@@ -839,7 +969,7 @@ def reverse_geocode(lat: float, lon: float, address_type: str = "both") -> Optio
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략
-    # params = add_domain_param(params)
+    params = add_domain_param(params)
 
     # Retry 로직
     max_retries = 3
@@ -932,7 +1062,7 @@ def search_address_or_poi(query: str, search_type: str = "address",
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략
-    # params = add_domain_param(params)
+    params = add_domain_param(params)
 
     # Retry 로직
     max_retries = 3
