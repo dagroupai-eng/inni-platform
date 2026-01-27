@@ -87,6 +87,40 @@ VWORLD_API_KEY = get_vworld_api_key()
 VWORLD_WMS_URL = "https://api.vworld.kr/req/wms"
 VWORLD_WFS_URL = "https://api.vworld.kr/req/wfs"
 
+# CORS 프록시 설정 (Streamlit Cloud에서 VWorld API 사용 시 필요)
+# 로컬에서는 프록시 불필요, 배포 시에만 사용
+def get_cors_proxy():
+    """Streamlit Cloud 배포 시 CORS 프록시 반환"""
+    # Streamlit Cloud 환경 감지
+    if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_SERVER_HEADLESS"):
+        return "https://corsproxy.io/?"
+    return ""  # 로컬에서는 프록시 없이
+
+CORS_PROXY = get_cors_proxy()
+
+
+def make_cors_url(base_url: str, params: dict) -> str:
+    """CORS 프록시를 적용한 URL 생성"""
+    from urllib.parse import urlencode
+    query_string = urlencode(params)
+    full_url = f"{base_url}?{query_string}"
+    if CORS_PROXY:
+        return f"{CORS_PROXY}{full_url}"
+    return full_url
+
+
+def vworld_request(base_url: str, params: dict, headers: dict = None, timeout: int = 30):
+    """VWorld API 요청 (CORS 프록시 자동 적용)"""
+    if headers is None:
+        headers = get_vworld_headers()
+
+    if CORS_PROXY:
+        url = make_cors_url(base_url, params)
+        return requests.get(url, headers=headers, timeout=timeout)
+    else:
+        return requests.get(base_url, params=params, headers=headers, timeout=timeout)
+
+
 def get_vworld_domain():
     """VWorld API 도메인을 가져옵니다. 서버사이드 요청 시 필요"""
     # 1. Streamlit secrets에서 확인
@@ -560,7 +594,7 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
 
     for attempt in range(max_retries):
         try:
-            response = requests.get(VWORLD_WFS_URL, params=params, headers=get_vworld_headers(), timeout=30)
+            response = vworld_request(VWORLD_WFS_URL, params, timeout=30)
 
             # 5xx 서버 오류 시 재시도
             if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
@@ -781,7 +815,7 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
 
     for attempt in range(max_retries):
         try:
-            response = requests.get(VWORLD_WFS_URL, params=params, headers=get_vworld_headers(), timeout=30)
+            response = vworld_request(VWORLD_WFS_URL, params, timeout=30)
 
             # 5xx 서버 오류 시 재시도
             if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
@@ -889,7 +923,7 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
 
     for attempt in range(max_retries):
         try:
-            response = requests.get(GEOCODER_URL, params=params, headers=get_vworld_headers(), timeout=15)
+            response = vworld_request(GEOCODER_URL, params, timeout=15)
 
             if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
