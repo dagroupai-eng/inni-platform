@@ -551,7 +551,7 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
-    params = add_domain_param(params)
+    # params = add_domain_param(params)
 
     # Retry 로직 (502, 503, 504 오류 시 재시도)
     max_retries = 3
@@ -706,7 +706,7 @@ def get_feature_info(lat: float, lon: float, layers: str, styles: str,
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략
-    params = add_domain_param(params)
+    # params = add_domain_param(params)
 
     # Retry 로직
     max_retries = 3
@@ -772,7 +772,7 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
-    params = add_domain_param(params)
+    # params = add_domain_param(params)
 
     # Retry 로직 (502, 503, 504, Connection 오류 시 재시도)
     max_retries = 3
@@ -880,7 +880,7 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
-    params = add_domain_param(params)
+    # params = add_domain_param(params)
 
     # Retry 로직
     max_retries = 3
@@ -969,7 +969,7 @@ def reverse_geocode(lat: float, lon: float, address_type: str = "both") -> Optio
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략
-    params = add_domain_param(params)
+    # params = add_domain_param(params)
 
     # Retry 로직
     max_retries = 3
@@ -1062,7 +1062,7 @@ def search_address_or_poi(query: str, search_type: str = "address",
         'key': VWORLD_API_KEY
     }
     # 서버사이드 요청 시 domain 파라미터 생략
-    params = add_domain_param(params)
+    # params = add_domain_param(params)
 
     # Retry 로직
     max_retries = 3
