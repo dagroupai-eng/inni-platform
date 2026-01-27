@@ -371,7 +371,7 @@ def main():
         st.header("프롬프트 생성")
         
         # 프롬프트 생성 버튼
-        if st.button("AI 이미지 프롬프트 생성", type="primary", use_container_width=True):
+        if st.button("AI 이미지 프롬프트 생성", type="primary"):
             # 데이터 소스에 따른 입력 데이터 구성
             user_inputs = {}
             cot_history = []

@@ -115,18 +115,66 @@ def get_cors_proxy():
 
 CORS_PROXY = get_cors_proxy()
 
-# CORS 프록시 설정
-# V-World API는 해외 IP에서 접근 시 차단될 수 있음
-# 프록시 순서: 직접연결 → corsproxy.io (URL 그대로) → allorigins (URL 인코딩 필요)
+# Cloudflare Worker 프록시 설정
+# V-World API는 해외 IP에서 접근 시 차단됨
+# Cloudflare Worker (서울 데이터센터)를 통해 한국 IP로 요청
 
-def try_request_with_fallback(base_url: str, params: dict, headers: dict = None, timeout: int = 20) -> Optional[requests.Response]:
+def get_cloudflare_worker_url():
+    """Cloudflare Worker URL을 가져옵니다."""
+    # 1. Streamlit secrets에서 확인
+    try:
+        if hasattr(st, 'secrets') and 'CLOUDFLARE_WORKER_URL' in st.secrets:
+            return st.secrets['CLOUDFLARE_WORKER_URL']
+    except Exception:
+        pass
+    # 2. 환경 변수에서 확인
+    env_url = os.getenv("CLOUDFLARE_WORKER_URL")
+    if env_url:
+        return env_url
+    # 3. 설정되지 않음
+    return None
+
+CLOUDFLARE_WORKER_URL = get_cloudflare_worker_url()
+
+
+def try_cloudflare_worker_request(base_url: str, params: dict, timeout: int = 30) -> Optional[requests.Response]:
+    """Cloudflare Worker를 통해 V-World API 요청"""
+    if not CLOUDFLARE_WORKER_URL:
+        return None
+
+    try:
+        worker_url = f"{CLOUDFLARE_WORKER_URL.rstrip('/')}/proxy"
+
+        # POST 방식으로 요청 (더 안정적)
+        payload = {
+            "url": base_url,
+            "params": params,
+            "method": "GET"
+        }
+
+        response = requests.post(
+            worker_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=timeout
+        )
+
+        if response.status_code == 200:
+            return response
+
+    except Exception as e:
+        # Worker 실패 시 조용히 None 반환 (다음 방법 시도)
+        pass
+
+    return None
+
+
+def try_request_with_fallback(base_url: str, params: dict, headers: dict = None, timeout: int = 30) -> Optional[requests.Response]:
     """
-    여러 방법으로 API 요청 시도 (직접 연결 → CORS 프록시 순)
-
-    시도 순서:
-    1. 직접 연결 (한국 서버/로컬)
-    2. corsproxy.io (URL 그대로 전달)
-    3. allorigins.win (URL 인코딩 필요)
+    여러 방법으로 API 요청 시도:
+    1. Cloudflare Worker (한국 IP 프록시) - 가장 안정적
+    2. 직접 연결 (한국 서버/로컬에서만 작동)
+    3. CORS 프록시들 (fallback)
     """
     if headers is None:
         headers = get_vworld_headers()
@@ -135,57 +183,70 @@ def try_request_with_fallback(base_url: str, params: dict, headers: dict = None,
     query_string = urlencode(params)
     full_url = f"{base_url}?{query_string}"
 
-    # 프록시 목록과 URL 생성 방식
-    proxy_configs = [
-        # (이름, URL 생성 함수)
-        ("직접연결", lambda: (base_url, params, False)),  # 직접 연결
-        ("corsproxy.io", lambda: (f"https://corsproxy.io/?{full_url}", None, True)),  # URL 그대로
-        ("allorigins", lambda: (f"https://api.allorigins.win/raw?url={quote(full_url, safe='')}", None, True)),  # URL 인코딩
+    errors = []
+
+    # 1. Cloudflare Worker 시도 (최우선)
+    if CLOUDFLARE_WORKER_URL:
+        worker_response = try_cloudflare_worker_request(base_url, params, timeout)
+        if worker_response:
+            return worker_response
+        errors.append("Cloudflare Worker: 실패")
+
+    # 2. 직접 연결 시도 (로컬 또는 한국 서버)
+    try:
+        response = requests.get(base_url, params=params, headers=headers, timeout=timeout)
+        if response.status_code == 200:
+            content_type = response.headers.get('content-type', '').lower()
+            if 'json' in content_type or 'xml' in content_type or 'javascript' in content_type:
+                return response
+        if 400 <= response.status_code < 500:
+            return response
+        errors.append(f"직접연결: HTTP {response.status_code}")
+    except requests.exceptions.Timeout:
+        errors.append("직접연결: 타임아웃")
+    except requests.exceptions.ConnectionError:
+        errors.append("직접연결: 연결 실패")
+    except Exception as e:
+        errors.append(f"직접연결: {str(e)[:20]}")
+
+    # 3. CORS 프록시 fallback (해외 서버이므로 대부분 실패할 수 있음)
+    cors_proxies = [
+        ("corsproxy.io", f"https://corsproxy.io/?{full_url}"),
+        ("thingproxy", f"https://thingproxy.freeboard.io/fetch/{full_url}"),
     ]
 
-    last_error = None
-
-    for proxy_name, url_generator in proxy_configs:
+    for proxy_name, proxy_url in cors_proxies:
         try:
-            url, req_params, is_full_url = url_generator()
+            response = requests.get(proxy_url, headers=headers, timeout=timeout)
 
-            if is_full_url:
-                # 프록시 사용 시 전체 URL로 요청
-                response = requests.get(url, headers=headers, timeout=timeout)
-            else:
-                # 직접 연결 시 params 사용
-                response = requests.get(url, params=req_params, headers=headers, timeout=timeout)
-
-            # 성공적인 응답 확인
             if response.status_code == 200:
-                # JSON 응답인지 확인
-                content_type = response.headers.get('content-type', '')
+                content_type = response.headers.get('content-type', '').lower()
+                response_text = response.text[:100] if response.text else ''
+
                 if 'json' in content_type or 'javascript' in content_type:
-                    return response
-                # XML 응답도 일단 반환 (에러 메시지일 수 있음)
+                    if '"error"' not in response_text.lower() or '"features"' in response_text.lower():
+                        return response
+
                 if 'xml' in content_type:
                     return response
 
-            # 4xx 오류는 반환 (API 키 오류 등 - 프록시 문제가 아님)
             if 400 <= response.status_code < 500:
                 return response
 
-            # 5xx 오류는 다음 프록시 시도
-            last_error = f"{proxy_name}: HTTP {response.status_code}"
+            errors.append(f"{proxy_name}: HTTP {response.status_code}")
 
         except requests.exceptions.Timeout:
-            last_error = f"{proxy_name}: 타임아웃"
-            continue
-        except requests.exceptions.ConnectionError:
-            last_error = f"{proxy_name}: 연결 실패"
-            continue
-        except requests.exceptions.RequestException as e:
-            last_error = f"{proxy_name}: {str(e)}"
-            continue
+            errors.append(f"{proxy_name}: 타임아웃")
+        except Exception as e:
+            errors.append(f"{proxy_name}: {str(e)[:15]}")
 
-    # 모든 시도 실패 시 마지막 에러 로깅
-    if last_error:
-        st.warning(f"API 연결 실패: {last_error}")
+    # 모든 시도 실패
+    if errors:
+        # Cloudflare Worker가 설정되지 않은 경우 안내 메시지 표시
+        if not CLOUDFLARE_WORKER_URL:
+            st.warning("⚠️ V-World API가 해외 IP를 차단합니다. Cloudflare Worker 프록시를 설정하세요.")
+        else:
+            st.warning(f"API 연결 실패: {', '.join(errors[-2:])}")
 
     return None
 
@@ -2505,7 +2566,7 @@ with st.expander("위치 설정", expanded=False):
         step=0.001
     )
 
-    if st.button("좌표로 이동", type="primary", use_container_width=True):
+    if st.button("좌표로 이동", type="primary"):
         st.session_state.cadastral_center_lat = search_lat
         st.session_state.cadastral_center_lon = search_lon
         st.rerun()
@@ -2569,11 +2630,11 @@ with st.expander("위치 설정", expanded=False):
     # 전체 선택/해제 버튼
     col_sel_all, col_desel_all = st.columns(2)
     with col_sel_all:
-        if st.button("전체 선택", key="select_all_zones", use_container_width=True):
+        if st.button("전체 선택", key="select_all_zones"):
             st.session_state.selected_zone_layers = list(ZONE_LAYERS.keys())
             st.rerun()
     with col_desel_all:
-        if st.button("전체 해제", key="deselect_all_zones", use_container_width=True):
+        if st.button("전체 해제", key="deselect_all_zones"):
             st.session_state.selected_zone_layers = []
             st.rerun()
 
@@ -2689,7 +2750,7 @@ with st.expander("위치 설정", expanded=False):
         click_lat, click_lon = st.session_state.clicked_location
         st.info(f"**클릭 위치**\n위도: {click_lat:.6f}\n경도: {click_lon:.6f}")
 
-        if st.button("이 위치의 지적 정보 조회", type="primary", use_container_width=True):
+        if st.button("이 위치의 지적 정보 조회", type="primary"):
             with st.spinner("지적 정보 조회 중..."):
                 # 조회할 레이어 설정
                 query_layers = []
@@ -2854,7 +2915,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
     wfs_max_features = 1000
 
     # 데이터 조회 버튼
-    query_btn = st.button("선택된 레이어 데이터 조회", type="primary", use_container_width=True)
+    query_btn = st.button("선택된 레이어 데이터 조회", type="primary")
 
     if query_btn:
         if not st.session_state.selected_zone_layers:
@@ -2951,12 +3012,12 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                 data=json_str,
                 file_name=f"spatial_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.geojson",
                 mime="application/json",
-                use_container_width=True
+                width="container"
             )
 
         with col_dl2:
             # 전체 데이터 초기화
-            if st.button("🗑️ 전체 삭제", use_container_width=True):
+            if st.button("🗑️ 전체 삭제"):
                 st.session_state.downloaded_geo_data = {}
                 st.rerun()
 
@@ -2964,7 +3025,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
         with st.expander("📊 조회된 데이터 통계", expanded=False):
             st.caption("조회된 공간 데이터의 통계를 차트로 시각화합니다.")
 
-            if st.button("📈 통계 분석 실행", use_container_width=True, key="run_viz_stats"):
+            if st.button("📈 통계 분석 실행", key="run_viz_stats"):
                 with st.spinner("통계 계산 중..."):
                     # 현재 지도 중심 좌표 사용
                     viz_lat = st.session_state.cadastral_center_lat
@@ -2998,7 +3059,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                 '객체 수': layer_stat.get('count', 0)
                             })
                         if layer_summary:
-                            st.dataframe(pd.DataFrame(layer_summary), use_container_width=True, hide_index=True)
+                            st.dataframe(pd.DataFrame(layer_summary), width="container", hide_index=True)
 
                     # 탭으로 시각화 분리
                     viz_tabs = st.tabs(["용도지역", "공시지가", "면적분포", "건물용도"])
@@ -3012,7 +3073,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                     zoning_df = pd.DataFrame(zoning_data, columns=['용도', '개수'])
                                     fig = px.pie(zoning_df, names='용도', values='개수',
                                                 title=f"반경 {viz_radius}m 내 용도지역 분포")
-                                    st.plotly_chart(fig, use_container_width=True)
+                                    st.plotly_chart(fig, width="container")
                                 else:
                                     st.info("용도지역 데이터가 없습니다.")
                             except Exception as e:
@@ -3030,7 +3091,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                     title=f"반경 {viz_radius}m 내 공시지가 분포",
                                     labels={'x': '공시지가 (원/㎡)', 'y': '필지 수'}
                                 )
-                                st.plotly_chart(fig, use_container_width=True)
+                                st.plotly_chart(fig, width="container")
                                 col_stat1, col_stat2, col_stat3 = st.columns(3)
                                 prices = extended_stats['prices']
                                 with col_stat1:
@@ -3054,7 +3115,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                     title=f"반경 {viz_radius}m 내 면적 분포",
                                     labels={'x': '면적 (㎡)', 'y': '필지 수'}
                                 )
-                                st.plotly_chart(fig, use_container_width=True)
+                                st.plotly_chart(fig, width="container")
                                 st.metric("총 면적", f"{sum(extended_stats['areas']):,.1f}㎡")
                             except Exception as e:
                                 st.warning(f"차트 생성 오류: {e}")
@@ -3070,7 +3131,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                     bldg_df = pd.DataFrame(bldg_data, columns=['용도', '개수'])
                                     fig = px.bar(bldg_df, x='용도', y='개수',
                                                 title=f"반경 {viz_radius}m 내 건물용도 분포 (상위 10개)")
-                                    st.plotly_chart(fig, use_container_width=True)
+                                    st.plotly_chart(fig, width="container")
                                 else:
                                     st.info("건물용도 데이터가 없습니다.")
                             except Exception as e:
@@ -3130,7 +3191,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
 
                 if selected_layers and target_block:
                     target_block_name = get_block_display_name(target_block)
-                    if st.button("🔗 선택 레이어 일괄 연동", use_container_width=True, key="batch_link_btn"):
+                    if st.button("🔗 선택 레이어 일괄 연동", key="batch_link_btn"):
                         # 선택된 레이어들을 블록에 연동
                         combined_features = []
                         total_count = 0
@@ -3183,7 +3244,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
 
                 with col_actions:
                     # 블록 연동 버튼
-                    if st.button("블록 연동", key=f"link_{layer_name}", use_container_width=True):
+                    if st.button("블록 연동", key=f"link_{layer_name}"):
                         st.session_state[f'show_block_selector_{layer_name}'] = True
                         st.rerun()
 
@@ -3195,11 +3256,11 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                         file_name=f"{layer_name.replace('/', '_')}.geojson",
                         mime="application/json",
                         key=f"dl_{layer_name}",
-                        use_container_width=True
+                        width="container"
                     )
 
                     # 개별 삭제
-                    if st.button("삭제", key=f"del_{layer_name}", use_container_width=True):
+                    if st.button("삭제", key=f"del_{layer_name}"):
                         # 연동 해제
                         if linked_block and linked_block in st.session_state.block_spatial_data:
                             del st.session_state.block_spatial_data[linked_block]
@@ -3252,7 +3313,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
 
                         col_btn1, col_btn2 = st.columns(2)
                         with col_btn1:
-                            if st.button("✅ 연동 확인", key=f"confirm_{layer_name}", use_container_width=True):
+                            if st.button("✅ 연동 확인", key=f"confirm_{layer_name}"):
                                 if selected_block == "(연동 해제)":
                                     # 연동 해제
                                     if linked_block and linked_block in st.session_state.block_spatial_data:
@@ -3276,7 +3337,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                                 st.rerun()
 
                         with col_btn2:
-                            if st.button("❌ 취소", key=f"cancel_{layer_name}", use_container_width=True):
+                            if st.button("❌ 취소", key=f"cancel_{layer_name}"):
                                 del st.session_state[f'show_block_selector_{layer_name}']
                                 st.rerun()
 
@@ -3288,7 +3349,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
 
                 if records:
                     df_preview = pd.DataFrame(records)
-                    st.dataframe(df_preview, use_container_width=True)
+                    st.dataframe(df_preview, width="container")
                     st.caption(f"(최대 10개 객체만 미리보기)")
     else:
         st.info("위에서 레이어를 선택하고 '데이터 조회' 버튼을 눌러주세요.")
@@ -3337,7 +3398,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                 "레이어": spatial_data['layer_name'],
                 "객체 수": spatial_data['feature_count']
             })
-        st.dataframe(link_data, use_container_width=True)
+        st.dataframe(link_data, width="container")
 
 # API 정보 안내
 st.markdown("---")

@@ -62,7 +62,7 @@ def show_login_page():
                 help="관리자에게 부여받은 개인 번호를 입력하세요."
             )
 
-            submitted = st.form_submit_button("로그인", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("로그인", type="primary")
 
         if submitted and personal_number:
             success, message = login(personal_number)
@@ -144,7 +144,7 @@ def show_main_app():
         st.success(f"로그인: {user.get('display_name', user.get('personal_number'))}")
         role_display = {"user": "일반", "team_lead": "팀리드", "admin": "관리자"}
         st.caption(f"역할: {role_display.get(user.get('role'), user.get('role'))}")
-        if st.button("로그아웃", key="main_logout", use_container_width=True):
+        if st.button("로그아웃", key="main_logout"):
             logout()
             st.rerun()
         st.markdown("---")
@@ -182,14 +182,14 @@ def show_main_app():
         # 전체 개요 다이어그램 1
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_01.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            st.image(str(image_path), width="container")
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
         # 전체 개요 다이어그램 2
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_02.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            st.image(str(image_path), width="container")
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -234,7 +234,7 @@ def show_main_app():
         # 블록 생성기 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_03.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            st.image(str(image_path), width="container")
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -304,7 +304,7 @@ def show_main_app():
         # 지도 분석 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_04.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            st.image(str(image_path), width="container")
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -383,7 +383,7 @@ def show_main_app():
         # 문서 분석 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_05.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            st.image(str(image_path), width="container")
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -471,7 +471,7 @@ def show_main_app():
         # 이미지 프롬프트 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_06.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            st.image(str(image_path), width="container")
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -561,7 +561,7 @@ def show_main_app():
         # 스토리보드 생성 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_07.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            st.image(str(image_path), width="container")
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -756,7 +756,7 @@ def show_main_app():
             col1, col2 = st.sidebar.columns(2)
 
             with col1:
-                if st.button("확인", key=f"confirm_key_{api_key_env}", use_container_width=True):
+                if st.button("확인", key=f"confirm_key_{api_key_env}"):
                     if user_input_key.strip():
                         # 세션 상태에 저장
                         st.session_state[session_key] = user_input_key.strip()
@@ -779,7 +779,7 @@ def show_main_app():
 
             with col2:
                 if st.session_state[session_key]:
-                    if st.button("삭제", key=f"delete_key_{api_key_env}", use_container_width=True):
+                    if st.button("삭제", key=f"delete_key_{api_key_env}"):
                         # 세션 상태에서 삭제
                         st.session_state[session_key] = ''
 
