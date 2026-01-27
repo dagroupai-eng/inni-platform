@@ -14,10 +14,15 @@ st.set_page_config(
 
 # 세션 초기화 (로그인 + 작업 데이터 복원)
 try:
-    from auth.session_init import init_page_session
+    from auth.session_init import init_page_session, render_session_manager_sidebar
     init_page_session()
 except Exception as e:
     print(f"세션 초기화 오류: {e}")
+    render_session_manager_sidebar = None
+
+# 세션 관리 사이드바 렌더링
+if render_session_manager_sidebar:
+    render_session_manager_sidebar()
 
 # 데이터베이스 초기화 (필요시)
 try:

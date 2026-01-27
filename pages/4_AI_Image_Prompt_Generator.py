@@ -21,14 +21,19 @@ st.set_page_config(
 
 # 세션 초기화 (로그인 + 작업 데이터 복원)
 try:
-    from auth.session_init import init_page_session
+    from auth.session_init import init_page_session, render_session_manager_sidebar
     init_page_session()
 except Exception as e:
     print(f"세션 초기화 오류: {e}")
+    render_session_manager_sidebar = None
 
 # 로그인 체크
 if AUTH_AVAILABLE:
     check_page_access()
+
+# 세션 관리 사이드바 렌더링
+if render_session_manager_sidebar:
+    render_session_manager_sidebar()
 
 # AI 이미지 프롬프트 생성 함수
 def generate_ai_image_prompt(user_inputs, cot_history, image_settings):
@@ -85,6 +90,7 @@ def generate_ai_image_prompt(user_inputs, cot_history, image_settings):
 - 스타일: {', '.join(image_settings.get('style_preference', [])) if image_settings.get('style_preference') else '기본'}
 - 참고 건축가/스튜디오: {image_settings.get('architect_reference', '') or '없음'}
 - 추가 설명: {image_settings.get('additional_description', '')}
+- 네거티브 프롬프트 (사용자 입력): {image_settings.get('negative_prompt', '') or '없음'}
 
 ##  출력 형식
 
@@ -93,6 +99,10 @@ def generate_ai_image_prompt(user_inputs, cot_history, image_settings):
 
 **English Prompt:**
 [구체적이고 실행 가능한 영어 프롬프트]
+
+**Negative Prompt:**
+[이미지에서 제외할 요소들 - 사용자 입력을 기반으로 하되, 건축 이미지 품질을 위한 기본 요소도 포함]
+기본 포함 요소: blurry, low quality, distorted, watermark, text overlay, signature, deformed architecture, unrealistic proportions
 
 ##  프롬프트 생성 가이드라인
 
@@ -148,26 +158,41 @@ def generate_ai_image_prompt(user_inputs, cot_history, image_settings):
             # 결과를 파싱하여 구조화된 형태로 반환
             analysis_text = result['analysis']
             
-            # 한글 설명과 영어 프롬프트 추출 시도
+            # 한글 설명, 영어 프롬프트, 네거티브 프롬프트 추출 시도
             korean_description = ""
             english_prompt = ""
-            
+            negative_prompt = ""
+
             # 간단한 파싱 로직
             if "**한글 설명:**" in analysis_text:
                 parts = analysis_text.split("**한글 설명:**")
                 if len(parts) > 1:
                     korean_part = parts[1].split("**English Prompt:**")[0].strip()
                     korean_description = korean_part
-            
+
             if "**English Prompt:**" in analysis_text:
                 parts = analysis_text.split("**English Prompt:**")
                 if len(parts) > 1:
-                    english_prompt = parts[1].strip()
-            
+                    english_part = parts[1]
+                    # Negative Prompt가 있으면 그 전까지만
+                    if "**Negative Prompt:**" in english_part:
+                        english_prompt = english_part.split("**Negative Prompt:**")[0].strip()
+                    else:
+                        english_prompt = english_part.strip()
+
+            if "**Negative Prompt:**" in analysis_text:
+                parts = analysis_text.split("**Negative Prompt:**")
+                if len(parts) > 1:
+                    negative_prompt = parts[1].strip()
+                    # 다음 섹션이 있으면 그 전까지만
+                    if "**" in negative_prompt:
+                        negative_prompt = negative_prompt.split("**")[0].strip()
+
             return {
                 'success': True,
                 'korean_description': korean_description,
                 'english_prompt': english_prompt,
+                'negative_prompt': negative_prompt,
                 'full_analysis': analysis_text,
                 'model': result['model']
             }
@@ -338,6 +363,14 @@ def main():
             placeholder="특별히 강조하고 싶은 요소나 요구사항을 입력하세요.",
             height=100
         )
+
+        negative_prompt_input = st.text_area(
+            "네거티브 프롬프트 (제외할 요소)",
+            value="",
+            placeholder="예: blurry, low quality, distorted, watermark, text, people, cars",
+            help="이미지에서 제외하고 싶은 요소들을 영어로 입력하세요. 쉼표로 구분합니다.",
+            height=80
+        )
     
     # 메인 컨텐츠
     col1, col2 = st.columns([2, 1])
@@ -408,6 +441,7 @@ def main():
                 'style_preference': style_preference,
                 'architect_reference': architect_reference,
                 'additional_description': additional_description,
+                'negative_prompt': negative_prompt_input,
                 'pdf_content': pdf_content
             }
             
@@ -433,7 +467,12 @@ def main():
                         if result.get('english_prompt'):
                             st.markdown("**English Prompt:**")
                             st.code(result['english_prompt'], language="text")
-                            
+
+                        # 네거티브 프롬프트
+                        if result.get('negative_prompt'):
+                            st.markdown("**Negative Prompt:**")
+                            st.code(result['negative_prompt'], language="text")
+
                             # 복사 버튼
                             if st.button("프롬프트 복사", key="copy_prompt"):
                                 st.write("프롬프트가 클립보드에 복사되었습니다!")
@@ -472,6 +511,7 @@ def main():
     - **스타일 선호도**: 여러 스타일을 선택하여 다양한 방향의 프롬프트를 생성할 수 있습니다
     - **참고 건축가**: 특정 건축가의 스타일을 참고하여 프롬프트에 반영합니다
     - **추가 설명**: 특별히 강조하고 싶은 요소나 요구사항을 입력하세요
+    - **네거티브 프롬프트**: 이미지에서 제외하고 싶은 요소를 영어로 입력하세요 (예: blurry, watermark, people)
     """)
 
 if __name__ == "__main__":
