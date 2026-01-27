@@ -447,7 +447,8 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
         'SRSNAME': 'EPSG:4326',
         'key': VWORLD_API_KEY
     }
-    params = add_domain_param(params)
+    # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
+    # params = add_domain_param(params)
 
     # Retry 로직 (502, 503, 504 오류 시 재시도)
     max_retries = 3
@@ -466,7 +467,7 @@ def get_wfs_layer_data(layer_code: str, bbox: Tuple[float, float, float, float],
             response.raise_for_status()
             break  # 성공 시 루프 탈출
         except requests.exceptions.RequestException as e:
-            if attempt < max_retries - 1 and ('502' in str(e) or '503' in str(e) or '504' in str(e)):
+            if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
                 continue
             st.error(f"WFS 요청 실패: {str(e)}")
@@ -592,18 +593,38 @@ def get_feature_info(lat: float, lon: float, layers: str, styles: str,
         'FEATURE_COUNT': '10',
         'key': VWORLD_API_KEY
     }
-    params = add_domain_param(params)
+    # 서버사이드 요청 시 domain 파라미터 생략
+    # params = add_domain_param(params)
+
+    # Retry 로직
+    max_retries = 3
+    retry_delay = 1
+    response = None
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(VWORLD_WMS_URL, params=params, headers=get_vworld_headers(), timeout=15)
+
+            if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+
+            response.raise_for_status()
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            st.error(f"GetFeatureInfo 요청 실패: {str(e)}")
+            return None
+
+    if response is None:
+        return None
 
     try:
-        response = requests.get(VWORLD_WMS_URL, params=params, headers=get_vworld_headers(), timeout=10)
-        response.raise_for_status()
-
         # JSON 응답 파싱
         data = response.json()
         return data
-    except requests.exceptions.RequestException as e:
-        st.error(f"GetFeatureInfo 요청 실패: {str(e)}")
-        return None
     except Exception as e:
         # JSON 파싱 실패 시 텍스트 응답 반환
         try:
@@ -638,9 +659,10 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
         'SRSNAME': 'EPSG:4326',
         'key': VWORLD_API_KEY
     }
-    params = add_domain_param(params)
+    # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
+    # params = add_domain_param(params)
 
-    # Retry 로직 (502, 503, 504 오류 시 재시도)
+    # Retry 로직 (502, 503, 504, Connection 오류 시 재시도)
     max_retries = 3
     retry_delay = 1  # 초
     response = None
@@ -657,7 +679,7 @@ def get_wfs_features(bbox: Tuple[float, float, float, float],
             response.raise_for_status()
             break
         except requests.exceptions.RequestException as e:
-            if attempt < max_retries - 1 and ('502' in str(e) or '503' in str(e) or '504' in str(e)):
+            if attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
                 continue
             st.error(f"WFS 요청 실패: {str(e)}")
@@ -736,12 +758,35 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
         'type': address_type,
         'key': VWORLD_API_KEY
     }
-    params = add_domain_param(params)
+    # 서버사이드 요청 시 domain 파라미터 생략 (502 에러 방지)
+    # params = add_domain_param(params)
+
+    # Retry 로직
+    max_retries = 3
+    retry_delay = 1
+    response = None
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(GEOCODER_URL, params=params, headers=get_vworld_headers(), timeout=15)
+
+            if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+
+            response.raise_for_status()
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            st.warning(f"지오코딩 요청 실패: {str(e)}")
+            return None
+
+    if response is None:
+        return None
 
     try:
-        response = requests.get(GEOCODER_URL, params=params, headers=get_vworld_headers(), timeout=10)
-        response.raise_for_status()
-
         data = response.json()
 
         if data.get('response', {}).get('status') == 'OK':
@@ -758,9 +803,6 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
 
         return None
 
-    except requests.exceptions.RequestException as e:
-        st.warning(f"지오코딩 요청 실패: {str(e)}")
-        return None
     except Exception as e:
         st.warning(f"지오코딩 처리 오류: {str(e)}")
         return None
@@ -796,12 +838,35 @@ def reverse_geocode(lat: float, lon: float, address_type: str = "both") -> Optio
         'simple': 'false',
         'key': VWORLD_API_KEY
     }
-    params = add_domain_param(params)
+    # 서버사이드 요청 시 domain 파라미터 생략
+    # params = add_domain_param(params)
+
+    # Retry 로직
+    max_retries = 3
+    retry_delay = 1
+    response = None
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(REVERSE_GEOCODER_URL, params=params, headers=get_vworld_headers(), timeout=15)
+
+            if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+
+            response.raise_for_status()
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            st.warning(f"역지오코딩 요청 실패: {str(e)}")
+            return None
+
+    if response is None:
+        return None
 
     try:
-        response = requests.get(REVERSE_GEOCODER_URL, params=params, headers=get_vworld_headers(), timeout=10)
-        response.raise_for_status()
-
         data = response.json()
 
         if data.get('response', {}).get('status') == 'OK':
@@ -818,9 +883,6 @@ def reverse_geocode(lat: float, lon: float, address_type: str = "both") -> Optio
 
         return None
 
-    except requests.exceptions.RequestException as e:
-        st.warning(f"역지오코딩 요청 실패: {str(e)}")
-        return None
     except Exception as e:
         st.warning(f"역지오코딩 처리 오류: {str(e)}")
         return None
@@ -869,12 +931,35 @@ def search_address_or_poi(query: str, search_type: str = "address",
         'size': str(size),
         'key': VWORLD_API_KEY
     }
-    params = add_domain_param(params)
+    # 서버사이드 요청 시 domain 파라미터 생략
+    # params = add_domain_param(params)
+
+    # Retry 로직
+    max_retries = 3
+    retry_delay = 1
+    response = None
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(SEARCH_URL, params=params, headers=get_vworld_headers(), timeout=15)
+
+            if response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+
+            response.raise_for_status()
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            st.warning(f"검색 요청 실패: {str(e)}")
+            return None
+
+    if response is None:
+        return None
 
     try:
-        response = requests.get(SEARCH_URL, params=params, headers=get_vworld_headers(), timeout=10)
-        response.raise_for_status()
-
         data = response.json()
 
         if data.get('response', {}).get('status') == 'OK':
@@ -900,9 +985,6 @@ def search_address_or_poi(query: str, search_type: str = "address",
 
         return None
 
-    except requests.exceptions.RequestException as e:
-        st.warning(f"검색 요청 실패: {str(e)}")
-        return None
     except Exception as e:
         st.warning(f"검색 처리 오류: {str(e)}")
         return None
