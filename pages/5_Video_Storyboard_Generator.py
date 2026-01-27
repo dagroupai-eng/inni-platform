@@ -465,7 +465,7 @@ def main():
 
             st.markdown("---")
 
-            if st.button("Narrative 생성", type="primary", use_container_width=True):
+            if st.button("Narrative 생성", type="primary"):
                 project_info = st.session_state.get('storyboard_project_info', {})
 
                 with st.spinner("Narrative를 생성하고 있습니다..."):
@@ -573,7 +573,7 @@ def main():
                         "누적(초)": cumulative_time
                     })
 
-                st.dataframe(table_data, use_container_width=True)
+                st.dataframe(table_data, width="container")
 
             # 프롬프트 생성 섹션
             st.markdown("---")

@@ -1815,7 +1815,7 @@ def render_phase1_2(project_name, location, project_goals, additional_info):
             "confidence": "데이터 신뢰도",
             "notes": "메모"
         })
-        st.dataframe(df_display, use_container_width=True)
+        st.dataframe(df_display, width="container")
         
         # 지도 표시
         lat_series = df_sites.get("lat")
@@ -2351,7 +2351,7 @@ with st.sidebar:
 
             col_restore, col_discard = st.columns(2)
             with col_restore:
-                if st.button("✅ 분석 계속하기", use_container_width=True, type="primary"):
+                if st.button("✅ 분석 계속하기", type="primary"):
                     if apply_restored_progress(restored_progress):
                         st.session_state.pop('pending_restore', None)
                         st.success("분석 상태가 복원되었습니다.")
@@ -2359,7 +2359,7 @@ with st.sidebar:
                     else:
                         st.error("복원 실패")
             with col_discard:
-                if st.button("❌ 새로 시작하기", use_container_width=True):
+                if st.button("❌ 새로 시작하기"):
                     st.session_state.pop('pending_restore', None)
                     st.info("새 분석을 시작합니다.")
                     st.rerun()
@@ -2389,7 +2389,7 @@ with st.sidebar:
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
-            if st.button("🔄 선택 항목 초기화", use_container_width=True):
+            if st.button("🔄 선택 항목 초기화"):
                 try:
                     reset_analysis_state_selective(
                         reset_results=reset_results,
@@ -2404,7 +2404,7 @@ with st.sidebar:
                     st.error(f"초기화 오류: {e}")
 
         with col_btn2:
-            if st.button("🗑️ 전체 초기화", use_container_width=True, type="secondary"):
+            if st.button("🗑️ 전체 초기화", type="secondary"):
                 reset_all_state()
                 st.success("모든 데이터가 초기화되었습니다.")
                 st.rerun()
@@ -2478,7 +2478,7 @@ with tab_project:
     )
 
     # 프로젝트 정보 완료 버튼
-    if st.button("✅ 프로젝트 정보 저장", use_container_width=True, type="primary", key="save_project_info"):
+    if st.button("✅ 프로젝트 정보 저장", type="primary", key="save_project_info"):
         # 세션 저장
         try:
             from auth.session_init import save_work_session, save_analysis_progress
@@ -2540,7 +2540,7 @@ with tab_project:
                 st.text(analysis_result['preview'])
 
             # 파일 업로드 확인 버튼
-            if st.button("✅ 파일 분석 완료 확인", use_container_width=True, type="primary", key="confirm_file_upload"):
+            if st.button("✅ 파일 분석 완료 확인", type="primary", key="confirm_file_upload"):
                 try:
                     from auth.session_init import save_work_session, save_analysis_progress
                     save_work_session()
@@ -2667,7 +2667,7 @@ with tab_blocks:
             # 수정 가능한 데이터 에디터로 순서 조정
             edited_df = st.data_editor(
                 df[['순서', '카테고리', '블록명', '설명']],
-                use_container_width=True,
+                width="container",
                 num_rows="fixed",
                 column_config={
                     "순서": st.column_config.NumberColumn(
@@ -2736,7 +2736,7 @@ with tab_blocks:
             
             # 위/아래 화살표 버튼
             move_up_disabled = (selected_row_index == 0)
-            if st.button("⬆️", key="move_block_up", disabled=move_up_disabled, use_container_width=True, help="위로 이동"):
+            if st.button("⬆️", key="move_block_up", disabled=move_up_disabled, help="위로 이동"):
                 if selected_row_index > 0:
                     current_blocks = st.session_state['selected_blocks'].copy()
                     # 선택된 블록과 위 블록 교환
@@ -2748,7 +2748,7 @@ with tab_blocks:
                     st.rerun()
             
             move_down_disabled = (selected_row_index == len(selected_blocks) - 1)
-            if st.button("⬇️", key="move_block_down", disabled=move_down_disabled, use_container_width=True, help="아래로 이동"):
+            if st.button("⬇️", key="move_block_down", disabled=move_down_disabled, help="아래로 이동"):
                 if selected_row_index < len(selected_blocks) - 1:
                     current_blocks = st.session_state['selected_blocks'].copy()
                     # 선택된 블록과 아래 블록 교환
@@ -2761,7 +2761,7 @@ with tab_blocks:
 
         # 블록 선택 완료 버튼
         st.markdown("---")
-        if st.button("✅ 블록 선택 완료", use_container_width=True, type="primary", key="confirm_block_selection"):
+        if st.button("✅ 블록 선택 완료", type="primary", key="confirm_block_selection"):
             try:
                 from auth.session_init import save_work_session, save_analysis_progress
                 save_work_session()
@@ -2957,7 +2957,7 @@ with tab_run:
     st.markdown("### 단계별 분석 제어")
     control_col1, control_col2 = st.columns(2)
     with control_col1:
-        if st.button("🔄 분석 세션 초기화", use_container_width=True):
+        if st.button("🔄 분석 세션 초기화"):
             print("[DEBUG] 초기화 버튼 클릭됨")
             print(f"[DEBUG] 초기화 전 cot_results: {list(st.session_state.cot_results.keys())}")
             print(f"[DEBUG] 초기화 전 cot_current_index: {st.session_state.cot_current_index}")
@@ -2968,7 +2968,7 @@ with tab_run:
             st.rerun()
     prepare_disabled = not analysis_text
     with control_col2:
-        if st.button("🚀 단계별 분석 세션 준비", type="primary", use_container_width=True, disabled=prepare_disabled):
+        if st.button("🚀 단계별 분석 세션 준비", type="primary", disabled=prepare_disabled):
             if not analysis_text:
                 st.warning("분석에 사용할 텍스트가 없습니다.")
             else:
@@ -3329,14 +3329,12 @@ with tab_run:
             run_clicked = st.button(
                 f"▶️ {st.session_state.cot_current_index + 1}단계 실행: {next_block_name}",
                 type="primary",
-                disabled=is_running,
-                use_container_width=True
+                disabled=is_running
             )
         with stop_col:
             stop_clicked = st.button(
                 "⏹️ 멈춤",
                 disabled=not is_running,
-                use_container_width=True,
                 help="현재 실행 중인 분석을 중단합니다.",
                 type="secondary"
             )
@@ -3344,7 +3342,6 @@ with tab_run:
             skip_clicked = st.button(
                 "⏭️ 건너뛰기",
                 disabled=is_running,
-                use_container_width=True,
                 help="이 블록을 건너뛰고 다음 블록으로 진행합니다."
             )
         
@@ -3520,7 +3517,7 @@ with tab_run:
         and len(st.session_state.analysis_results) >= len(st.session_state.cot_plan)
     )
     if all_blocks_completed:
-        if st.button("💾 분석 결과 저장", use_container_width=True):
+        if st.button("💾 분석 결과 저장"):
             from datetime import datetime
             import json
             analysis_folder = "analysis_results"
