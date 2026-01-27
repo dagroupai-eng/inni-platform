@@ -672,7 +672,8 @@ def geocode_address(address: str, address_type: str = "road") -> Optional[Dict[s
         'simple': 'false',
         'format': 'json',
         'type': address_type,
-        'key': VWORLD_API_KEY
+        'key': VWORLD_API_KEY,
+        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
     }
 
     try:
@@ -731,7 +732,8 @@ def reverse_geocode(lat: float, lon: float, address_type: str = "both") -> Optio
         'type': address_type,
         'zipcode': 'true',
         'simple': 'false',
-        'key': VWORLD_API_KEY
+        'key': VWORLD_API_KEY,
+        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
     }
 
     try:
@@ -803,7 +805,8 @@ def search_address_or_poi(query: str, search_type: str = "address",
         'errorformat': 'json',
         'page': str(page),
         'size': str(size),
-        'key': VWORLD_API_KEY
+        'key': VWORLD_API_KEY,
+        'domain': VWORLD_DOMAIN  # 서버사이드 요청 시 필요
     }
 
     try:
