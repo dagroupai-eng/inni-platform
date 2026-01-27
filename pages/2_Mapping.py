@@ -2129,23 +2129,26 @@ with st.expander("위치 검색 및 설정", expanded=False):
     if search_query:
         if st.button("🔍 검색", type="primary", use_container_width=True):
             with st.spinner("검색 중..."):
-                # 1. 먼저 POI/통합 검색 시도
-                results = search_address_or_poi(search_query, search_type="all", size=5)
+                results = []
 
-                # 2. POI 결과가 없으면 주소 검색
-                if not results:
-                    address_result = geocode_address(search_query, address_type="road")
-                    if not address_result:
-                        address_result = geocode_address(search_query, address_type="parcel")
+                # 1. 먼저 주소 검색 시도 (가장 안정적)
+                address_result = geocode_address(search_query, address_type="road")
+                if not address_result:
+                    address_result = geocode_address(search_query, address_type="parcel")
 
-                    if address_result:
-                        results = [{
-                            'title': search_query,
-                            'address': address_result['address'],
-                            'lat': address_result['lat'],
-                            'lon': address_result['lon'],
-                            'category': '주소'
-                        }]
+                if address_result:
+                    results.append({
+                        'title': search_query,
+                        'address': address_result['address'],
+                        'lat': address_result['lat'],
+                        'lon': address_result['lon'],
+                        'category': '주소'
+                    })
+
+                # 2. POI 검색 시도 (type=place)
+                poi_results = search_address_or_poi(search_query, search_type="place", size=5)
+                if poi_results:
+                    results.extend(poi_results)
 
                 if results:
                     st.session_state.search_results = results
