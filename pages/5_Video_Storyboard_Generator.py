@@ -364,31 +364,27 @@ def main():
 
             col1, col2 = st.columns(2)
             with col1:
-                project_name = st.text_input("프로젝트명", value="")
-                location = st.text_input("위치", value="")
+                project_name = st.text_input("프로젝트명", value="", key="pdf_project_name")
+                location = st.text_input("위치", value="", key="pdf_location")
             with col2:
                 building_type = st.selectbox(
                     "건물 유형",
-                    ["", "마스터플랜", "도시재생", "복합개발", "캠퍼스/연구단지", "산업단지", "주거단지", "상업/업무단지", "기타"]
+                    ["", "마스터플랜", "도시재생", "복합개발", "캠퍼스/연구단지", "산업단지", "주거단지", "상업/업무단지", "기타"],
+                    key="pdf_building_type"
                 )
-                owner = st.text_input("건축주", value="")
-                location = st.text_input("위치", value="")
-                building_type = st.selectbox(
-                    "건물 유형",
-                    ["", "마스터플랜", "도시재생", "복합개발", "캠퍼스/연구단지", "산업단지", "주거단지", "상업/업무단지", "기타"]
-                )
-                owner = st.text_input("건축주", value="")
+                owner = st.text_input("건축주", value="", key="pdf_owner")
         else:
             col1, col2 = st.columns(2)
             with col1:
-                project_name = st.text_input("프로젝트명", value="", placeholder="예: 서울시청 신청사")
-                location = st.text_input("위치", value="", placeholder="예: 서울시 중구")
+                project_name = st.text_input("프로젝트명", value="", placeholder="예: 서울시청 신청사", key="direct_project_name")
+                location = st.text_input("위치", value="", placeholder="예: 서울시 중구", key="direct_location")
             with col2:
                 building_type = st.selectbox(
                     "건물 유형",
-                    ["", "마스터플랜", "도시재생", "복합개발", "캠퍼스/연구단지", "산업단지", "주거단지", "상업/업무단지", "기타"]
+                    ["", "마스터플랜", "도시재생", "복합개발", "캠퍼스/연구단지", "산업단지", "주거단지", "상업/업무단지", "기타"],
+                    key="direct_building_type"
                 )
-                owner = st.text_input("건축주", value="", placeholder="예: 서울특별시")
+                owner = st.text_input("건축주", value="", placeholder="예: 서울특별시", key="direct_owner")
 
         project_description = st.text_area(
             "프로젝트 설명",
