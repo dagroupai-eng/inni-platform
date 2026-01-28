@@ -88,10 +88,17 @@ with col_reset:
             if key in st.session_state:
                 del st.session_state[key]
 
-        # DB에서도 삭제 (선택사항)
+        # 복원 키도 삭제 (중요!)
+        if 'work_session_restored_global' in st.session_state:
+            del st.session_state['work_session_restored_global']
+        if 'work_session_restoring' in st.session_state:
+            del st.session_state['work_session_restoring']
+
+        # DB에 빈 상태로 저장
         try:
             from auth.session_init import save_work_session
             save_work_session()  # 빈 상태로 저장
+            print("[초기화] DB에 빈 상태 저장 완료")
         except Exception as e:
             print(f"초기화 저장 오류: {e}")
 

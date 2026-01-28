@@ -2341,6 +2341,10 @@ class EnhancedArchAnalyzer:
                 "all_citations": result.get("all_citations", [])
             }
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR] run_cot_step 예외 발생:")
+            print(error_details)
             return {
                 "success": False,
                 "error": str(e),
@@ -2824,6 +2828,10 @@ class EnhancedArchAnalyzer:
             }
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR] _analyze_block_with_cot_context 예외 발생:")
+            print(error_details)
             return {
                 "success": False,
                 "error": str(e),
@@ -4030,16 +4038,21 @@ class EnhancedArchAnalyzer:
                                     print(f"[WARNING] func_call.name 접근 실패: {name_error}, func_call 타입: {type(func_call)}")
                                     func_name = "unknown_function"
 
-                                # args 추출
+                                # args 추출 (hasattr 사용하지 않고 직접 try-except)
+                                args_value = {}
                                 try:
-                                    if hasattr(func_call, 'args'):
-                                        if hasattr(func_call.args, 'items'):
-                                            args_value = dict(func_call.args)
+                                    # 직접 접근 시도
+                                    temp_args = func_call.args
+                                    # 성공하면 타입 확인
+                                    try:
+                                        if hasattr(temp_args, 'items'):
+                                            args_value = dict(temp_args)
                                         else:
-                                            args_value = func_call.args
-                                    else:
-                                        args_value = {}
+                                            args_value = temp_args
+                                    except Exception:
+                                        args_value = temp_args
                                 except (AttributeError, Exception) as args_error:
+                                    # args가 없거나 접근 실패
                                     print(f"[WARNING] func_call.args 접근 실패: {args_error}, func_call 타입: {type(func_call)}")
                                     args_value = {}
 
@@ -4050,14 +4063,19 @@ class EnhancedArchAnalyzer:
                             except Exception as func_call_error:
                                 print(f"[WARNING] func_call 전체 처리 실패: {func_call_error}, func_call 타입: {type(func_call)}")
                                 # 실패해도 계속 진행
-                            
+
                             # Thought signature 추출 (Gemini 3 필수)
-                            if hasattr(part, 'thought_signature') and part.thought_signature:
-                                thought_signatures.append({
-                                    'function_call': func_call,
-                                    'signature': part.thought_signature
-                                })
-                                print(f"🔐 Thought signature 추출: {func_call.name}")
+                            try:
+                                if hasattr(part, 'thought_signature') and part.thought_signature:
+                                    thought_signatures.append({
+                                        'function_call': func_call,
+                                        'signature': part.thought_signature
+                                    })
+                                    # func_name은 위에서 안전하게 추출한 값 사용
+                                    safe_func_name = func_name if 'func_name' in locals() else 'unknown'
+                                    print(f"🔐 Thought signature 추출: {safe_func_name}")
+                            except Exception as sig_error:
+                                print(f"[WARNING] Thought signature 추출 실패: {sig_error}")
                         # 일반 텍스트 응답
                         elif hasattr(part, 'text') and part.text:
                             analysis_text += part.text
@@ -4114,9 +4132,18 @@ class EnhancedArchAnalyzer:
                 # Response에서 원본 parts 가져오기 (thought signatures 보존)
                 if hasattr(response, 'candidates') and response.candidates:
                     for part in response.candidates[0].content.parts:
-                        if hasattr(part, 'function_call') and part.function_call:
-                            # 원본 part를 그대로 사용 (thought signature 포함)
-                            model_content_parts.append(part)
+                        try:
+                            if hasattr(part, 'function_call') and part.function_call:
+                                # function_call이 유효한 객체인지 확인
+                                try:
+                                    # 속성 접근 테스트
+                                    _ = part.function_call.name
+                                    # 유효하면 원본 part를 그대로 사용 (thought signature 포함)
+                                    model_content_parts.append(part)
+                                except (AttributeError, Exception) as fc_error:
+                                    print(f"[WARNING] function_call 유효성 검증 실패, 스킵: {fc_error}, 타입: {type(part.function_call)}")
+                        except Exception as part_error:
+                            print(f"[WARNING] part 처리 중 에러, 스킵: {part_error}")
                 
                 conversation_history.append(
                     types.Content(
@@ -4154,6 +4181,10 @@ class EnhancedArchAnalyzer:
             }
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR] _handle_function_calling_with_pdf 예외 발생:")
+            print(error_details)
             return {
                 "success": False,
                 "error": f"Function calling 처리 오류: {str(e)}",
