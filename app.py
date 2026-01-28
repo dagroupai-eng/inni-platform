@@ -240,14 +240,18 @@ def show_main_app():
         # 전체 개요 다이어그램 1
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_01.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            col_l, col_img, col_r = st.columns([1, 3, 1])
+            with col_img:
+                st.image(str(image_path), use_container_width=True)
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
         # 전체 개요 다이어그램 2
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_02.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            col_l, col_img, col_r = st.columns([1, 3, 1])
+            with col_img:
+                st.image(str(image_path), use_container_width=True)
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -292,7 +296,9 @@ def show_main_app():
         # 블록 생성기 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_03.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            col_l, col_img, col_r = st.columns([1, 3, 1])
+            with col_img:
+                st.image(str(image_path), use_container_width=True)
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -362,7 +368,9 @@ def show_main_app():
         # 지도 분석 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_04.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            col_l, col_img, col_r = st.columns([1, 3, 1])
+            with col_img:
+                st.image(str(image_path), use_container_width=True)
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -441,7 +449,9 @@ def show_main_app():
         # 문서 분석 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_05.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            col_l, col_img, col_r = st.columns([1, 3, 1])
+            with col_img:
+                st.image(str(image_path), use_container_width=True)
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -529,7 +539,9 @@ def show_main_app():
         # 이미지 프롬프트 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_06.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            col_l, col_img, col_r = st.columns([1, 3, 1])
+            with col_img:
+                st.image(str(image_path), use_container_width=True)
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
@@ -619,7 +631,9 @@ def show_main_app():
         # 스토리보드 생성 다이어그램
         image_path = Path(__file__).parent / "IMAGES" / "APP_GUIDE_07.png"
         if image_path.exists():
-            st.image(str(image_path), use_container_width=True)
+            col_l, col_img, col_r = st.columns([1, 3, 1])
+            with col_img:
+                st.image(str(image_path), use_container_width=True)
         else:
             st.info("다이어그램 이미지를 찾을 수 없습니다.")
         
