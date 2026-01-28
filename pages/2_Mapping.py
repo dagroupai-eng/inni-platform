@@ -28,9 +28,9 @@ except ImportError:
 if AUTH_AVAILABLE:
     check_page_access()
 
-# 세션 관리 사이드바 렌더링
-if render_session_manager_sidebar:
-    render_session_manager_sidebar()
+# 세션 관리 사이드바 렌더링 제거 (각 페이지별 리셋 버튼 사용)
+# if render_session_manager_sidebar:
+#     render_session_manager_sidebar()
 
 import pandas as pd
 import requests
@@ -2273,6 +2273,32 @@ VWORLD_LAYERS = {
 st.title("지도 분석")
 st.markdown("**프로젝트 위치 및 지리적 데이터 시각화**")
 
+# 페이지 상단 컨트롤 (리셋 버튼)
+col_title, col_reset = st.columns([5, 1])
+with col_reset:
+    if st.button("🗑️ 페이지 초기화", use_container_width=True, help="이 페이지의 모든 데이터를 초기화합니다"):
+        # Mapping 페이지 관련 모든 데이터 초기화
+        keys_to_reset = [
+            'geo_layers', 'uploaded_gdf', 'uploaded_layer_info',
+            'downloaded_geo_data', 'cadastral_data', 'cadastral_center_lat', 'cadastral_center_lon',
+            'geo_stats_result', 'clicked_location', 'block_spatial_data'
+        ]
+        for key in keys_to_reset:
+            if key in st.session_state:
+                del st.session_state[key]
+
+        # DB에서도 삭제 (선택사항)
+        try:
+            from auth.session_init import save_work_session
+            save_work_session()  # 빈 상태로 저장
+        except Exception as e:
+            print(f"초기화 저장 오류: {e}")
+
+        st.success("페이지가 초기화되었습니다.")
+        st.rerun()
+
+st.markdown("---")
+
 # 페이지 네비게이션 처리
 # (st.switch_page는 사이드바에서 직접 호출하면 오류 발생 가능하므로 제거)
 
@@ -2978,230 +3004,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                 st.session_state.downloaded_geo_data = {}
                 st.rerun()
 
-        # 데이터 통계 시각화
-        # 세션 상태로 expander 열림 상태 유지
-        if 'stats_expander_open' not in st.session_state:
-            st.session_state.stats_expander_open = False
-        # 통계 결과가 있으면 자동으로 열림 상태 유지
-        stats_expanded = st.session_state.stats_expander_open or ('geo_stats_result' in st.session_state and st.session_state.geo_stats_result)
-        with st.expander("📊 조회된 데이터 통계", expanded=stats_expanded):
-            st.caption("조회된 공간 데이터의 통계를 차트로 시각화합니다.")
 
-            if st.button("📈 통계 분석 실행", use_container_width=True, key="run_viz_stats"):
-                st.session_state.stats_expander_open = True  # expander 열림 상태 유지
-                with st.spinner("통계 계산 중..."):
-                    # 현재 지도 중심 좌표 사용
-                    viz_lat = st.session_state.cadastral_center_lat
-                    viz_lon = st.session_state.cadastral_center_lon
-                    viz_radius = radius_meters  # 현재 설정된 반경 사용
-
-                    extended_stats = calculate_radius_statistics_extended(
-                        viz_lat, viz_lon,
-                        st.session_state.downloaded_geo_data,
-                        viz_radius
-                    )
-                    # 결과를 세션에 저장
-                    st.session_state.geo_stats_result = extended_stats
-                    st.session_state.geo_stats_radius = viz_radius
-
-            # 저장된 통계 결과 표시
-            if 'geo_stats_result' in st.session_state and st.session_state.geo_stats_result:
-                extended_stats = st.session_state.geo_stats_result
-                viz_radius = st.session_state.get('geo_stats_radius', 1000)
-
-                if 'error' in extended_stats:
-                    st.error(f"통계 계산 오류: {extended_stats['error']}")
-                else:
-                    # 레이어별 요약 먼저 표시
-                    if extended_stats.get('by_layer'):
-                        st.markdown("**레이어별 객체 수**")
-                        layer_summary = []
-                        for layer_name, layer_stat in extended_stats['by_layer'].items():
-                            layer_summary.append({
-                                '레이어': layer_name,
-                                '객체 수': layer_stat.get('count', 0)
-                            })
-                        if layer_summary:
-                            st.dataframe(pd.DataFrame(layer_summary), use_container_width=True, hide_index=True)
-
-                    # 탭으로 시각화 분리
-                    viz_tabs = st.tabs(["용도지역", "공시지가", "면적분포", "건물용도"])
-
-                    with viz_tabs[0]:  # 용도지역 파이 차트
-                        if extended_stats.get('zoning'):
-                            try:
-                                import plotly.express as px
-                                zoning_data = list(extended_stats['zoning'].items())[:10]
-                                if zoning_data:
-                                    zoning_df = pd.DataFrame(zoning_data, columns=['용도', '개수'])
-                                    fig = px.pie(zoning_df, names='용도', values='개수',
-                                                title=f"반경 {viz_radius}m 내 용도지역 분포")
-                                    st.plotly_chart(fig, use_container_width=True)
-                                else:
-                                    st.info("용도지역 데이터가 없습니다.")
-                            except Exception as e:
-                                st.warning(f"차트 생성 오류: {e}")
-                        else:
-                            st.info("용도지역 데이터가 없습니다.")
-
-                    with viz_tabs[1]:  # 공시지가 히스토그램
-                        if extended_stats.get('prices'):
-                            try:
-                                import plotly.express as px
-                                fig = px.histogram(
-                                    x=extended_stats['prices'],
-                                    nbins=20,
-                                    title=f"반경 {viz_radius}m 내 공시지가 분포",
-                                    labels={'x': '공시지가 (원/㎡)', 'y': '필지 수'}
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-                                col_stat1, col_stat2, col_stat3 = st.columns(3)
-                                prices = extended_stats['prices']
-                                with col_stat1:
-                                    st.metric("평균", f"{int(sum(prices)/len(prices)):,}원")
-                                with col_stat2:
-                                    st.metric("최소", f"{int(min(prices)):,}원")
-                                with col_stat3:
-                                    st.metric("최대", f"{int(max(prices)):,}원")
-                            except Exception as e:
-                                st.warning(f"차트 생성 오류: {e}")
-                        else:
-                            st.info("공시지가 데이터가 없습니다.")
-
-                    with viz_tabs[2]:  # 면적 분포
-                        if extended_stats.get('areas'):
-                            try:
-                                import plotly.express as px
-                                fig = px.histogram(
-                                    x=extended_stats['areas'],
-                                    nbins=20,
-                                    title=f"반경 {viz_radius}m 내 면적 분포",
-                                    labels={'x': '면적 (㎡)', 'y': '필지 수'}
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-                                st.metric("총 면적", f"{sum(extended_stats['areas']):,.1f}㎡")
-                            except Exception as e:
-                                st.warning(f"차트 생성 오류: {e}")
-                        else:
-                            st.info("면적 데이터가 없습니다.")
-
-                    with viz_tabs[3]:  # 건물용도 분포
-                        if extended_stats.get('building_uses'):
-                            try:
-                                import plotly.express as px
-                                bldg_data = list(extended_stats['building_uses'].items())[:10]
-                                if bldg_data:
-                                    bldg_df = pd.DataFrame(bldg_data, columns=['용도', '개수'])
-                                    fig = px.bar(bldg_df, x='용도', y='개수',
-                                                title=f"반경 {viz_radius}m 내 건물용도 분포 (상위 10개)")
-                                    st.plotly_chart(fig, use_container_width=True)
-                                else:
-                                    st.info("건물용도 데이터가 없습니다.")
-                            except Exception as e:
-                                st.warning(f"차트 생성 오류: {e}")
-                        else:
-                            st.info("건물용도 데이터가 없습니다.")
-
-                    # 통계 초기화 버튼
-                    if st.button("통계 결과 지우기", key="clear_stats"):
-                        st.session_state.geo_stats_result = None
-                        st.session_state.stats_expander_open = False
-                        st.rerun()
-            else:
-                st.info("'통계 분석 실행' 버튼을 클릭하여 데이터를 분석하세요.")
-
-        # 다중 레이어 블록 사전 연동 (블록 선택 전에 미리 매핑)
-        if 'layer_link_expander_open' not in st.session_state:
-            st.session_state.layer_link_expander_open = False
-        with st.expander("🔗 레이어-블록 사전 연동", expanded=st.session_state.layer_link_expander_open):
-            st.caption("레이어를 분석 블록에 미리 연동해두면, 해당 블록 선택 시 자동으로 분석에 사용됩니다.")
-
-            # 블록 이름 조회를 위한 lookup 생성
-            try:
-                from prompt_processor import load_blocks, load_custom_blocks
-                example_blocks = load_blocks()
-                custom_blocks = load_custom_blocks()
-                all_blocks = example_blocks + custom_blocks
-                block_lookup = {
-                    block.get('id'): block.get('name', block.get('id'))
-                    for block in all_blocks
-                    if isinstance(block, dict) and block.get('id')
-                }
-                all_block_ids = list(block_lookup.keys())
-            except Exception:
-                block_lookup = {}
-                all_block_ids = []
-
-            if not all_block_ids:
-                st.warning("사용 가능한 분석 블록이 없습니다.")
-            else:
-                # 레이어 다중 선택
-                layer_names = list(st.session_state.downloaded_geo_data.keys())
-                selected_layers = st.multiselect(
-                    "연동할 레이어 선택",
-                    options=layer_names,
-                    default=[],
-                    key="batch_link_layers"
-                )
-
-                # 블록 선택 (한국어 이름 표시) - 모든 블록에서 선택 가능
-                def get_block_display_name(block_id):
-                    name = block_lookup.get(block_id, block_id)
-                    return f"{name}" if name != block_id else block_id
-
-                target_block = st.selectbox(
-                    "연동할 블록 선택",
-                    options=all_block_ids,
-                    format_func=get_block_display_name,
-                    key="batch_link_block"
-                )
-
-                if selected_layers and target_block:
-                    target_block_name = get_block_display_name(target_block)
-                    if st.button("🔗 선택 레이어 사전 연동", use_container_width=True, key="batch_link_btn"):
-                        st.session_state.layer_link_expander_open = True  # expander 열림 상태 유지
-                        # 선택된 레이어들을 블록에 연동
-                        combined_features = []
-                        total_count = 0
-
-                        for layer_name in selected_layers:
-                            data = st.session_state.downloaded_geo_data[layer_name]
-                            geojson = data['geojson']
-                            for feature in geojson.get('features', []):
-                                feature['properties']['_layer'] = layer_name
-                                combined_features.append(feature)
-                            total_count += data['feature_count']
-                            data['linked_block'] = target_block
-                            data['linked_block_name'] = target_block_name
-
-                        # 블록에 통합 데이터 저장 (사전 연동)
-                        st.session_state.block_spatial_data[target_block] = {
-                            'layer_name': ', '.join(selected_layers),
-                            'geojson': {
-                                'type': 'FeatureCollection',
-                                'features': combined_features
-                            },
-                            'feature_count': total_count,
-                            'layers': selected_layers,
-                            'prelinked': True  # 사전 연동 표시
-                        }
-
-                        # 사전 연동 매핑 정보 저장 (블록 선택 시 자동 적용용)
-                        if 'prelinked_block_layers' not in st.session_state:
-                            st.session_state.prelinked_block_layers = {}
-                        st.session_state.prelinked_block_layers[target_block] = selected_layers
-
-                        st.success(f"'{target_block_name}' 블록에 {len(selected_layers)}개 레이어 사전 연동 완료! 해당 블록 선택 시 자동 적용됩니다.")
-                        st.rerun()
-
-                # 현재 사전 연동된 블록 표시
-                if st.session_state.get('prelinked_block_layers'):
-                    st.markdown("##### 📋 사전 연동 현황")
-                    for block_id, layers in st.session_state.prelinked_block_layers.items():
-                        block_name = get_block_display_name(block_id)
-                        st.caption(f"• **{block_name}**: {', '.join(layers)}")
-
-        st.markdown("---")
 
         # 레이어별 목록
         for layer_name, data in st.session_state.downloaded_geo_data.items():
@@ -3248,79 +3051,6 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                         del st.session_state.downloaded_geo_data[layer_name]
                         st.rerun()
 
-                # 블록 선택 UI
-                if st.session_state.get(f'show_block_selector_{layer_name}'):
-                    st.markdown("---")
-                    st.markdown("**연동할 블록 선택**")
-
-                    # 선택된 블록 가져오기
-                    selected_blocks_for_link = st.session_state.get('selected_blocks', [])
-
-                    if not selected_blocks_for_link:
-                        st.warning("Document Analysis에서 먼저 블록을 선택해주세요.")
-                        if st.button("닫기", key=f"close_selector_{layer_name}"):
-                            del st.session_state[f'show_block_selector_{layer_name}']
-                            st.rerun()
-                    else:
-                        # 블록 이름 lookup (이미 위에서 정의됨)
-                        try:
-                            if 'block_lookup' not in locals():
-                                from prompt_processor import load_blocks, load_custom_blocks
-                                example_blocks = load_blocks()
-                                custom_blocks = load_custom_blocks()
-                                all_blocks = example_blocks + custom_blocks
-                                block_lookup = {
-                                    block.get('id'): block.get('name', block.get('id'))
-                                    for block in all_blocks
-                                    if isinstance(block, dict) and block.get('id')
-                                }
-                        except Exception:
-                            block_lookup = {}
-
-                        # 블록 옵션 (한국어 이름으로 표시)
-                        block_display_options = {
-                            "(연동 해제)": "(연동 해제)"
-                        }
-                        for bid in selected_blocks_for_link:
-                            block_display_options[bid] = block_lookup.get(bid, bid)
-
-                        selected_block = st.selectbox(
-                            "블록 선택",
-                            options=list(block_display_options.keys()),
-                            format_func=lambda x: block_display_options.get(x, x),
-                            key=f"block_select_{layer_name}",
-                            help="이 공간 데이터를 특정 분석 블록과 연동합니다."
-                        )
-
-                        col_btn1, col_btn2 = st.columns(2)
-                        with col_btn1:
-                            if st.button("✅ 연동 확인", key=f"confirm_{layer_name}", use_container_width=True):
-                                if selected_block == "(연동 해제)":
-                                    # 연동 해제
-                                    if linked_block and linked_block in st.session_state.block_spatial_data:
-                                        del st.session_state.block_spatial_data[linked_block]
-                                    data['linked_block'] = None
-                                    data['linked_block_name'] = None
-                                    st.success("연동이 해제되었습니다.")
-                                else:
-                                    # 블록 연동
-                                    selected_block_name = block_display_options.get(selected_block, selected_block)
-                                    st.session_state.block_spatial_data[selected_block] = {
-                                        'layer_name': layer_name,
-                                        'geojson': data['geojson'],
-                                        'feature_count': data['feature_count']
-                                    }
-                                    data['linked_block'] = selected_block
-                                    data['linked_block_name'] = selected_block_name
-                                    st.success(f"'{selected_block_name}' 블록에 연동되었습니다!")
-
-                                del st.session_state[f'show_block_selector_{layer_name}']
-                                st.rerun()
-
-                        with col_btn2:
-                            if st.button("❌ 취소", key=f"cancel_{layer_name}", use_container_width=True):
-                                del st.session_state[f'show_block_selector_{layer_name}']
-                                st.rerun()
 
                 # 데이터 미리보기
                 records = []
@@ -3335,91 +3065,5 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
     else:
         st.info("위에서 레이어를 선택하고 '데이터 조회' 버튼을 눌러주세요.")
 
-    # 블록 연동 안내
-    if st.session_state.get('block_spatial_data'):
-        st.markdown("---")
-        st.markdown("### 📌 Document Analysis 블록 연동 안내")
-        st.info("""
-        **연동된 공간 데이터를 Document Analysis에서 사용하는 방법:**
 
-        1. **자동 컨텍스트 제공**: 연동된 블록이 실행될 때 공간 데이터가 자동으로 추가 컨텍스트로 제공됩니다.
-
-        2. **데이터 접근**: `st.session_state.block_spatial_data[블록ID]` 로 접근 가능
-
-        3. **포함 정보**:
-           - `layer_name`: 레이어 이름
-           - `geojson`: GeoJSON 형식 데이터
-           - `feature_count`: 객체 개수
-
-        현재 연동된 블록: {blocks}
-        """.format(blocks=', '.join([f"**{k}**" for k in st.session_state.block_spatial_data.keys()])))
-
-        # 연동 상태 테이블
-        st.markdown("**연동 상태**")
-        link_data = []
-        for block_id, spatial_data in st.session_state.block_spatial_data.items():
-            # 블록 이름 가져오기
-            try:
-                if 'block_lookup' not in locals():
-                    from prompt_processor import load_blocks, load_custom_blocks
-                    example_blocks = load_blocks()
-                    custom_blocks = load_custom_blocks()
-                    all_blocks = example_blocks + custom_blocks
-                    block_lookup = {
-                        block.get('id'): block.get('name', block.get('id'))
-                        for block in all_blocks
-                        if isinstance(block, dict) and block.get('id')
-                    }
-            except Exception:
-                block_lookup = {}
-
-            block_name = block_lookup.get(block_id, block_id)
-            link_data.append({
-                "블록": block_name,
-                "레이어": spatial_data['layer_name'],
-                "객체 수": spatial_data['feature_count']
-            })
-        st.dataframe(link_data, use_container_width=True)
-
-# API 정보 안내
-st.markdown("---")
-with st.expander("VWorld WMS/WFS API 정보"):
-    st.markdown("""
-    ### VWorld 연속 지적도 API
-    
-    **레이어 정보:**
-    - `lp_pa_cbnd_bonbun`: 연속지적도 본번 레이어
-    - `lp_pa_cbnd_bubun`: 연속지적도 부번 레이어
-    
-    **WMS GetMap 파라미터:**
-    ```
-    SERVICE=WMS
-    REQUEST=GetMap
-    VERSION=1.3.0
-    LAYERS=lp_pa_cbnd_bonbun,lp_pa_cbnd_bubun
-    STYLES=lp_pa_cbnd_bonbun_line,lp_pa_cbnd_bubun_line
-    CRS=EPSG:4326
-    BBOX=ymin,xmin,ymax,xmax (EPSG:4326 사용 시 순서 주의!)
-    WIDTH=256
-    HEIGHT=256
-    FORMAT=image/png
-    TRANSPARENT=true
-    ```
-    
-    **WMS GetFeatureInfo 파라미터:**
-    ```
-    SERVICE=WMS
-    REQUEST=GetFeatureInfo
-    VERSION=1.3.0
-    QUERY_LAYERS=lp_pa_cbnd_bonbun,lp_pa_cbnd_bubun
-    I=픽셀X좌표 (0-WIDTH)
-    J=픽셀Y좌표 (0-HEIGHT)
-    INFO_FORMAT=application/json
-    FEATURE_COUNT=10
-    ```
-    
-    **참고 링크:**
-    - [VWorld WMS 가이드](https://www.vworld.kr/dev/v4dv_wmsguide_s001.do)
-    - [VWorld 개발자센터](https://www.vworld.kr/dev/v4api.do)
-    """)
 

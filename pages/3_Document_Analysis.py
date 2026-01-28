@@ -67,6 +67,39 @@ if AUTH_AVAILABLE:
 st.title("도시 프로젝트 분석")
 st.markdown("**도시 프로젝트 문서 분석 (PDF, Excel, CSV, 텍스트, JSON 지원)**")
 
+# 페이지 상단 컨트롤 (리셋 버튼)
+col_title, col_reset = st.columns([5, 1])
+with col_reset:
+    if st.button("🗑️ 페이지 초기화", use_container_width=True, help="이 페이지의 모든 데이터를 초기화합니다"):
+        # Document Analysis 페이지 관련 모든 데이터 초기화
+        keys_to_reset = [
+            'project_name', 'location', 'latitude', 'longitude',
+            'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded',
+            'uploaded_file', 'file_type', 'file_analysis',
+            'selected_blocks', 'analysis_results', 'cot_results',
+            'cot_session', 'cot_plan', 'cot_current_index',
+            'cot_running_block', 'cot_progress_messages', 'cot_feedback_inputs',
+            'skipped_blocks', 'cot_citations', 'cot_history', 'cot_analyzer',
+            'preprocessed_text', 'preprocessed_summary', 'preprocessing_meta',
+            'reference_documents', 'reference_combined_text', 'reference_signature',
+            'block_spatial_data', 'block_spatial_selection'
+        ]
+        for key in keys_to_reset:
+            if key in st.session_state:
+                del st.session_state[key]
+
+        # DB에서도 삭제 (선택사항)
+        try:
+            from auth.session_init import save_work_session
+            save_work_session()  # 빈 상태로 저장
+        except Exception as e:
+            print(f"초기화 저장 오류: {e}")
+
+        st.success("페이지가 초기화되었습니다.")
+        st.rerun()
+
+st.markdown("---")
+
 # 사용자 인증 상태 표시 (사이드바)
 if AUTH_AVAILABLE:
     with st.sidebar:
@@ -78,9 +111,9 @@ if AUTH_AVAILABLE:
             st.info("사이드바에서 '로그인' 페이지로 이동하세요.")
         st.markdown("---")
 
-# 세션 관리 사이드바 렌더링
-if render_session_manager_sidebar:
-    render_session_manager_sidebar()
+# 세션 관리 사이드바 렌더링 제거 (각 페이지별 리셋 버튼 사용)
+# if render_session_manager_sidebar:
+#     render_session_manager_sidebar()
 
 # 페이지 네비게이션 처리
 # (st.switch_page는 사이드바에서 직접 호출하면 오류 발생 가능하므로 제거)
@@ -933,9 +966,6 @@ BLOCK_CATEGORY_MAP: Dict[str, str] = {
 
 CATEGORY_DISPLAY_ORDER: List[str] = [
     "기본 정보 & 요구사항",
-    "Phase 1 · 요구사항 정리",
-    "Phase 1 · 후보지 분석",
-    "Phase 1 · 프로그램 설계",
     "현황 분석 & 검증",
     "사업성 & 운영 전략",
     "사용자 경험 & 스토리텔링",
@@ -2343,14 +2373,16 @@ additional_info = st.session_state.get("additional_info", "")
 with tab_project:
     st.header("프로젝트 기본 정보 입력")
     st.caption("프로젝트 기본 정보는 이 탭에서 별도로 관리됩니다. 입력값은 자동 저장됩니다.")
-    
+
     st.text_input(
         "프로젝트명",
+        value=st.session_state.get("project_name", ""),
         placeholder="예: 삼척 스포츠아카데미",
         key="project_name"
     )
     st.text_input(
         "위치/지역",
+        value=st.session_state.get("location", ""),
         placeholder="예: 강원도 삼척시 도계읍 일대",
         key="location"
     )
@@ -2362,6 +2394,7 @@ with tab_project:
         with col1:
             st.text_input(
                 "위도 (Latitude)",
+                value=st.session_state.get("latitude", ""),
                 placeholder="예: 37.5665",
                 key="latitude",
                 help="위도 값을 입력하세요 (예: 37.5665)"
@@ -2369,6 +2402,7 @@ with tab_project:
         with col2:
             st.text_input(
                 "경도 (Longitude)",
+                value=st.session_state.get("longitude", ""),
                 placeholder="예: 126.9780",
                 key="longitude",
                 help="경도 값을 입력하세요 (예: 126.9780)"
@@ -2386,12 +2420,14 @@ with tab_project:
     
     st.text_area(
         "프로젝트 목표",
+        value=st.session_state.get("project_goals", ""),
         placeholder="예: 국제 스포츠 아카데미 조성, 지역 경제 활성화, 교육·훈련 통합 프로그램 구축 등",
         height=80,
         key="project_goals"
     )
     st.text_area(
         "추가 정보",
+        value=st.session_state.get("additional_info", ""),
         placeholder="특별한 제약조건이나 참고 사항이 있다면 입력하세요.",
         height=80,
         key="additional_info"
@@ -2488,17 +2524,16 @@ with tab_blocks:
     if not has_basic_info and not has_file:
         st.warning("프로젝트 기본 정보를 입력하거나 파일을 업로드해주세요.")
         st.stop()
-    
-    
-    example_blocks = get_example_blocks()
-    custom_blocks = load_custom_blocks()
-    all_blocks = example_blocks + custom_blocks
+
+
+    # get_example_blocks()는 이미 모든 블록(custom 포함)을 반환하므로 중복 방지
+    all_blocks = get_example_blocks()
     block_lookup = {
         block.get('id'): block
         for block in all_blocks
         if isinstance(block, dict) and block.get('id')
     }
-    
+
     grouped_blocks = group_blocks_by_category(all_blocks)
     
     if not grouped_blocks:
@@ -2631,6 +2666,7 @@ with tab_blocks:
                 df[['순서', '카테고리', '블록명', '설명']],
                 use_container_width=True,
                 num_rows="fixed",
+                key="block_order_editor",
                 column_config={
                     "순서": st.column_config.NumberColumn(
                         "순서",
@@ -2648,23 +2684,27 @@ with tab_blocks:
                         disabled=True
                     ),
                     "설명": st.column_config.TextColumn(
-                        "설명", 
+                        "설명",
                         disabled=True
                     )
                 }
             )
-            
-            # 순서 변경사항이 있는지 확인하고 적용 (직접 수정한 경우)
-            if not edited_df['순서'].equals(df['순서']):
-                try:
-                    sorted_indices = edited_df.sort_values('순서', kind="stable").index
-                    new_blocks = [df.loc[idx, '블록ID'] for idx in sorted_indices]
-                    st.session_state['selected_blocks'] = new_blocks
-                    st.success("블록 순서가 업데이트되었습니다!")
-                    st.rerun()
-                except Exception:
-                    st.error("블록 순서를 업데이트하는 중 문제가 발생했습니다. 입력값을 확인해주세요.")
-        
+
+            # 순서 변경사항 감지 (세션에 저장)
+            original_order = df['순서'].tolist()
+            edited_order = edited_df['순서'].tolist()
+
+            # 변경사항이 있는지 표시
+            order_changed = original_order != edited_order
+            if order_changed:
+                # 중복 검사
+                if len(set(edited_order)) != len(edited_order):
+                    st.warning("⚠️ 순서 값이 중복되었습니다. 고유한 숫자를 입력해주세요.")
+                else:
+                    st.info("✏️ 순서가 변경되었습니다. 아래 '순서 적용' 버튼을 클릭하세요.")
+                    # 변경된 순서를 임시로 저장
+                    st.session_state['pending_block_order'] = edited_df
+
         with col_buttons:
             st.markdown("")  # 상단 여백
             st.markdown("")  # 상단 여백
@@ -2709,9 +2749,9 @@ with tab_blocks:
                     st.success("블록이 위로 이동되었습니다!")
                     st.rerun()
             
-            move_down_disabled = (selected_row_index == len(selected_blocks) - 1)
+            move_down_disabled = (selected_row_index == len(st.session_state['selected_blocks']) - 1)
             if st.button("⬇️", key="move_block_down", disabled=move_down_disabled, use_container_width=True, help="아래로 이동"):
-                if selected_row_index < len(selected_blocks) - 1:
+                if selected_row_index < len(st.session_state['selected_blocks']) - 1:
                     current_blocks = st.session_state['selected_blocks'].copy()
                     # 선택된 블록과 아래 블록 교환
                     current_blocks[selected_row_index], current_blocks[selected_row_index + 1] = \
@@ -2720,6 +2760,27 @@ with tab_blocks:
                     st.session_state.selected_block_row_index = selected_row_index + 1
                     st.success("블록이 아래로 이동되었습니다!")
                     st.rerun()
+
+            # 순서 직접 수정 적용 버튼
+            if 'pending_block_order' in st.session_state:
+                st.markdown("")  # 여백
+                if st.button("✅ 순서 적용", key="apply_block_order", type="primary", use_container_width=True, help="편집한 순서를 적용합니다"):
+                    try:
+                        pending_df = st.session_state['pending_block_order']
+                        edited_order = pending_df['순서'].tolist()
+
+                        # 중복 검사
+                        if len(set(edited_order)) == len(edited_order):
+                            sorted_indices = pending_df.sort_values('순서', kind="stable").index
+                            new_blocks = [df.loc[idx, '블록ID'] for idx in sorted_indices]
+                            st.session_state['selected_blocks'] = new_blocks
+                            del st.session_state['pending_block_order']
+                            st.success("블록 순서가 업데이트되었습니다!")
+                            st.rerun()
+                        else:
+                            st.error("순서 값이 중복되었습니다.")
+                    except Exception as e:
+                        st.error(f"순서 업데이트 중 오류: {e}")
 
         # 블록 선택 완료 버튼
         st.markdown("---")
@@ -2739,19 +2800,21 @@ with tab_run:
     st.header("분석 실행")
     has_basic_info = any([project_name, location, project_goals, additional_info])
     has_file = st.session_state.get('pdf_uploaded', False)
+    has_existing_results = bool(st.session_state.get('analysis_results') or st.session_state.get('cot_results'))
 
-    if not has_basic_info and not has_file:
-        st.warning("프로젝트 기본 정보를 입력하거나 파일을 업로드해주세요.")
-        st.stop()
+    # 분석 결과가 있으면 기본 정보 체크 스킵 (세션 복원 시)
+    if not has_existing_results:
+        if not has_basic_info and not has_file:
+            st.warning("프로젝트 기본 정보를 입력하거나 파일을 업로드해주세요.")
+            st.stop()
 
     selected_blocks = st.session_state.get('selected_blocks', [])
-    if not selected_blocks:
+    if not selected_blocks and not has_existing_results:
         st.warning("먼저 분석 블록을 선택해주세요.")
         st.stop()
 
-    example_blocks = get_example_blocks()
-    custom_blocks = load_custom_blocks()
-    all_blocks = example_blocks + custom_blocks
+    # get_example_blocks()는 이미 모든 블록(custom 포함)을 반환하므로 중복 방지
+    all_blocks = get_example_blocks()
     block_lookup = {
         block.get('id'): block
         for block in all_blocks
@@ -3031,14 +3094,20 @@ with tab_run:
 
     active_plan = st.session_state.cot_plan if st.session_state.cot_session else selected_blocks
 
-    # 분석 중 블록 추가 기능
-    if st.session_state.cot_session and st.session_state.cot_plan:
-        with st.expander("➕ 블록 추가 (분석 진행 중)", expanded=False):
-            st.caption("분석 세션이 진행 중일 때 새 블록을 추가할 수 있습니다.")
+    # 분석 중 블록 추가 기능 (분석 실행 중일 때는 비활성화)
+    is_analysis_running = st.session_state.get('cot_running_block') is not None
 
-            # 현재 플랜에 없는 블록들만 표시
-            current_plan_ids = set(st.session_state.cot_plan)
-            available_to_add = [
+    if st.session_state.cot_session and st.session_state.cot_plan:
+        # 분석 실행 중이면 경고만 표시
+        if is_analysis_running:
+            st.info("⏳ 분석이 실행 중입니다. 분석이 완료되면 블록을 추가할 수 있습니다.")
+        else:
+            with st.expander("➕ 블록 추가 (분석 진행 중)", expanded=False):
+                st.caption("분석 세션이 진행 중일 때 새 블록을 추가할 수 있습니다.")
+
+                # 현재 플랜에 없는 블록들만 표시
+                current_plan_ids = set(st.session_state.cot_plan)
+                available_to_add = [
                 block for block in all_blocks
                 if block.get('id') and block.get('id') not in current_plan_ids
             ]
@@ -3072,24 +3141,31 @@ with tab_run:
                         print(f"[DEBUG 블록추가] 추가할 블록: {selected_block_to_add}")
                         new_plan = st.session_state.cot_plan.copy()
 
+                        adjust_index = False  # 인덱스 조정 필요 여부
+
                         if insert_position == "현재 위치 (다음에 실행)":
-                            # 현재 인덱스에 삽입
+                            # 현재 인덱스에 삽입하고, 인덱스는 그대로 (새 블록이 바로 다음에 실행됨)
                             insert_idx = st.session_state.cot_current_index
+                            adjust_index = False
                         elif insert_position == "플랜 마지막에 추가":
                             insert_idx = len(new_plan)
+                            adjust_index = False
                         else:
                             # "N. 블록명 뒤에 삽입" 형식에서 인덱스 추출
                             try:
                                 position_num = int(insert_position.split(".")[0])
                                 insert_idx = position_num  # 해당 블록 뒤에 삽입
+                                # 현재 인덱스보다 앞에 삽입되면 인덱스 조정 필요
+                                adjust_index = (insert_idx <= st.session_state.cot_current_index)
                             except:
                                 insert_idx = len(new_plan)
+                                adjust_index = False
 
                         new_plan.insert(insert_idx, selected_block_to_add)
                         st.session_state.cot_plan = new_plan
 
-                        # 현재 인덱스보다 앞에 삽입되면 인덱스 조정
-                        if insert_idx <= st.session_state.cot_current_index:
+                        # 인덱스 조정
+                        if adjust_index:
                             st.session_state.cot_current_index += 1
 
                         # selected_blocks도 업데이트 (일관성 유지)
@@ -3108,8 +3184,8 @@ with tab_run:
                         added_block_name = added_block.get('name', selected_block_to_add)
                         st.success(f"'{added_block_name}' 블록이 추가되었습니다.")
                         st.rerun()
-            else:
-                st.info("추가 가능한 블록이 없습니다. 모든 블록이 이미 플랜에 포함되어 있습니다.")
+                else:
+                    st.info("추가 가능한 블록이 없습니다. 모든 블록이 이미 플랜에 포함되어 있습니다.")
 
     st.markdown("### 단계 진행 현황")
 
@@ -3130,22 +3206,62 @@ with tab_run:
             block = block_lookup.get(block_id)
             block_name = block.get('name', block_id) if block else block_id
             category = resolve_block_category(block) if block else "기타"
-            if running_block == block_id:
-                status_badge = "⏳ 진행중"
-            elif block_id in st.session_state.cot_results:
+
+            # 결과 확인 (cot_results와 analysis_results 둘 다 확인)
+            has_result = (block_id in st.session_state.cot_results or
+                         block_id in st.session_state.analysis_results)
+
+            # 상태 배지 결정 (우선순위: 완료 > 진행중 > 건너뜀 > 대기 > 준비)
+            if has_result:
+                # 결과가 있으면 무조건 완료 (running_block보다 우선)
                 status_badge = "✅ 완료"
+            elif running_block == block_id:
+                # 현재 실행 중인 블록
+                status_badge = "⏳ 진행중"
             elif block_id in skipped_blocks:
+                # 건너뛴 블록
                 status_badge = "⏭️ 건너뜀"
             elif st.session_state.cot_session and idx == st.session_state.cot_current_index + 1:
+                # 다음 실행 대상
                 status_badge = "🟡 대기"
             else:
+                # 준비 상태
                 status_badge = "⚪ 준비"
             is_collapsed = status_badge in ["✅ 완료", "⏭️ 건너뜀"]
             expander = st.expander(f"{idx}. [{category}] {block_name} · {status_badge}", expanded=(not is_collapsed))
             with expander:
                 st.caption((block.get('description') if block else "설명이 없습니다.") or "설명이 없습니다.")
-                if block_id in st.session_state.cot_results:
-                    pass  # 완료된 블록은 상태 배지로만 표시
+
+                # 네비게이션 버튼: 완료된 블록이나 대기/준비 상태 블록에서 이동 가능
+                show_nav_button = False
+                nav_button_label = ""
+
+                if has_result:
+                    # 완료된 블록: 재시작 버튼
+                    show_nav_button = True
+                    nav_button_label = "🔄 이 블록부터 재시작"
+                elif st.session_state.cot_session and idx - 1 < st.session_state.cot_current_index:
+                    # 현재 위치보다 이전 블록: 돌아가기 버튼
+                    show_nav_button = True
+                    nav_button_label = "⬅️ 이 블록으로 돌아가기"
+
+                if show_nav_button:
+                    col_nav, col_empty = st.columns([1, 2])
+                    with col_nav:
+                        if st.button(nav_button_label, key=f"nav_to_{block_id}", use_container_width=True):
+                            # 현재 인덱스를 이 블록의 인덱스로 설정
+                            st.session_state.cot_current_index = idx - 1  # 0-based index
+                            # 이 블록과 이후 블록의 결과 삭제
+                            blocks_to_remove = active_plan[idx - 1:]
+                            for bid in blocks_to_remove:
+                                if bid in st.session_state.cot_results:
+                                    del st.session_state.cot_results[bid]
+                                if bid in st.session_state.get('cot_citations', {}):
+                                    del st.session_state.cot_citations[bid]
+                            st.success(f"'{block_name}'(으)로 이동했습니다.")
+                            st.rerun()
+
+                if has_result:
                     # 피드백 유형 선택
                     from dspy_analyzer import FEEDBACK_TYPES
                     feedback_type_options = {
@@ -3255,9 +3371,27 @@ with tab_run:
                     st.info("다음 실행 대상 블록입니다. 아래 버튼을 눌러 분석을 진행하세요.")
 
     if st.session_state.cot_session and st.session_state.cot_current_index < len(st.session_state.cot_plan):
+        # 인덱스 유효성 검증 및 자동 조정
+        # 현재 인덱스 앞의 블록들 중 완료되지 않은 블록이 있는지 확인
+        completed_blocks = set(st.session_state.cot_results.keys()) | set(st.session_state.analysis_results.keys())
+        uncompleted_before_current = []
+        for i in range(st.session_state.cot_current_index):
+            bid = st.session_state.cot_plan[i]
+            if bid not in completed_blocks and bid not in st.session_state.get('skipped_blocks', []):
+                uncompleted_before_current.append((i, bid))
+
+        # 완료되지 않은 이전 블록이 있으면 인덱스를 첫 번째 미완료 블록으로 조정
+        if uncompleted_before_current:
+            first_uncompleted_idx, first_uncompleted_id = uncompleted_before_current[0]
+            st.warning(f"⚠️ 이전 블록이 완료되지 않았습니다. {first_uncompleted_idx + 1}번째 블록으로 이동합니다.")
+            st.session_state.cot_current_index = first_uncompleted_idx
+
         next_block_id = st.session_state.cot_plan[st.session_state.cot_current_index]
         next_block = block_lookup.get(next_block_id, {"id": next_block_id})
         next_block_name = next_block.get('name', next_block_id)
+
+        # 다음 실행 대상 블록 명확히 표시
+        st.info(f"🎯 다음 실행 대상: **{st.session_state.cot_current_index + 1}번째 블록 - {next_block_name}** (ID: `{next_block_id}`)")
 
         # 블록별 공간 데이터 선택 UI
         downloaded_geo_data = st.session_state.get('downloaded_geo_data', {})
@@ -3462,13 +3596,22 @@ with tab_run:
     if st.session_state.cot_session and st.session_state.cot_plan and st.session_state.cot_current_index >= len(st.session_state.cot_plan):
         st.success("모든 블록에 대한 단계별 분석이 완료되었습니다.")
 
+    # 결과는 cot_results와 analysis_results 둘 다 확인 (동기화 보장)
     analysis_results_state = st.session_state.get('analysis_results', {})
-    if analysis_results_state:
-        ordered_results = {
-            block_id: analysis_results_state[block_id]
-            for block_id in selected_blocks
-            if block_id in analysis_results_state
-        }
+    cot_results_state = st.session_state.get('cot_results', {})
+
+    # 두 저장소를 병합 (cot_results가 최신일 수 있음)
+    merged_results = {}
+    for block_id in selected_blocks:
+        if block_id in analysis_results_state:
+            merged_results[block_id] = analysis_results_state[block_id]
+        elif block_id in cot_results_state:
+            # cot_results에만 있으면 analysis_results에 복사
+            merged_results[block_id] = cot_results_state[block_id]
+            st.session_state.analysis_results[block_id] = cot_results_state[block_id]
+
+    if merged_results:
+        ordered_results = merged_results
         if ordered_results:
             st.subheader("📊 분석 결과 미리보기")
             tab_blocks = list(ordered_results.keys())
@@ -3520,12 +3663,17 @@ with tab_run:
 
 with tab_download:
     st.header("결과 다운로드")
-    
-    if not st.session_state.get('analysis_results'):
+
+    # cot_results와 analysis_results 병합 (간헐적 표시 문제 방지)
+    analysis_results = st.session_state.get('analysis_results', {}).copy()
+    cot_results = st.session_state.get('cot_results', {})
+    for block_id, result in cot_results.items():
+        if block_id not in analysis_results:
+            analysis_results[block_id] = result
+
+    if not analysis_results:
         st.warning("먼저 분석을 실행해주세요.")
         st.stop()
-    
-    analysis_results = st.session_state['analysis_results']
     
     if analysis_results:
         st.success(f"{len(analysis_results)}개 분석 결과가 준비되었습니다.")
