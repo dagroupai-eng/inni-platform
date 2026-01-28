@@ -576,12 +576,15 @@ def main():
             # 현재 이미지 표시
             current_slide = image_slides[st.session_state.slide_index]
             current_index = st.session_state.slide_index
-            
+
             try:
                 image_path = current_slide["path"]
-                
+
                 if image_path.exists():
-                    st.image(str(image_path), use_container_width=True)
+                    # 이미지 크기 조절 - 가운데 정렬 및 크기 제한
+                    col_left, col_img, col_right = st.columns([1, 3, 1])
+                    with col_img:
+                        st.image(str(image_path), use_container_width=True)
                 else:
                     st.error(f"이미지를 찾을 수 없습니다: {image_path}")
                     st.info("IMAGES 폴더에 BLOCK_GUIDE_01.png ~ BLOCK_GUIDE_10.png 파일이 있는지 확인해주세요.")
@@ -591,50 +594,64 @@ def main():
             
             # 각 이미지별 설명
             st.markdown("---")
-            
-            if current_index == 0:  # 슬라이드 1: 블록이란 무엇인가?
-                st.header("블록이란 무엇인가?")
+
+            if current_index == 0:  # 슬라이드 1: 구조화된 프롬프트가 왜 필요한지 (1)
+                st.header("구조화된 프롬프트가 왜 필요한지")
                 st.info("""
-                **블록(Block)**은 하나의 독립적인 분석 작업 단위입니다. 마치 레고 블록처럼, 여러 개의 블록을 조합하여 
-                복잡한 도시 프로젝트 분석 시스템을 구축할 수 있습니다.
+                AI에게 단순히 "분석해줘"라고 요청하면 일관성 없고 불완전한 결과가 나옵니다.
+                **구조화된 프롬프트**는 AI가 정확하고 전문적인 분석을 수행하도록 가이드합니다.
                 """)
-                
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.success("**하나의 블록**")
-                    st.write("= 하나의 전문가")
-                    st.write("= 하나의 특정 분석")
-                
-                with col2:
-                    st.markdown("""
-                    예를 들어, 도시 재개발 프로젝트를 분석한다면:
-                    - **블록 1**: 환경 영향 평가 전문가
-                    - **블록 2**: 교통 영향 분석 전문가
-                    - **블록 3**: 사회경제적 영향 분석 전문가
-                    - **블록 4**: 종합 의사결정 지원 전문가
-                    """)
-            
-            elif current_index == 1:  # 슬라이드 2: 블록 시스템의 구조
-                st.header("블록 시스템의 구조")
-                
-                st.subheader("블록의 특징")
-                
+
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.success("**1. 독립성**")
-                    st.caption("각 블록은 독립적으로 작동하며, 자신의 전문 분야에만 집중합니다.")
-                    
-                    st.success("**2. 재사용성**")
-                    st.caption("한 번 만든 블록은 다른 프로젝트에서도 재사용할 수 있습니다.")
-                
+                    st.error("**❌ 비구조화된 프롬프트**")
+                    st.caption("'이 프로젝트 분석해줘'")
+                    st.caption("→ 모호하고 불완전한 결과")
+
                 with col2:
-                    st.success("**3. 연결성**")
-                    st.caption("블록의 출력을 다른 블록의 입력으로 연결하여 복잡한 분석 파이프라인을 구성할 수 있습니다.")
-                    
-                    st.success("**4. 확장성**")
-                    st.caption("필요에 따라 블록을 추가하거나 제거하여 시스템을 쉽게 확장할 수 있습니다.")
-            
-            elif current_index == 2:  # 슬라이드 3: RISEN 프레임워크
+                    st.success("**✅ 구조화된 프롬프트**")
+                    st.caption("역할, 지시사항, 단계, 목표, 제약조건 명시")
+                    st.caption("→ 일관되고 전문적인 결과")
+
+            elif current_index == 1:  # 슬라이드 2: 구조화된 프롬프트가 왜 필요한지 (2)
+                st.header("구조화된 프롬프트의 효과")
+
+                st.markdown("""
+                구조화된 프롬프트를 사용하면 AI가 **전문가처럼** 체계적으로 분석합니다.
+                """)
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.success("**일관성**")
+                    st.caption("매번 동일한 품질의 결과")
+                with col2:
+                    st.success("**전문성**")
+                    st.caption("특정 분야 전문가 관점")
+                with col3:
+                    st.success("**완전성**")
+                    st.caption("빠짐없는 체계적 분석")
+
+            elif current_index == 2:  # 슬라이드 3: 블록 시스템
+                st.header("블록(Block) 시스템이란?")
+                st.info("""
+                **블록(Block)**은 하나의 독립적인 분석 작업 단위입니다. 마치 레고 블록처럼, 여러 개의 블록을 조합하여
+                복잡한 도시 프로젝트 분석 시스템을 구축할 수 있습니다.
+                """)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.success("**하나의 블록 = 하나의 전문가**")
+                    st.caption("각 블록은 특정 분야의 전문가 역할")
+
+                with col2:
+                    st.markdown("""
+                    **예시:** 도시 재개발 프로젝트
+                    - 블록 1: 환경 영향 평가 전문가
+                    - 블록 2: 교통 영향 분석 전문가
+                    - 블록 3: 사회경제적 영향 분석 전문가
+                    """)
+
+            elif current_index == 3:  # 슬라이드 4: RISEN 구조
                 st.header("RISEN 프레임워크")
 
                 st.info("""
@@ -658,214 +675,99 @@ def main():
                 with col5:
                     st.markdown("### N")
                     st.caption("**Narrowing**\n구체화")
-            
-            elif current_index == 3:  # 슬라이드 4: Role (역할)
-                st.header("Role (역할) - '당신은 누구입니까?'")
-                
-                st.markdown("""
-                블록이 수행할 **전문가 역할**을 명확히 정의합니다. 
-                역할이 구체적일수록 AI의 응답 품질이 높아집니다.
-                """)
-                
-                st.subheader("작성 원칙")
-                st.markdown("""
-                - **구체적인 전문 분야 명시**: "전문가"보다는 "도시 환경 영향 평가 전문가"
-                - **수행할 작업의 범위 포함**: 역할에 주요 책임을 간단히 포함
-                - **도시 프로젝트 맥락 반영**: 도시 계획, 지속가능성, 사회적 영향 등의 관점
-                """)
-                
+
+            elif current_index == 4:  # 슬라이드 5: Role (역할)
+                st.header("R - Role (역할)")
+
+                st.markdown("**'당신은 누구입니까?'** - 블록이 수행할 전문가 역할을 정의합니다.")
+
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.success("#### 좋은 예시")
-                    st.code("""
-"도시 환경 영향 평가 전문가로서, 
-재개발 프로젝트가 지역 생태계, 
-대기 질, 소음 수준에 미치는 영향을 
-과학적으로 분석하고 평가하는 
-역할을 수행합니다"
-                    """)
-                
+                    st.success("**좋은 예시**")
+                    st.code('"도시 환경 영향 평가 전문가로서, 재개발 프로젝트가 지역 생태계에 미치는 영향을 분석합니다"')
+
                 with col2:
-                    st.error("#### 나쁜 예시")
+                    st.error("**나쁜 예시**")
                     st.code('"분석 전문가"')
-                    st.caption("너무 일반적이고 불명확")
-            
-            elif current_index == 4:  # 슬라이드 5: Instructions (지시사항)
-                st.header("Instructions (지시사항) - '정확히 무엇을 해야 합니까?'")
-                
-                st.markdown("""
-                역할이 **구체적으로 수행해야 할 작업**을 명시합니다. 모호함이 없어야 합니다.
-                """)
-                
-                st.subheader("작성 원칙")
-                st.markdown("""
-                - **동사 중심으로 작성**: "식별하고", "분류하며", "평가하고", "도출합니다"
-                - **입력과 출력을 명확히**: 무엇을 받아서 무엇을 만드는지
-                - **작업 범위 한정**: 해야 할 일과 하지 말아야 할 일을 구분
-                """)
-                
-                st.success("#### 좋은 예시")
+                    st.caption("→ 너무 일반적이고 불명확")
+
+            elif current_index == 5:  # 슬라이드 6: Instructions (지시사항)
+                st.header("I - Instructions (지시사항)")
+
+                st.markdown("**'정확히 무엇을 해야 합니까?'** - 구체적으로 수행해야 할 작업을 명시합니다.")
+
+                st.success("**좋은 예시**")
                 st.code("""
-"제공된 도시 재개발 문서에서 다음을 수행합니다:
-1) 환경 영향 요인들(대기질, 소음, 녹지 면적)을 식별하고
-2) 각 요인의 현재 상태와 예상 변화를 정량적으로 분석하며
-3) 환경 기준 충족 여부를 평가하고
-4) 완화 방안과 개선 권고사항을 도출합니다"
+"제공된 문서에서 다음을 수행합니다:
+1) 환경 영향 요인들을 식별하고
+2) 각 요인의 현재 상태와 예상 변화를 분석하며
+3) 환경 기준 충족 여부를 평가합니다"
                 """)
-            
-            elif current_index == 5:  # 슬라이드 6: Steps (단계)
-                st.header("Steps (단계) - '어떤 순서로 진행합니까?'")
-                
+
+            elif current_index == 6:  # 슬라이드 7: Steps (단계)
+                st.header("S - Steps (단계)")
+
+                st.markdown("**'어떤 순서로 진행합니까?'** - 분석을 논리적인 단계로 나눕니다.")
+
+                st.success("**단계 예시 (3-5단계 권장)**")
                 st.markdown("""
-                분석을 **논리적인 단계**로 나누어 순차적으로 수행하도록 합니다. 
-                이는 AI가 체계적으로 사고하도록 돕습니다.
+                1. **데이터 수집 및 정리** - 관련 수치 데이터 추출
+                2. **정량적 분석** - 지표의 변화율 계산
+                3. **영향 평가** - 긍정적/부정적 영향 분류
+                4. **방안 도출** - 완화 방안 제시
                 """)
-                
-                st.subheader("작성 원칙")
-                st.markdown("""
-                - **논리적 순서**: 각 단계가 이전 단계의 결과를 기반으로 진행
-                - **단계당 하나의 명확한 목표**: 각 단계는 하나의 구체적인 작업에 집중
-                - **3-5단계 권장**: 너무 세분화하면 복잡하고, 너무 단순하면 비효율적
-                """)
-                
-                st.success("**단계 예시**")
-                st.markdown("""
-                1. **데이터 수집 및 정리** - 문서에서 환경 관련 수치 데이터 추출
-                2. **정량적 분석** - 각 지표의 변화율 계산 및 기준과 비교
-                3. **영향 평가** - 긍정적/부정적 영향 분류 및 심각도 등급화
-                4. **완화 방안 도출** - 구체적 완화 방안 제시 및 우선순위 설정
-                """)
-            
-            elif current_index == 6:  # 슬라이드 7: End Goal (최종 목표)
-                st.header("End Goal (최종 목표) - '무엇을 달성해야 합니까?'")
-                
-                st.markdown("""
-                블록이 **최종적으로 만들어내야 할 결과**와 그것이 
-                **누구에게 어떤 가치를 제공하는지**를 명시합니다.
-                """)
-                
-                st.subheader("작성 원칙")
-                st.markdown("""
-                - **구체적인 산출물 명시**: "보고서"보다는 "5개 섹션으로 구성된 환경 영향 평가 보고서"
-                - **사용자와 목적 명시**: 누가 이 결과를 어떻게 사용할 것인가
-                - **가치 제안 포함**: 이 결과가 왜 중요하고 어떤 도움이 되는가
-                """)
-                
-                st.success("#### 좋은 예시")
+
+            elif current_index == 7:  # 슬라이드 8: End Goal (최종 목표)
+                st.header("E - End Goal (최종 목표)")
+
+                st.markdown("**'무엇을 달성해야 합니까?'** - 최종 결과물과 그 가치를 명시합니다.")
+
+                st.success("**좋은 예시**")
                 st.code("""
-"도시 재개발 프로젝트의 환경 영향을 정량적으로 평가하여, 
-프로젝트 관리자와 의사결정자들이 환경 리스크를 명확히 이해하고 
+"환경 영향을 정량적으로 평가하여,
+의사결정자들이 환경 리스크를 이해하고
 적절한 완화 조치를 수립할 수 있도록 지원합니다."
                 """)
-            
-            elif current_index == 7:  # 슬라이드 8: Narrowing (구체화)
-                st.header("Narrowing (구체화) - '어떤 형식과 제약이 있습니까?'")
-                
-                st.markdown("""
-                **출력 형식, 필수 포함 항목, 제약 조건, 품질 기준**을 명확히 정의합니다. 
-                이는 일관성 있는 결과를 보장합니다.
-                """)
-                
+
+            elif current_index == 8:  # 슬라이드 9: Narrowing (구체화)
+                st.header("N - Narrowing (구체화)")
+
+                st.markdown("**'어떤 형식과 제약이 있습니까?'** - 출력 형식, 제약 조건, 품질 기준을 정의합니다.")
+
                 col1, col2 = st.columns(2)
                 with col1:
                     st.info("**출력 형식**")
-                    st.caption("- 구조화된 보고서\n- 표와 그래프 활용\n- 명확한 섹션 구분")
-                    
+                    st.caption("- 구조화된 보고서\n- 표와 그래프 활용")
+
                     st.info("**필수 항목**")
-                    st.caption("- 반드시 포함할 내용\n- 최소 개수 명시\n- 구체적 요구사항")
-                
+                    st.caption("- 반드시 포함할 내용\n- 최소 개수 명시")
+
                 with col2:
                     st.info("**제약 조건**")
-                    st.caption("- 사용 가능한 데이터\n- 하지 말아야 할 것\n- 준수 법규")
-                    
+                    st.caption("- 하지 말아야 할 것\n- 준수 법규")
+
                     st.info("**품질 기준**")
-                    st.caption("- 근거 제시 방법\n- 신뢰성 확보\n- 검증 가능성")
+                    st.caption("- 근거 제시 방법\n- 검증 가능성")
             
-            elif current_index == 8:  # 슬라이드 9: 실전 예시 + 블록 간 연결하기
-                st.header("실전 예시")
-                
-                st.success("**환경 영향 평가 블록**")
-                st.markdown("""
-                **Role**: 도시 환경 영향 평가 전문가로서, 재개발 프로젝트가 지역 생태계,
-                대기 질, 소음 수준에 미치는 영향을 과학적으로 분석하고 평가
-
-                **Instructions**: 환경 관련 정량 데이터를 추출하고, 현재 상태와 예상 상태를 비교 분석하며,
-                환경 법규 기준과 대조하여 충족 여부를 판정
-
-                **Steps**:
-                1. 환경 데이터 추출 및 정리
-                2. 정량적 비교 분석
-                3. 영향 범위 및 심각도 평가
-                4. 완화 및 강화 방안 도출
-                """)
-                
-                st.markdown("---")
-                
-                st.header("블록 간 연결하기")
-                
-                st.info("""
-                블록은 독립적으로도 사용할 수 있지만, 여러 블록을 연결하여 
-                복잡한 분석 파이프라인을 구축할 수 있습니다.
-                """)
-                
-                st.subheader("연결 예시: 도시 재개발 종합 분석")
-                
-                st.code("""
-입력: 재개발 계획서
-       ↓
-┌──────────────────┐
-│  블록 1: 환경    │ → 환경 영향 보고서
-│  영향 평가       │
-└──────────────────┘
-       ↓
-┌──────────────────┐
-│  블록 2: 교통    │ → 교통 영향 보고서
-│  영향 분석       │
-└──────────────────┘
-       ↓
-┌──────────────────┐
-│  블록 3: 사회경제│ → 사회경제 영향 보고서
-│  영향 분석       │
-└──────────────────┘
-       ↓
-┌──────────────────┐
-│  블록 4: 종합    │ → 최종 의사결정 지원 보고서
-│  의사결정 지원   │
-└──────────────────┘
-       ↓
-최종 출력: 종합 평가 및 권고안
-                """, language="text")
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.success("**순차 실행**")
-                    st.caption("각 블록이 순서대로\n실행되며 결과 전달")
-                with col2:
-                    st.success("**데이터 흐름**")
-                    st.caption("이전 블록의 출력이\n다음 블록의 입력")
-                with col3:
-                    st.success("**종합 분석**")
-                    st.caption("여러 관점의 분석을\n하나로 통합")
-            
-            elif current_index == 9:  # 슬라이드 10: 블록 작성 팁 + 연습 워크플로우
-                st.header("블록 작성 실전 팁")
+            elif current_index == 9:  # 슬라이드 10: 블록 작성 팁
+                st.header("블록 작성 팁")
 
                 st.subheader("효과적인 블록 작성을 위한 핵심 원칙")
-                
+
                 col1, col2 = st.columns(2)
                 with col1:
                     st.success("**1. 하나의 블록 = 하나의 전문가**")
                     st.success("**2. 구체성이 핵심**")
-                    st.success("**3. 도시 프로젝트 맥락 반영**")
-                    st.success("**4. 단계는 3-5개가 적절**")
-                    st.success("**5. 사용자와 목적을 명확히**")
-                
+                    st.success("**3. 단계는 3-5개가 적절**")
+                    st.success("**4. 출력 형식을 상세히**")
+                    st.success("**5. 제약 조건을 명확히**")
+
                 with col2:
-                    st.success("**6. 출력 형식을 상세히**")
-                    st.success("**7. 제약 조건을 명확히**")
-                    st.success("**8. 품질 기준을 측정 가능하게**")
-                    st.success("**9. 정량적 요소 포함**")
-                    st.success("**10. 검증 가능하게 작성**")
+                    st.success("**6. 품질 기준을 측정 가능하게**")
+                    st.success("**7. 정량적 요소 포함**")
+                    st.success("**8. 검증 가능하게 작성**")
+                    st.success("**9. 도시 프로젝트 맥락 반영**")
+                    st.success("**10. 재사용 가능하게 설계**")
                 
                 st.markdown("---")
                 
