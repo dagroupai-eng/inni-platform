@@ -673,12 +673,7 @@ class EnhancedArchAnalyzer:
             'accessibility_analysis': AccessibilitySignature,
             'zoning_verification': ZoningSignature,
             'capacity_estimation': CapacitySignature,
-            'feasibility_analysis': FeasibilitySignature,
-            'phase1_facility_program': SimpleAnalysisSignature,
-            'phase1_facility_area_reference': SimpleAnalysisSignature,
-            'phase1_facility_area_calculation': SimpleAnalysisSignature,
-            'phase1_candidate_generation': SimpleAnalysisSignature,
-            'phase1_candidate_evaluation': SimpleAnalysisSignature
+            'feasibility_analysis': FeasibilitySignature
 }
         
         # blocks.json에서 블록을 읽어서 동적으로 Signature 클래스 매핑 추가
@@ -1861,7 +1856,7 @@ class EnhancedArchAnalyzer:
             # 확장 사고 지시사항 추가 (모든 블록에 기본 적용)
             # 블록 프롬프트에 이미 Chain of Thought 지시사항이 포함되어 있는 블록 목록
             # (이 블록들은 중복 방지를 위해 시스템 레벨 지시사항을 추가하지 않음)
-            blocks_with_builtin_cot = ['phase1_facility_program']
+            blocks_with_builtin_cot = []  # 제거된 블록들
             
             # 모든 블록에 기본적으로 확장 사고 지시사항 적용 (중복 방지 제외)
             extended_thinking_note = ""
@@ -2655,7 +2650,7 @@ class EnhancedArchAnalyzer:
             # 확장 사고 지시사항 추가 (모든 블록에 기본 적용)
             # 블록 프롬프트에 이미 Chain of Thought 지시사항이 포함되어 있는 블록 목록
             # (이 블록들은 중복 방지를 위해 시스템 레벨 지시사항을 추가하지 않음)
-            blocks_with_builtin_cot = ['phase1_facility_program']
+            blocks_with_builtin_cot = []  # 제거된 블록들
             
             # 모든 블록에 기본적으로 확장 사고 지시사항 적용 (중복 방지 제외)
             extended_thinking_note = ""
@@ -4255,7 +4250,6 @@ class EnhancedArchAnalyzer:
                 # 블록별로 Google Search 사용 여부 결정
                 # 정보 검색이 필요한 블록에서 Google Search tool 사용
                 blocks_with_google_search = [
-                    'phase1_candidate_evaluation',
                     'legal_analysis',
                     'feasibility_analysis',
                     'market_research_analysis',  # 시장 조사 분석
@@ -4294,8 +4288,6 @@ class EnhancedArchAnalyzer:
                 # 위치 기반 블록 식별
                 location_based_blocks = [
                     'phase1_site_analysis',
-                    'phase1_facility_program',
-                    'phase1_candidate_evaluation',
                     'transportation_analysis',
                     'facility_analysis'
                 ]
@@ -4362,7 +4354,7 @@ class EnhancedArchAnalyzer:
                 formatted_prompt = f"""{formatted_prompt}{document_based_instruction}"""
             
             # 확장 사고 지시사항 추가
-            blocks_with_builtin_cot = ['phase1_facility_program']
+            blocks_with_builtin_cot = []  # 제거된 블록들
             extended_thinking_note = ""
             if block_id and block_id not in blocks_with_builtin_cot:
                 extended_thinking_note = self._get_extended_thinking_template()
@@ -4443,21 +4435,15 @@ class EnhancedArchAnalyzer:
         THINKING_BUDGET_MAP = {
             # 기본 정보 추출: 낮은 thinking
             'basic_info': 1024,
-            'phase1_data_inventory': 1024,
             
             # 요구사항 분석: 중간 thinking
             'requirements_analysis': 4096,
-            'phase1_requirements_structuring': 4096,
             'accessibility_analysis': 4096,
             
             # 복잡한 분석: 높은 thinking
             'legal_analysis': 8192,
             'feasibility_analysis': 16384,
             'capacity_analysis': 16384,
-            'phase1_facility_program': 8192,
-            'phase1_facility_area_calculation': 8192,
-            'phase1_candidate_generation': 12288,
-            'phase1_candidate_evaluation': 16384,
             
             # 도시재개발 사회경제적 영향 분석: 매우 높은 thinking
             '도시재개발사회경제적영향분석': 16384,
@@ -4498,20 +4484,13 @@ class EnhancedArchAnalyzer:
         TEMPERATURE_MAP = {
             # 사실 기반 분석: 낮은 temperature
             'basic_info': 0.1,
-            'phase1_data_inventory': 0.1,
             'legal_analysis': 0.2,
-            'phase1_facility_area_calculation': 0.2,
             
             # 일반 분석: 중간 temperature
             'requirements_analysis': 0.3,
-            'phase1_requirements_structuring': 0.3,
             'accessibility_analysis': 0.3,
-            'phase1_facility_program': 0.4,
-            'phase1_facility_area_reference': 0.3,
             
             # 창의적 분석: 높은 temperature
-            'phase1_candidate_generation': 0.7,
-            'phase1_candidate_evaluation': 0.6,
             'feasibility_analysis': 0.5,
             'capacity_analysis': 0.5,
             '도시재개발사회경제적영향분석': 0.6,
@@ -4652,7 +4631,7 @@ class EnhancedArchAnalyzer:
                         # 확장 사고 지시사항 추가 (모든 블록에 기본 적용)
                         # 블록 프롬프트에 이미 Chain of Thought 지시사항이 포함되어 있는 블록 목록
                         # (이 블록들은 중복 방지를 위해 시스템 레벨 지시사항을 추가하지 않음)
-                        blocks_with_builtin_cot = ['phase1_facility_program']
+                        blocks_with_builtin_cot = []  # 제거된 블록들
                         
                         # 모든 블록에 기본적으로 확장 사고 지시사항 적용 (중복 방지 제외)
                         extended_thinking_note = ""

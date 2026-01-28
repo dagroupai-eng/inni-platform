@@ -155,16 +155,35 @@ with col_reset:
             if key in st.session_state:
                 del st.session_state[key]
 
-        # 복원 키도 삭제 (중요!)
+        # 복원 키도 삭제
         if 'work_session_restored_global' in st.session_state:
             del st.session_state['work_session_restored_global']
         if 'work_session_restoring' in st.session_state:
             del st.session_state['work_session_restoring']
 
-        # DB는 그대로 유지 (session_state만 초기화)
-        print(f"[초기화] {len(keys_to_reset)}개 키 삭제 완료 (DB는 유지)")
+        # DB도 완전 삭제
+        try:
+            from database.db_manager import execute_query
+            if 'pms_current_user' in st.session_state:
+                user_id = st.session_state.pms_current_user.get('id')
+                if user_id:
+                    # DB에서 세션 데이터 삭제
+                    execute_query(
+                        "DELETE FROM analysis_sessions WHERE user_id = ?",
+                        (user_id,)
+                    )
+                    # analysis_progress도 삭제
+                    execute_query(
+                        "DELETE FROM analysis_progress WHERE user_id = ?",
+                        (user_id,)
+                    )
+                    print(f"[초기화] DB에서 사용자({user_id}) 데이터 완전 삭제 완료")
+        except Exception as e:
+            print(f"[초기화] DB 삭제 오류: {e}")
 
-        st.success("페이지가 초기화되었습니다. (DB 데이터는 유지됨)")
+        print(f"[초기화] {len(keys_to_reset)}개 키 삭제 완료 (DB 포함)")
+
+        st.success("✅ 페이지가 완전히 초기화되었습니다.")
         st.rerun()
 
 st.markdown("---")
@@ -180,14 +199,7 @@ if AUTH_AVAILABLE:
             st.info("사이드바에서 '로그인' 페이지로 이동하세요.")
         st.markdown("---")
 
-# Session state 초기화 (복원이 완료된 후에만)
-# 복원 진행 중이면 대기
-if st.session_state.get('work_session_restoring'):
-    print("[초기화] 복원 진행 중, 초기화 대기")
-    st.info("세션 복원 중...")
-    st.stop()
-
-# 복원이 완료되었거나 복원할 데이터가 없으면 초기화
+# Session state 초기화 (자동 복원 없이 빈 값으로 초기화)
 if 'project_name' not in st.session_state:
     st.session_state.project_name = ""
     print("[초기화] project_name을 빈 문자열로 초기화")
@@ -564,12 +576,7 @@ def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
         st.session_state.cot_history = []
         st.session_state.cot_feedback_inputs = {}
         
-        # Phase 1 관련 개별 블록 결과 초기화
-        st.session_state.pop('phase1_requirements_structured', None)
-        st.session_state.pop('phase1_data_inventory', None)
-        st.session_state.pop('phase1_facility_program_report', None)
-        st.session_state.pop('phase1_facility_area_reference', None)
-        st.session_state.pop('phase1_facility_area_calculation', None)
+        # Phase 1 관련 개별 블록 결과 초기화 (제거된 블록들)
         st.session_state.pop('phase1_requirements_cot_history', None)
         st.session_state.pop('phase1_3_requirements_text', None)
         st.session_state.pop('phase1_3_requirements_loaded', None)
@@ -633,13 +640,8 @@ def reset_all_state() -> None:
     st.session_state.reference_combined_text = ""
     st.session_state.reference_signature = None
     
-    # Phase 1 관련 개별 블록 결과 초기화
+    # Phase 1 관련 개별 블록 결과 초기화 (제거된 블록들)
     phase1_keys = [
-        'phase1_requirements_structured',
-        'phase1_data_inventory',
-        'phase1_facility_program_report',
-        'phase1_facility_area_reference',
-        'phase1_facility_area_calculation',
         'phase1_requirements_cot_history',
         'phase1_3_requirements_text',
         'phase1_3_requirements_loaded',
@@ -1010,18 +1012,6 @@ BLOCK_CATEGORY_MAP: Dict[str, str] = {
     "basic_info": "기본 정보 & 요구사항",
     "requirements": "기본 정보 & 요구사항",
     "project_requirements_parsing": "기본 정보 & 요구사항",
-    "phase1_requirements_structuring": "Phase 1 · 요구사항 정리",
-    "phase1_data_inventory": "Phase 1 · 요구사항 정리",
-    "phase1_candidate_generation": "Phase 1 · 후보지 분석",
-    "phase1_candidate_evaluation": "Phase 1 · 후보지 분석",
-    "essential_gis_data_analysis": "Phase 1 · 후보지 분석",
-    "site_selection_analysis": "Phase 1 · 후보지 분석",
-    "phase1_facility_program": "Phase 1 · 프로그램 설계",
-    "phase1_facility_area_reference": "Phase 1 · 프로그램 설계",
-    "phase1_facility_area_calculation": "Phase 1 · 프로그램 설계",
-    "spatial_program_estimation": "Phase 1 · 프로그램 설계",
-    "masterplan_scenario_generation": "Phase 1 · 프로그램 설계",
-    "masterplan_layout_alternatives": "Phase 1 · 프로그램 설계",
     "design_suggestions": "현황 분석 & 검증",
     "accessibility_analysis": "현황 분석 & 검증",
     "zoning_verification": "현황 분석 & 검증",
@@ -1538,149 +1528,13 @@ def render_phase1_1(project_name, location, project_goals, additional_info):
         with col_input_actions[1]:
             if st.button("입력 초기화", key="reset_phase1_requirements"):
                 st.session_state['phase1_requirements_text'] = ""
-                st.session_state.pop('phase1_requirements_structured', None)
-                st.session_state.pop('phase1_data_inventory', None)
                 st.session_state.pop('phase1_requirements_cot_history', None)
                 st.rerun()
 
-    with st.expander("단계 1-1-2 · 블록 1 실행 (요구사항 파싱)", expanded=not st.session_state.get('phase1_requirements_structured')):
-        requirements_input = st.session_state.get('phase1_requirements_text', '')
-        fixed_program_markdown = build_fixed_program_markdown()
-        if not requirements_input.strip():
-            st.info("먼저 워크시트 내용을 입력해주세요.")
-        else:
-            with st.form("phase1_block1_run_form"):
-                submitted_block1 = st.form_submit_button("블록 1 실행 / 재실행", type="primary")
-            if submitted_block1:
-                try:
-                    with st.spinner("블록 1을 실행 중입니다..."):
-                        analyzer = get_cot_analyzer()
-                        all_blocks = get_example_blocks()
-                        block_map = {block.get('id'): block for block in all_blocks}
-                        block_id = "phase1_requirements_structuring"
-                        if block_id not in block_map:
-                            st.error("blocks.json에서 `phase1_requirements_structuring` 블록을 찾을 수 없습니다.")
-                        else:
-                            project_context = {
-                                "project_name": project_name or "미정",
-                                "location": location or "미정",
-                                "project_goals": project_goals or "",
-                                "additional_info": additional_info or "",
-                                "mission_phase": "Mission 1 · Phase 1.1"
-                            }
-                            combined_input = "\n\n".join([
-                                fixed_program_markdown,
-                                "---",
-                                "### 학생 요구사항 워크시트 입력",
-                                requirements_input
-                            ])
-                            result = analyzer.analyze_blocks_with_cot(
-                                [block_id],
-                                project_context,
-                                combined_input,
-                                {block_id: block_map[block_id]}
-                            )
-                            if result.get("success"):
-                                analysis_results = result.get("analysis_results", {})
-                                step_result = analysis_results.get(block_id, "")
-                                st.session_state['phase1_requirements_structured'] = step_result
-                                
-                                # analysis_results에도 저장하고 자동 저장
-                                st.session_state.analysis_results[block_id] = step_result
-                                project_info = {
-                                    "project_name": st.session_state.get('project_name', ''),
-                                    "location": st.session_state.get('location', '')
-                                }
-                                save_analysis_result(block_id, step_result, project_info)
-                                
-                                st.session_state['phase1_requirements_cot_history'] = result.get("cot_history", [])
-                                st.session_state.pop('phase1_data_inventory', None)
-                                st.success("블록 1 결과가 생성되었습니다.")
-                            else:
-                                st.error(f"블록 1 실행 실패: {result.get('error', '알 수 없는 오류')}")
-                except Exception as e:
-                    st.error(f"블록 1 실행 중 오류가 발생했습니다: {e}")
-        if st.session_state.get('phase1_requirements_structured'):
-            st.markdown("#### 블록 1 결과")
-            st.markdown(st.session_state['phase1_requirements_structured'])
-            st.download_button(
-                label="요구사항 구조화 결과 다운로드",
-                data=st.session_state['phase1_requirements_structured'],
-                file_name="phase1_requirements_structuring.txt",
-                mime="text/plain",
-                key="download_phase1_structured"
-            )
+    # 제거된 블록들: phase1_requirements_structuring, phase1_data_inventory
+    # 관련 섹션 제거됨
 
-    with st.expander("단계 1-1-3 · 블록 2 실행 (필요 데이터 목록)", expanded=bool(st.session_state.get('phase1_requirements_structured')) and not st.session_state.get('phase1_data_inventory')):
-        if not st.session_state.get('phase1_requirements_structured'):
-            st.info("블록 1 결과를 먼저 확인한 뒤, 블록 2를 실행하세요.")
-        else:
-            with st.form("phase1_block2_run_form"):
-                submitted_block2 = st.form_submit_button("블록 2 실행 / 재실행", type="primary")
-            if submitted_block2:
-                requirements_input = st.session_state.get('phase1_requirements_text', '')
-                fixed_program_markdown = build_fixed_program_markdown()
-                if not requirements_input.strip():
-                    st.warning("워크시트 내용을 다시 입력한 뒤 실행해주세요.")
-                else:
-                    try:
-                        with st.spinner("블록 2를 실행 중입니다..."):
-                            analyzer = get_cot_analyzer()
-                            all_blocks = get_example_blocks()
-                            block_map = {block.get('id'): block for block in all_blocks}
-                            block_id = "phase1_data_inventory"
-                            if block_id not in block_map:
-                                st.error("blocks.json에서 `phase1_data_inventory` 블록을 찾을 수 없습니다.")
-                            else:
-                                project_context = {
-                                    "project_name": project_name or "미정",
-                                    "location": location or "미정",
-                                    "project_goals": project_goals or "",
-                                    "additional_info": additional_info or "",
-                                    "mission_phase": "Mission 1 · Phase 1.1"
-                                }
-                                combined_input = "\n\n".join([
-                                    fixed_program_markdown,
-                                    "---",
-                                    "### 학생 요구사항 워크시트 입력",
-                                    requirements_input
-                                ])
-                                result = analyzer.analyze_blocks_with_cot(
-                                    [block_id],
-                                    project_context,
-                                    combined_input,
-                                    {block_id: block_map[block_id]}
-                                )
-                                if result.get("success"):
-                                    analysis_results = result.get("analysis_results", {})
-                                    step_result = analysis_results.get(block_id, "")
-                                    st.session_state['phase1_data_inventory'] = step_result
-                                    
-                                    # analysis_results에도 저장하고 자동 저장
-                                    st.session_state.analysis_results[block_id] = step_result
-                                    project_info = {
-                                        "project_name": st.session_state.get('project_name', ''),
-                                        "location": st.session_state.get('location', '')
-                                    }
-                                    save_analysis_result(block_id, step_result, project_info)
-                                    
-                                    st.success("블록 2 결과가 생성되었습니다.")
-                                else:
-                                    st.error(f"블록 2 실행 실패: {result.get('error', '알 수 없는 오류')}")
-                    except Exception as e:
-                        st.error(f"블록 2 실행 중 오류가 발생했습니다: {e}")
-        if st.session_state.get('phase1_data_inventory'):
-            st.markdown("#### 블록 2 결과")
-            st.markdown(st.session_state['phase1_data_inventory'])
-            st.download_button(
-                label="데이터 체크리스트 다운로드",
-                data=st.session_state['phase1_data_inventory'],
-                file_name="phase1_data_inventory.txt",
-                mime="text/plain",
-                key="download_phase1_data_inventory"
-            )
-
-    if st.session_state.get('phase1_requirements_structured') and st.session_state.get('phase1_data_inventory'):
+    if False:  # 제거된 블록 조건
         with st.expander("📤 Felo AI 전달 데이터 정리", expanded=False):
             st.markdown("""
             **이 데이터는 Felo AI로 전달하여 후보지를 추출하는 데 사용됩니다.**
@@ -2020,277 +1874,9 @@ def render_phase1_3(project_name, location, project_goals, additional_info):
         st.info("⬆️ 후보지를 먼저 선택해주세요.")
         return
     
-    # Step 3: AI 블록 실행 (블록 5, 6, 7)
-    st.markdown("---")
-    st.markdown("### 🤖 AI 분석 블록")
-    
-    with st.expander("🤖 블록 5 · 시설 목록 AI 제안", expanded=not st.session_state.get('phase1_facility_program_report')):
-        st.caption("🟦 자체 프로그램 · `phase1_facility_program` 블록을 실행하여 시설 목록을 AI가 제안합니다.")
-        
-        # 학생 피드백 입력
-        student_feedback_5 = st.text_area(
-            "💬 학생 피드백 (선택사항)",
-            height=100,
-            placeholder="예: 테니스 코트를 더 많이 필요합니다 / 호텔 규모를 줄여주세요 / 주민 시설을 추가해주세요",
-            key="phase1_block5_feedback",
-            help="AI에게 추가로 요청하거나 수정할 사항이 있으면 입력하세요."
-        )
-        
-        col_block5 = st.columns([1, 1])
-        with col_block5[0]:
-            if st.button("블록 5 실행 / 재실행", key="phase1_run_facility_program"):
-                try:
-                    with st.spinner("블록 5를 실행 중입니다..."):
-                        analyzer = get_cot_analyzer()
-                        all_blocks = get_example_blocks()
-                        block_map = {block.get('id'): block for block in all_blocks}
-                        block_id = "phase1_facility_program"
-                        if block_id not in block_map:
-                            st.error("blocks.json에서 `phase1_facility_program` 블록을 찾을 수 없습니다.")
-                        else:
-                            selected_site = st.session_state.get('phase1_3_selected_site', {})
-                            site_info = f"""
-선택된 후보지: {st.session_state.get('phase1_3_selected_site_name', 'N/A')}
-- 면적: {selected_site.get('area_m2', 0):,.0f}㎡
-- 경사도: {selected_site.get('slope_percent', 0):.1f}%
-- 토지용도: {selected_site.get('land_use', 'N/A')}
-"""
-                            # 학생 피드백 추가
-                            feedback_text = ""
-                            if student_feedback_5.strip():
-                                feedback_text = f"\n\n### 학생 피드백\n{student_feedback_5}"
-                            
-                            combined_input = f"{requirements_text}\n\n---\n\n### 선택된 후보지 정보\n{site_info}{feedback_text}"
-                            
-                            project_context = {
-                                "project_name": project_name or "미정",
-                                "location": location or "미정",
-                                "project_goals": project_goals or "",
-                                "additional_info": additional_info or "",
-                                "mission_phase": "Mission 1 · Phase 1.3"
-                            }
-                            result = analyzer.analyze_blocks_with_cot(
-                                [block_id],
-                                project_context,
-                                combined_input,
-                                {block_id: block_map[block_id]}
-                            )
-                            if result.get("success"):
-                                analysis_results = result.get("analysis_results", {})
-                                step_result = analysis_results.get(block_id, "")
-                                st.session_state['phase1_facility_program_report'] = step_result
-                                
-                                # analysis_results에도 저장하고 자동 저장
-                                st.session_state.analysis_results[block_id] = step_result
-                                project_info = {
-                                    "project_name": st.session_state.get('project_name', ''),
-                                    "location": st.session_state.get('location', '')
-                                }
-                                save_analysis_result(block_id, step_result, project_info)
-                                
-                                # 블록 6, 7 결과 초기화 (재분석 시)
-                                st.session_state.pop('phase1_facility_area_reference', None)
-                                st.session_state.pop('phase1_facility_area_calculation', None)
-                                st.success("블록 5 실행 완료!")
-                                st.rerun()
-                            else:
-                                st.error(f"블록 5 실행 실패: {result.get('error', '알 수 없는 오류')}")
-                except Exception as e:
-                    st.error(f"블록 5 실행 중 오류: {e}")
-        
-        with col_block5[1]:
-            if st.button("블록 5 결과 초기화", key="phase1_reset_block5"):
-                st.session_state.pop('phase1_facility_program_report', None)
-                st.session_state.pop('phase1_facility_area_reference', None)
-                st.session_state.pop('phase1_facility_area_calculation', None)
-                st.success("블록 5 결과를 초기화했습니다.")
-                st.rerun()
-    
-    if st.session_state.get('phase1_facility_program_report'):
-        with st.expander("📄 블록 5 결과", expanded=False):
-            st.markdown(st.session_state['phase1_facility_program_report'])
-    
-    with st.expander("🤖 블록 6 · 면적 기준 조사", expanded=not st.session_state.get('phase1_facility_area_reference')):
-        st.caption("🟦 자체 프로그램 · `phase1_facility_area_reference` 블록을 실행하여 시설별 면적 기준을 AI가 조사합니다.")
-        
-        if not st.session_state.get('phase1_facility_program_report'):
-            st.info("블록 5를 먼저 실행해주세요.")
-        else:
-            # 학생 피드백 입력
-            student_feedback_6 = st.text_area(
-                "💬 학생 피드백 (선택사항)",
-                height=100,
-                placeholder="예: 국제학교 면적을 더 크게 / 호텔은 최소 규모로 / 특정 시설 제외",
-                key="phase1_block6_feedback",
-                help="블록 5 결과를 보고 수정할 사항이 있으면 입력하세요."
-            )
-            
-            col_block6 = st.columns([1, 1])
-            with col_block6[0]:
-                if st.button("블록 6 실행 / 재실행", key="phase1_run_area_reference"):
-                    try:
-                        with st.spinner("블록 6을 실행 중입니다..."):
-                            analyzer = get_cot_analyzer()
-                            all_blocks = get_example_blocks()
-                            block_map = {block.get('id'): block for block in all_blocks}
-                            block_id = "phase1_facility_area_reference"
-                            if block_id not in block_map:
-                                st.error("blocks.json에서 `phase1_facility_area_reference` 블록을 찾을 수 없습니다.")
-                            else:
-                                block5_result = st.session_state.get('phase1_facility_program_report', '')
-                                
-                                # 학생 피드백 추가
-                                feedback_text = ""
-                                if student_feedback_6.strip():
-                                    feedback_text = f"\n\n### 학생 피드백\n{student_feedback_6}"
-                                
-                                combined_input = f"{block5_result}{feedback_text}"
-                                
-                                project_context = {
-                                    "project_name": project_name or "미정",
-                                    "location": location or "미정",
-                                    "project_goals": project_goals or "",
-                                    "additional_info": additional_info or "",
-                                    "mission_phase": "Mission 1 · Phase 1.3"
-                                }
-                                result = analyzer.analyze_blocks_with_cot(
-                                    [block_id],
-                                    project_context,
-                                    combined_input,
-                                    {block_id: block_map[block_id]}
-                                )
-                                if result.get("success"):
-                                    analysis_results = result.get("analysis_results", {})
-                                    step_result = analysis_results.get(block_id, "")
-                                    st.session_state['phase1_facility_area_reference'] = step_result
-                                    
-                                    # analysis_results에도 저장하고 자동 저장
-                                    st.session_state.analysis_results[block_id] = step_result
-                                    project_info = {
-                                        "project_name": st.session_state.get('project_name', ''),
-                                        "location": st.session_state.get('location', '')
-                                    }
-                                    save_analysis_result(block_id, step_result, project_info)
-                                    
-                                    # 블록 7 결과 초기화 (재분석 시)
-                                    st.session_state.pop('phase1_facility_area_calculation', None)
-                                    st.success("블록 6 실행 완료!")
-                                    st.rerun()
-                                else:
-                                    st.error(f"블록 6 실행 실패: {result.get('error', '알 수 없는 오류')}")
-                    except Exception as e:
-                        st.error(f"블록 6 실행 중 오류: {e}")
-            
-            with col_block6[1]:
-                if st.button("블록 6 결과 초기화", key="phase1_reset_block6"):
-                    st.session_state.pop('phase1_facility_area_reference', None)
-                    st.session_state.pop('phase1_facility_area_calculation', None)
-                    st.success("블록 6 결과를 초기화했습니다.")
-                    st.rerun()
-    
-    if st.session_state.get('phase1_facility_area_reference'):
-        with st.expander("📄 블록 6 결과", expanded=False):
-            st.markdown(st.session_state['phase1_facility_area_reference'])
-    
-    with st.expander("🤖 블록 7 · 면적 산정", expanded=not st.session_state.get('phase1_facility_area_calculation')):
-        st.caption("🟦 자체 프로그램 · `phase1_facility_area_calculation` 블록을 실행하여 시설별 면적을 자동으로 계산합니다.")
-        
-        if not st.session_state.get('phase1_facility_area_reference'):
-            st.info("블록 6을 먼저 실행해주세요.")
-        else:
-            # 학생 피드백 입력
-            student_feedback_7 = st.text_area(
-                "💬 학생 피드백 (선택사항)",
-                height=100,
-                placeholder="예: 총 면적을 더 줄여주세요 / 특정 시설의 면적 조정 / 우선순위 변경",
-                key="phase1_block7_feedback",
-                help="블록 6 결과를 보고 수정할 사항이 있으면 입력하세요."
-            )
-            
-            col_block7 = st.columns([1, 1])
-            with col_block7[0]:
-                if st.button("블록 7 실행 / 재실행", key="phase1_run_area_calculation"):
-                    try:
-                        with st.spinner("블록 7을 실행 중입니다..."):
-                            analyzer = get_cot_analyzer()
-                            all_blocks = get_example_blocks()
-                            block_map = {block.get('id'): block for block in all_blocks}
-                            block_id = "phase1_facility_area_calculation"
-                            if block_id not in block_map:
-                                st.error("blocks.json에서 `phase1_facility_area_calculation` 블록을 찾을 수 없습니다.")
-                            else:
-                                block6_result = st.session_state.get('phase1_facility_area_reference', '')
-                                
-                                # 학생 피드백 추가
-                                feedback_text = ""
-                                if student_feedback_7.strip():
-                                    feedback_text = f"\n\n### 학생 피드백\n{student_feedback_7}"
-                                
-                                combined_input = f"{block6_result}{feedback_text}"
-                                
-                                project_context = {
-                                    "project_name": project_name or "미정",
-                                    "location": location or "미정",
-                                    "project_goals": project_goals or "",
-                                    "additional_info": additional_info or "",
-                                    "mission_phase": "Mission 1 · Phase 1.3"
-                                }
-                                result = analyzer.analyze_blocks_with_cot(
-                                    [block_id],
-                                    project_context,
-                                    combined_input,
-                                    {block_id: block_map[block_id]}
-                                )
-                                if result.get("success"):
-                                    analysis_results = result.get("analysis_results", {})
-                                    step_result = analysis_results.get(block_id, "")
-                                    st.session_state['phase1_facility_area_calculation'] = step_result
-                                    
-                                    # analysis_results에도 저장하고 자동 저장
-                                    st.session_state.analysis_results[block_id] = step_result
-                                    project_info = {
-                                        "project_name": st.session_state.get('project_name', ''),
-                                        "location": st.session_state.get('location', '')
-                                    }
-                                    save_analysis_result(block_id, step_result, project_info)
-                                    
-                                    st.success("블록 7 실행 완료!")
-                                    st.rerun()
-                                else:
-                                    st.error(f"블록 7 실행 실패: {result.get('error', '알 수 없는 오류')}")
-                    except Exception as e:
-                        st.error(f"블록 7 실행 중 오류: {e}")
-            
-            with col_block7[1]:
-                if st.button("블록 7 결과 초기화", key="phase1_reset_block7"):
-                    st.session_state.pop('phase1_facility_area_calculation', None)
-                    st.success("블록 7 결과를 초기화했습니다.")
-                    st.rerun()
-    
-    if st.session_state.get('phase1_facility_area_calculation'):
-        with st.expander("📄 블록 7 결과", expanded=False):
-            st.markdown(st.session_state['phase1_facility_area_calculation'])
-    
-    # 📄 AI 산출물 미리보기
-    st.markdown("---")
-    st.markdown("### 📄 AI 산출물 미리보기")
-    
-    for key_name, title in [
-        ('phase1_facility_program_report', "블록 5 · 시설 목록 AI 제안"),
-        ('phase1_facility_area_reference', "블록 6 · 면적 기준 조사"),
-        ('phase1_facility_area_calculation', "블록 7 · 면적 산정 결과")
-    ]:
-        if st.session_state.get(key_name):
-            with st.expander(f"📄 {title}", expanded=False):
-                report_text = st.session_state.get(key_name, "")
-                st.markdown(report_text)
-                st.download_button(
-                    label=f"📥 {title} 다운로드",
-                    data=report_text,
-                    file_name=f"{key_name}.txt",
-                    mime="text/plain",
-                    key=f"download_{key_name}"
-                )
+    # Step 3: AI 블록 실행 (블록 5, 6, 7 제거됨)
+    # 제거된 블록들: phase1_facility_program, phase1_facility_area_reference, phase1_facility_area_calculation
+    # 관련 섹션 제거됨
 
 
 # 사이드바 - 설정
