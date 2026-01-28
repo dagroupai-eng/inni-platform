@@ -1312,11 +1312,28 @@ class EnhancedArchAnalyzer:
                 # function_call 확인 (구형 형식)
                 elif hasattr(message, 'function_call') and message.function_call:
                     func_call = message.function_call
-                    function_calls.append({
-                        "id": None,
-                        "name": func_call.name if hasattr(func_call, 'name') else func_call.get('name'),
-                        "arguments": func_call.arguments if hasattr(func_call, 'arguments') else func_call.get('arguments', {})
-                    })
+                    try:
+                        # name 안전 추출
+                        try:
+                            func_name = func_call.name if hasattr(func_call, 'name') else func_call.get('name') if hasattr(func_call, 'get') else 'unknown'
+                        except (AttributeError, Exception) as e:
+                            print(f"[WARNING] func_call.name 접근 실패 (구형): {e}, 타입: {type(func_call)}")
+                            func_name = 'unknown'
+
+                        # arguments 안전 추출
+                        try:
+                            func_args = func_call.arguments if hasattr(func_call, 'arguments') else func_call.get('arguments', {}) if hasattr(func_call, 'get') else {}
+                        except (AttributeError, Exception) as e:
+                            print(f"[WARNING] func_call.arguments 접근 실패 (구형): {e}, 타입: {type(func_call)}")
+                            func_args = {}
+
+                        function_calls.append({
+                            "id": None,
+                            "name": func_name,
+                            "arguments": func_args
+                        })
+                    except Exception as e:
+                        print(f"[WARNING] function_call 처리 실패 (구형): {e}, 타입: {type(func_call)}")
         except Exception as e:
             print(f"⚠️ Function calls 추출 오류: {e}")
         
@@ -4004,23 +4021,35 @@ class EnhancedArchAnalyzer:
                         # Function call 처리
                         elif hasattr(part, 'function_call') and part.function_call:
                             func_call = part.function_call
-                            # args 안전 처리
+                            # func_call 전체를 안전하게 처리
                             try:
-                                if hasattr(func_call, 'args'):
-                                    if hasattr(func_call.args, 'items'):
-                                        args_value = dict(func_call.args)
-                                    else:
-                                        args_value = func_call.args
-                                else:
-                                    args_value = {}
-                            except Exception as args_error:
-                                print(f"[WARNING] func_call.args 접근 실패: {args_error}")
-                                args_value = {}
+                                # name 추출
+                                try:
+                                    func_name = func_call.name if hasattr(func_call, 'name') else str(func_call)
+                                except (AttributeError, Exception) as name_error:
+                                    print(f"[WARNING] func_call.name 접근 실패: {name_error}, func_call 타입: {type(func_call)}")
+                                    func_name = "unknown_function"
 
-                            function_calls.append({
-                                'name': func_call.name,
-                                'args': args_value
-                            })
+                                # args 추출
+                                try:
+                                    if hasattr(func_call, 'args'):
+                                        if hasattr(func_call.args, 'items'):
+                                            args_value = dict(func_call.args)
+                                        else:
+                                            args_value = func_call.args
+                                    else:
+                                        args_value = {}
+                                except (AttributeError, Exception) as args_error:
+                                    print(f"[WARNING] func_call.args 접근 실패: {args_error}, func_call 타입: {type(func_call)}")
+                                    args_value = {}
+
+                                function_calls.append({
+                                    'name': func_name,
+                                    'args': args_value
+                                })
+                            except Exception as func_call_error:
+                                print(f"[WARNING] func_call 전체 처리 실패: {func_call_error}, func_call 타입: {type(func_call)}")
+                                # 실패해도 계속 진행
                             
                             # Thought signature 추출 (Gemini 3 필수)
                             if hasattr(part, 'thought_signature') and part.thought_signature:

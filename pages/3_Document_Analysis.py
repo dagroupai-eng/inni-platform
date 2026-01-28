@@ -118,9 +118,19 @@ if AUTH_AVAILABLE:
 # 페이지 네비게이션 처리
 # (st.switch_page는 사이드바에서 직접 호출하면 오류 발생 가능하므로 제거)
 
-# Session state 초기화
+# Session state 초기화 (복원이 완료된 후에만)
+# 복원 진행 중이면 대기
+if st.session_state.get('work_session_restoring'):
+    print("[초기화] 복원 진행 중, 초기화 대기")
+    st.info("세션 복원 중...")
+    st.stop()
+
+# 복원이 완료되었거나 복원할 데이터가 없으면 초기화
 if 'project_name' not in st.session_state:
     st.session_state.project_name = ""
+    print("[초기화] project_name을 빈 문자열로 초기화")
+else:
+    print(f"[초기화] project_name 이미 존재: '{st.session_state.project_name}'")
 if 'location' not in st.session_state:
     st.session_state.location = ""
 if 'latitude' not in st.session_state:
@@ -2374,6 +2384,26 @@ with tab_project:
     st.header("프로젝트 기본 정보 입력")
     st.caption("프로젝트 기본 정보는 이 탭에서 별도로 관리됩니다. 입력값은 자동 저장됩니다.")
 
+    # 디버그 정보 (개발 중 확인용)
+    with st.expander("🔍 세션 상태 확인 (디버그)", expanded=False):
+        st.caption("현재 세션에 저장된 프로젝트 정보를 확인할 수 있습니다.")
+        debug_info = {
+            "프로젝트명": st.session_state.get('project_name', '(없음)'),
+            "위치": st.session_state.get('location', '(없음)'),
+            "위도": st.session_state.get('latitude', '(없음)'),
+            "경도": st.session_state.get('longitude', '(없음)'),
+            "프로젝트 목표": st.session_state.get('project_goals', '(없음)')[:50] + "..." if len(st.session_state.get('project_goals', '')) > 50 else st.session_state.get('project_goals', '(없음)'),
+        }
+        for key, value in debug_info.items():
+            st.text(f"{key}: {value}")
+
+        # DB 저장 확인
+        if 'pms_current_user' in st.session_state:
+            user_id = st.session_state.pms_current_user.get('id')
+            st.text(f"사용자 ID: {user_id}")
+        else:
+            st.warning("로그인 정보 없음")
+
     st.text_input(
         "프로젝트명",
         value=st.session_state.get("project_name", ""),
@@ -2442,31 +2472,52 @@ with tab_project:
             import json
             from datetime import datetime
 
-            # 현재 세션 상태 출력 (디버그)
-            print(f"[저장] project_name: {st.session_state.get('project_name')}")
-            print(f"[저장] location: {st.session_state.get('location')}")
+            # 로그인 확인
+            if 'pms_current_user' not in st.session_state:
+                st.error("❌ 로그인 정보가 없습니다. 다시 로그인해주세요.")
+                st.stop()
 
+            user_id = st.session_state.pms_current_user.get('id')
+            if not user_id:
+                st.error("❌ 사용자 ID를 가져올 수 없습니다.")
+                st.stop()
+
+            # 현재 세션 상태 출력 (디버그)
+            print(f"[저장] 사용자 ID: {user_id}")
+            print(f"[저장] project_name: '{st.session_state.get('project_name')}'")
+            print(f"[저장] location: '{st.session_state.get('location')}'")
+            print(f"[저장] project_goals: '{st.session_state.get('project_goals', '')[:50]}...'")
+
+            # 저장 실행
             save_work_session()
             save_analysis_progress(force=True)
 
             # 저장 확인 (디버그)
-            user_id = st.session_state.pms_current_user.get('id') if 'pms_current_user' in st.session_state else None
-            if user_id:
-                check_result = execute_query(
-                    "SELECT session_data FROM analysis_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
-                    (user_id,)
-                )
-                if check_result:
-                    saved_data = json.loads(check_result[0]['session_data'])
-                    print(f"[저장 확인] project_name: {saved_data.get('project_name')}")
+            check_result = execute_query(
+                "SELECT session_data FROM analysis_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+                (user_id,)
+            )
+            if check_result:
+                saved_data = json.loads(check_result[0]['session_data'])
+                print(f"[저장 확인] DB에 저장된 project_name: '{saved_data.get('project_name')}'")
+                print(f"[저장 확인] DB에 저장된 location: '{saved_data.get('location')}'")
 
-            st.success("✅ 프로젝트 정보가 저장되었습니다! 다른 페이지로 이동해도 유지됩니다.")
+                # UI에 저장된 내용 표시
+                st.success("✅ 프로젝트 정보가 저장되었습니다!")
+                with st.expander("저장된 내용 확인", expanded=True):
+                    st.write(f"**프로젝트명**: {saved_data.get('project_name', '(없음)')}")
+                    st.write(f"**위치**: {saved_data.get('location', '(없음)')}")
+                    st.write(f"**총 {len(saved_data)}개 항목 저장됨**")
+            else:
+                st.warning("⚠️ 저장은 완료되었으나 확인할 수 없습니다.")
+
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
-            print(f"저장 중 오류: {error_details}")
-            st.error(f"❌ 저장 실패: {e}")
-            st.info("입력한 정보는 현재 세션에만 유지됩니다.")
+            print(f"[저장 오류 전체 내역]:\n{error_details}")
+            st.error(f"❌ 저장 실패: {str(e)}")
+            with st.expander("오류 상세 정보"):
+                st.code(error_details)
 
     st.markdown("---")
     st.header("파일 업로드")
