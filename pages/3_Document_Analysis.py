@@ -53,11 +53,78 @@ st.set_page_config(
 
 # 세션 초기화 (로그인 + 작업 데이터 복원)
 try:
-    from auth.session_init import init_page_session, render_session_manager_sidebar
+    from auth.session_init import init_page_session
     init_page_session()
 except Exception as e:
     print(f"세션 초기화 오류: {e}")
-    render_session_manager_sidebar = None
+
+# 강제 불러오기 처리 (불러오기 버튼 클릭 시)
+if st.session_state.get('_force_load_session'):
+    try:
+        from database.db_manager import execute_query
+        import json
+
+        # 플래그 제거
+        del st.session_state['_force_load_session']
+
+        # 로그인 확인
+        if 'pms_current_user' in st.session_state:
+            user_id = st.session_state.pms_current_user.get('id')
+
+            if user_id:
+                print(f"[강제 불러오기] 사용자 ID: {user_id}")
+
+                # DB에서 최근 세션 조회
+                result = execute_query(
+                    """
+                    SELECT session_data, created_at FROM analysis_sessions
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id,)
+                )
+
+                if result and result[0]:
+                    session_data = json.loads(result[0]['session_data'])
+                    saved_time = result[0]['created_at']
+
+                    print(f"[강제 불러오기] DB에서 데이터 로드: {len(session_data)}개 키")
+
+                    # 복원 플래그 초기화 (강제 복원)
+                    if 'work_session_restored_global' in st.session_state:
+                        del st.session_state['work_session_restored_global']
+                    if 'work_session_restoring' in st.session_state:
+                        del st.session_state['work_session_restoring']
+
+                    # 임시로 데이터 저장 (다음 rerun 때 표시용)
+                    st.session_state['_loaded_data_info'] = {
+                        'project_name': session_data.get('project_name', '(없음)'),
+                        'location': session_data.get('location', '(없음)'),
+                        'saved_time': saved_time,
+                        'count': len(session_data)
+                    }
+
+                    print(f"[강제 불러오기] 복원 플래그 초기화 완료, 자동 복원 시작")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 저장된 세션이 없습니다.")
+                    print("[강제 불러오기] DB에 저장된 세션 없음")
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[강제 불러오기 오류]:\n{error_details}")
+        st.error(f"❌ 불러오기 실패: {str(e)}")
+
+# 불러오기 완료 메시지 표시
+if '_loaded_data_info' in st.session_state:
+    info = st.session_state['_loaded_data_info']
+    del st.session_state['_loaded_data_info']
+    st.success(f"✅ 저장된 정보를 불러왔습니다! (저장 시간: {info['saved_time']})")
+    with st.expander("불러온 내용 확인", expanded=True):
+        st.write(f"**프로젝트명**: {info['project_name']}")
+        st.write(f"**위치**: {info['location']}")
+        st.write(f"**총 {info['count']}개 항목 불러옴**")
 
 # 로그인 체크
 if AUTH_AVAILABLE:
@@ -94,15 +161,10 @@ with col_reset:
         if 'work_session_restoring' in st.session_state:
             del st.session_state['work_session_restoring']
 
-        # DB에 빈 상태로 저장
-        try:
-            from auth.session_init import save_work_session
-            save_work_session()  # 빈 상태로 저장
-            print("[초기화] DB에 빈 상태 저장 완료")
-        except Exception as e:
-            print(f"초기화 저장 오류: {e}")
+        # DB는 그대로 유지 (session_state만 초기화)
+        print(f"[초기화] {len(keys_to_reset)}개 키 삭제 완료 (DB는 유지)")
 
-        st.success("페이지가 초기화되었습니다.")
+        st.success("페이지가 초기화되었습니다. (DB 데이터는 유지됨)")
         st.rerun()
 
 st.markdown("---")
@@ -117,13 +179,6 @@ if AUTH_AVAILABLE:
             st.warning("로그인이 필요합니다")
             st.info("사이드바에서 '로그인' 페이지로 이동하세요.")
         st.markdown("---")
-
-# 세션 관리 사이드바 렌더링 제거 (각 페이지별 리셋 버튼 사용)
-# if render_session_manager_sidebar:
-#     render_session_manager_sidebar()
-
-# 페이지 네비게이션 처리
-# (st.switch_page는 사이드바에서 직접 호출하면 오류 발생 가능하므로 제거)
 
 # Session state 초기화 (복원이 완료된 후에만)
 # 복원 진행 중이면 대기
@@ -2475,77 +2530,9 @@ with tab_project:
 
     with col_load:
         if st.button("📥 저장된 정보 불러오기", use_container_width=True, key="load_project_info"):
-            try:
-                from auth.session_init import restore_work_session
-                from database.db_manager import execute_query
-                import json
-
-                # 로그인 확인
-                if 'pms_current_user' not in st.session_state:
-                    st.error("❌ 로그인 정보가 없습니다. 다시 로그인해주세요.")
-                    st.stop()
-
-                user_id = st.session_state.pms_current_user.get('id')
-                if not user_id:
-                    st.error("❌ 사용자 ID를 가져올 수 없습니다.")
-                    st.stop()
-
-                print(f"[불러오기] 사용자 ID: {user_id}")
-
-                # DB에서 최근 세션 조회
-                result = execute_query(
-                    """
-                    SELECT session_data, created_at FROM analysis_sessions
-                    WHERE user_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """,
-                    (user_id,)
-                )
-
-                if result and result[0]:
-                    session_data = json.loads(result[0]['session_data'])
-                    saved_time = result[0]['created_at']
-
-                    print(f"[불러오기] DB에서 데이터 로드: {len(session_data)}개 키")
-
-                    # 복원 플래그 초기화 (강제 복원)
-                    if 'work_session_restored_global' in st.session_state:
-                        del st.session_state['work_session_restored_global']
-                    if 'work_session_restoring' in st.session_state:
-                        del st.session_state['work_session_restoring']
-
-                    # session_state에 직접 복원
-                    restored_count = 0
-                    for key, value in session_data.items():
-                        if value is not None:
-                            st.session_state[key] = value
-                            restored_count += 1
-                            if key in ['project_name', 'location', 'latitude', 'longitude', 'project_goals']:
-                                print(f"[불러오기] {key} = {value if isinstance(value, (str, int, float, bool)) and len(str(value)) < 50 else f'{type(value).__name__}...'}")
-
-                    print(f"[불러오기] 총 {restored_count}개 키 복원 완료")
-
-                    st.success(f"✅ 저장된 정보를 불러왔습니다! (저장 시간: {saved_time})")
-                    with st.expander("불러온 내용 확인", expanded=True):
-                        st.write(f"**프로젝트명**: {session_data.get('project_name', '(없음)')}")
-                        st.write(f"**위치**: {session_data.get('location', '(없음)')}")
-                        st.write(f"**위도**: {session_data.get('latitude', '(없음)')}")
-                        st.write(f"**경도**: {session_data.get('longitude', '(없음)')}")
-                        st.write(f"**총 {len(session_data)}개 항목 불러옴**")
-
-                    st.rerun()
-                else:
-                    st.warning("⚠️ 저장된 세션이 없습니다.")
-                    print("[불러오기] DB에 저장된 세션 없음")
-
-            except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                print(f"[불러오기 오류 전체 내역]:\n{error_details}")
-                st.error(f"❌ 불러오기 실패: {str(e)}")
-                with st.expander("오류 상세 정보"):
-                    st.code(error_details)
+            # 불러오기 플래그 설정하고 즉시 rerun (위젯이 생성되기 전에)
+            st.session_state['_force_load_session'] = True
+            st.rerun()
 
     with col_save:
         save_button_clicked = st.button("✅ 프로젝트 정보 저장", use_container_width=True, type="primary", key="save_project_info")
