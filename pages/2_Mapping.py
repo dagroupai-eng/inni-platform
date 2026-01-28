@@ -1782,7 +1782,7 @@ def calculate_radius_statistics_extended(center_lat: float, center_lon: float,
 
             # 용도지역 카운트
             zone_cols = [col for col in within_radius.columns
-                        if any(k in col.upper() for k in ['용도', 'ZONE', 'USE', 'JIJIMOK'])]
+                        if any(k in col.upper() for k in ['용도', 'ZONE', 'USG_NM', 'USG_CD', 'PRPOS_AREA', 'JIJIMOK', '지역'])]
             for col in zone_cols:
                 for val in within_radius[col].dropna():
                     stats['zoning'][str(val)] += 1
@@ -1805,9 +1805,9 @@ def calculate_radius_statistics_extended(center_lat: float, center_lon: float,
                 if areas:
                     layer_stats['total_area'] = sum(areas)
 
-            # 건물용도 카운트
+            # 건물용도 카운트 (용도지역과 구분을 위해 건물 관련 컬럼만 매칭)
             bldg_cols = [col for col in within_radius.columns
-                        if any(k in col.upper() for k in ['PURPS', '용도', 'USE', '주용도'])]
+                        if any(k in col.upper() for k in ['PURPS', 'MAIN_PURPS', '주용도', 'BDTYP', 'BLD_NM', 'ETCPURPS'])]
             for col in bldg_cols:
                 for val in within_radius[col].dropna():
                     stats['building_uses'][str(val)] += 1
@@ -2670,11 +2670,11 @@ with st.expander("위치 설정", expanded=False):
                 # 레이어명 구성
                 layer_label = f"🔲 {zone_info['name']}"
                 if file_upload_required:
-                    layer_label = f"📂 {zone_info['name']} (파일 업로드 필요)"
+                    layer_label = f"⛔ {zone_info['name']} (연동 불가, 직접 다운 후 분석 필요)"
 
                 help_text = f"레이어: {zone_info['layer']} | 색상: {color}"
                 if file_upload_required:
-                    help_text += "\n[주의] 이 레이어는 V-World API에서 직접 다운로드할 수 없습니다. Shapefile을 직접 업로드해주세요."
+                    help_text += "\n[참고] 이 레이어는 V-World API에서 제공되지 않습니다. 국토정보플랫폼 등에서 직접 다운로드하세요."
 
                 is_selected = st.checkbox(
                     layer_label,
@@ -2697,69 +2697,6 @@ with st.expander("위치 설정", expanded=False):
         st.success(f"선택됨: {len(selected_zones)}/{api_available_layers}개 레이어")
     else:
         st.caption(f"레이어: 0/{api_available_layers}개 선택됨")
-
-    st.markdown("---")
-
-    # Shapefile 업로드 섹션 (사이드바에 통합)
-    with st.expander("📂 Shapefile 업로드", expanded=False):
-        # 파일 업로드가 필요한 레이어 안내
-        file_upload_layers = [(k, v) for k, v in ZONE_LAYERS.items() if v.get('file_upload', False)]
-        if file_upload_layers:
-            st.info("다음 레이어들은 API로 다운로드할 수 없습니다:")
-            for layer_key, layer_info in file_upload_layers:
-                st.markdown(f"- {layer_info['name']}")
-
-        # Shapefile 업로드
-        if GEO_MODULE_AVAILABLE:
-            # Session state 초기화 (레이어 저장용)
-            if 'geo_layers' not in st.session_state:
-                st.session_state.geo_layers = {}
-            if 'uploaded_layers' not in st.session_state:
-                st.session_state.uploaded_layers = {}
-
-            uploaded_files = st.file_uploader(
-                "ZIP 파일 업로드",
-                type=['zip'],
-                accept_multiple_files=True,
-                help="Shapefile이 포함된 ZIP 파일을 업로드하세요"
-            )
-
-            if uploaded_files:
-                loader = GeoDataLoader()
-
-                for uploaded_file in uploaded_files:
-                    layer_name = uploaded_file.name.replace('.zip', '').replace('.ZIP', '')
-
-                    # 중복 체크
-                    if layer_name in st.session_state.uploaded_layers:
-                        st.warning(f"[주의] {layer_name}은 이미 업로드되었습니다.")
-                        continue
-
-                    result = loader.load_shapefile_from_zip(
-                        uploaded_file.getvalue(),
-                        encoding='cp949'
-                    )
-
-                    if result['success']:
-                        st.session_state.uploaded_layers[layer_name] = {
-                            'gdf': result['gdf'],
-                            'info': {
-                                'feature_count': result['feature_count'],
-                                'columns': result['columns'],
-                                'crs': result['crs']
-                            }
-                        }
-                        st.success(f" {layer_name} 업로드 완료")
-                    else:
-                        st.error(f"[실패] {layer_name} 업로드 실패: {result.get('error', '알 수 없는 오류')}")
-
-            # 업로드된 레이어 목록
-            if st.session_state.uploaded_layers:
-                st.markdown("**업로드된 레이어:**")
-                for layer_name in st.session_state.uploaded_layers.keys():
-                    st.caption(f"- {layer_name}")
-        else:
-            st.warning("GeoPandas가 설치되지 않아 Shapefile 업로드를 사용할 수 없습니다.")
 
     st.markdown("---")
 
@@ -3042,10 +2979,16 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                 st.rerun()
 
         # 데이터 통계 시각화
-        with st.expander("📊 조회된 데이터 통계", expanded=False):
+        # 세션 상태로 expander 열림 상태 유지
+        if 'stats_expander_open' not in st.session_state:
+            st.session_state.stats_expander_open = False
+        # 통계 결과가 있으면 자동으로 열림 상태 유지
+        stats_expanded = st.session_state.stats_expander_open or ('geo_stats_result' in st.session_state and st.session_state.geo_stats_result)
+        with st.expander("📊 조회된 데이터 통계", expanded=stats_expanded):
             st.caption("조회된 공간 데이터의 통계를 차트로 시각화합니다.")
 
             if st.button("📈 통계 분석 실행", use_container_width=True, key="run_viz_stats"):
+                st.session_state.stats_expander_open = True  # expander 열림 상태 유지
                 with st.spinner("통계 계산 중..."):
                     # 현재 지도 중심 좌표 사용
                     viz_lat = st.session_state.cadastral_center_lat
@@ -3162,12 +3105,15 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                     # 통계 초기화 버튼
                     if st.button("통계 결과 지우기", key="clear_stats"):
                         st.session_state.geo_stats_result = None
+                        st.session_state.stats_expander_open = False
                         st.rerun()
             else:
                 st.info("'통계 분석 실행' 버튼을 클릭하여 데이터를 분석하세요.")
 
         # 다중 레이어 블록 사전 연동 (블록 선택 전에 미리 매핑)
-        with st.expander("🔗 레이어-블록 사전 연동", expanded=False):
+        if 'layer_link_expander_open' not in st.session_state:
+            st.session_state.layer_link_expander_open = False
+        with st.expander("🔗 레이어-블록 사전 연동", expanded=st.session_state.layer_link_expander_open):
             st.caption("레이어를 분석 블록에 미리 연동해두면, 해당 블록 선택 시 자동으로 분석에 사용됩니다.")
 
             # 블록 이름 조회를 위한 lookup 생성
@@ -3213,6 +3159,7 @@ with st.expander("📥 공간 데이터 조회 및 다운로드", expanded=False
                 if selected_layers and target_block:
                     target_block_name = get_block_display_name(target_block)
                     if st.button("🔗 선택 레이어 사전 연동", use_container_width=True, key="batch_link_btn"):
+                        st.session_state.layer_link_expander_open = True  # expander 열림 상태 유지
                         # 선택된 레이어들을 블록에 연동
                         combined_features = []
                         total_count = 0
