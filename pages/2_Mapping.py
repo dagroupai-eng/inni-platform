@@ -2281,11 +2281,22 @@ with col_reset:
         keys_to_reset = [
             'geo_layers', 'uploaded_gdf', 'uploaded_layer_info',
             'downloaded_geo_data', 'cadastral_data', 'cadastral_center_lat', 'cadastral_center_lon',
-            'geo_stats_result', 'clicked_location', 'block_spatial_data'
+            'cadastral_zoom', 'geo_stats_result', 'clicked_location', 'block_spatial_data',
+            'feature_info_result', 'selected_zone_layers'
         ]
+
+        # 기본 키 삭제
         for key in keys_to_reset:
             if key in st.session_state:
                 del st.session_state[key]
+
+        # 동적 키 삭제 (show_block_selector_* 등)
+        dynamic_keys_to_delete = [
+            key for key in st.session_state.keys()
+            if key.startswith('show_block_selector_')
+        ]
+        for key in dynamic_keys_to_delete:
+            del st.session_state[key]
 
         # DB에서도 삭제 (선택사항)
         try:

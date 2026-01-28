@@ -4004,9 +4004,22 @@ class EnhancedArchAnalyzer:
                         # Function call 처리
                         elif hasattr(part, 'function_call') and part.function_call:
                             func_call = part.function_call
+                            # args 안전 처리
+                            try:
+                                if hasattr(func_call, 'args'):
+                                    if hasattr(func_call.args, 'items'):
+                                        args_value = dict(func_call.args)
+                                    else:
+                                        args_value = func_call.args
+                                else:
+                                    args_value = {}
+                            except Exception as args_error:
+                                print(f"[WARNING] func_call.args 접근 실패: {args_error}")
+                                args_value = {}
+
                             function_calls.append({
                                 'name': func_call.name,
-                                'args': dict(func_call.args) if hasattr(func_call.args, 'items') else func_call.args
+                                'args': args_value
                             })
                             
                             # Thought signature 추출 (Gemini 3 필수)

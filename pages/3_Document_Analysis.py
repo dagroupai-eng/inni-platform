@@ -2438,12 +2438,35 @@ with tab_project:
         # 세션 저장
         try:
             from auth.session_init import save_work_session, save_analysis_progress
+            from database.db_manager import execute_query
+            import json
+            from datetime import datetime
+
+            # 현재 세션 상태 출력 (디버그)
+            print(f"[저장] project_name: {st.session_state.get('project_name')}")
+            print(f"[저장] location: {st.session_state.get('location')}")
+
             save_work_session()
             save_analysis_progress(force=True)
-            st.success("프로젝트 정보가 저장되었습니다!")
+
+            # 저장 확인 (디버그)
+            user_id = st.session_state.pms_current_user.get('id') if 'pms_current_user' in st.session_state else None
+            if user_id:
+                check_result = execute_query(
+                    "SELECT session_data FROM analysis_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+                    (user_id,)
+                )
+                if check_result:
+                    saved_data = json.loads(check_result[0]['session_data'])
+                    print(f"[저장 확인] project_name: {saved_data.get('project_name')}")
+
+            st.success("✅ 프로젝트 정보가 저장되었습니다! 다른 페이지로 이동해도 유지됩니다.")
         except Exception as e:
-            st.warning(f"저장 중 오류: {e}")
-            st.success("프로젝트 정보가 입력되었습니다.")
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"저장 중 오류: {error_details}")
+            st.error(f"❌ 저장 실패: {e}")
+            st.info("입력한 정보는 현재 세션에만 유지됩니다.")
 
     st.markdown("---")
     st.header("파일 업로드")
@@ -3094,15 +3117,12 @@ with tab_run:
 
     active_plan = st.session_state.cot_plan if st.session_state.cot_session else selected_blocks
 
-    # 분석 중 블록 추가 기능 (분석 실행 중일 때는 비활성화)
+    # 분석 중 블록 추가 기능 (분석 실행 중일 때는 완전히 비활성화)
     is_analysis_running = st.session_state.get('cot_running_block') is not None
 
-    if st.session_state.cot_session and st.session_state.cot_plan:
-        # 분석 실행 중이면 경고만 표시
-        if is_analysis_running:
-            st.info("⏳ 분석이 실행 중입니다. 분석이 완료되면 블록을 추가할 수 있습니다.")
-        else:
-            with st.expander("➕ 블록 추가 (분석 진행 중)", expanded=False):
+    # 분석 실행 중에는 블록 추가 UI를 전혀 렌더링하지 않음
+    if not is_analysis_running and st.session_state.cot_session and st.session_state.cot_plan:
+        with st.expander("➕ 블록 추가 (분석 진행 중)", expanded=False):
                 st.caption("분석 세션이 진행 중일 때 새 블록을 추가할 수 있습니다.")
 
                 # 현재 플랜에 없는 블록들만 표시
@@ -3184,8 +3204,8 @@ with tab_run:
                         added_block_name = added_block.get('name', selected_block_to_add)
                         st.success(f"'{added_block_name}' 블록이 추가되었습니다.")
                         st.rerun()
-                else:
-                    st.info("추가 가능한 블록이 없습니다. 모든 블록이 이미 플랜에 포함되어 있습니다.")
+            else:
+                st.info("추가 가능한 블록이 없습니다. 모든 블록이 이미 플랜에 포함되어 있습니다.")
 
     st.markdown("### 단계 진행 현황")
 
