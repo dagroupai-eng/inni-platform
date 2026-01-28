@@ -82,13 +82,13 @@ def restore_work_session():
 
             # 세션 상태로 복원
             for key, value in session_data.items():
-                # 프로젝트 정보는 값이 있으면 무조건 복원
+                # 프로젝트 정보는 값이 None이 아니면 무조건 복원 (빈 문자열도 복원)
                 if key in project_info_keys:
-                    if value:  # 저장된 값이 비어있지 않으면 복원
+                    if value is not None:
                         st.session_state[key] = value
-                # 분석 결과는 값이 있으면 무조건 복원
+                # 분석 결과는 값이 있으면 무조건 복원 (빈 딕셔너리/리스트는 제외)
                 elif key in analysis_keys:
-                    if value:
+                    if value is not None and value not in [[], {}, ""]:
                         st.session_state[key] = value
                 # 그 외 키는 세션에 없을 때만 복원
                 elif key not in st.session_state:
