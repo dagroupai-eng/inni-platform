@@ -72,9 +72,26 @@ def restore_work_session():
         if result and result[0]:
             session_data = json.loads(result[0]['session_data'])
 
+            # 프로젝트 정보는 빈 값이어도 덮어쓰기 (복원 우선)
+            project_info_keys = ['project_name', 'location', 'latitude', 'longitude',
+                                'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded']
+
+            # 분석 결과는 항상 복원 (중요!)
+            analysis_keys = ['analysis_results', 'cot_results', 'cot_session', 'cot_plan',
+                           'cot_current_index', 'selected_blocks', 'cot_history', 'cot_citations']
+
             # 세션 상태로 복원
             for key, value in session_data.items():
-                if key not in st.session_state:
+                # 프로젝트 정보는 값이 있으면 무조건 복원
+                if key in project_info_keys:
+                    if value:  # 저장된 값이 비어있지 않으면 복원
+                        st.session_state[key] = value
+                # 분석 결과는 값이 있으면 무조건 복원
+                elif key in analysis_keys:
+                    if value:
+                        st.session_state[key] = value
+                # 그 외 키는 세션에 없을 때만 복원
+                elif key not in st.session_state:
                     st.session_state[key] = value
 
         st.session_state[restore_key] = True
