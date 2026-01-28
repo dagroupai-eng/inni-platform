@@ -37,6 +37,7 @@ def restore_work_session():
     """작업 데이터를 DB에서 복원합니다."""
     # 로그인 확인
     if 'pms_current_user' not in st.session_state:
+        print("[복원] 로그인 정보 없음, 복원 스킵")
         return
 
     # 현재 페이지에서 이미 복원했는지 확인
@@ -45,10 +46,37 @@ def restore_work_session():
     caller_frame = inspect.getouterframes(current_frame, 2)
     page_name = caller_frame[2].filename if len(caller_frame) > 2 else "unknown"
 
-    restore_key = f'work_session_restored_{hash(page_name)}'
+    # 전역 복원 키 사용 (페이지마다 복원하지 않고, 앱 전체에서 한 번만 복원)
+    restore_key = 'work_session_restored_global'
 
-    if restore_key in st.session_state:
+    # 복원 진행 중 플래그
+    restoring_key = 'work_session_restoring'
+
+    # 이미 복원 중이면 대기
+    if st.session_state.get(restoring_key):
+        print(f"[복원] 복원 진행 중, 대기: {page_name}")
         return
+
+    # 복원 키가 있어도, 실제 데이터가 없으면 다시 복원
+    if restore_key in st.session_state:
+        # 프로젝트 정보 키 중 하나라도 있는지 확인
+        has_data = any([
+            st.session_state.get('project_name'),
+            st.session_state.get('location'),
+            st.session_state.get('analysis_results'),
+            st.session_state.get('cot_results')
+        ])
+        if has_data:
+            print(f"[복원] 이미 복원됨 (데이터 확인 완료), 스킵: {page_name}")
+            return
+        else:
+            print(f"[복원] 복원 키 존재하지만 데이터 없음, 재복원: {page_name}")
+            # restore_key 삭제하고 다시 복원
+            del st.session_state[restore_key]
+
+    # 복원 시작 - 플래그 설정
+    st.session_state[restoring_key] = True
+    print(f"[복원] 복원 시작: {page_name}")
 
     try:
         from database.db_manager import execute_query
@@ -71,6 +99,7 @@ def restore_work_session():
 
         if result and result[0]:
             session_data = json.loads(result[0]['session_data'])
+            print(f"[복원] DB에서 데이터 로드 완료: {len(session_data)}개 키")
 
             # 프로젝트 정보는 빈 값이어도 덮어쓰기 (복원 우선)
             project_info_keys = ['project_name', 'location', 'latitude', 'longitude',
@@ -80,23 +109,42 @@ def restore_work_session():
             analysis_keys = ['analysis_results', 'cot_results', 'cot_session', 'cot_plan',
                            'cot_current_index', 'selected_blocks', 'cot_history', 'cot_citations']
 
+            restored_count = 0
             # 세션 상태로 복원
             for key, value in session_data.items():
                 # 프로젝트 정보는 값이 None이 아니면 무조건 복원 (빈 문자열도 복원)
                 if key in project_info_keys:
                     if value is not None:
                         st.session_state[key] = value
+                        restored_count += 1
+                        print(f"[복원] 프로젝트 정보 복원: {key} = {value if isinstance(value, (str, int, float, bool)) and len(str(value)) < 50 else f'{type(value).__name__}...'}")
                 # 분석 결과는 값이 있으면 무조건 복원 (빈 딕셔너리/리스트는 제외)
                 elif key in analysis_keys:
                     if value is not None and value not in [[], {}, ""]:
                         st.session_state[key] = value
+                        restored_count += 1
+                        print(f"[복원] 분석 데이터 복원: {key}")
                 # 그 외 키는 세션에 없을 때만 복원
                 elif key not in st.session_state:
                     st.session_state[key] = value
+                    restored_count += 1
 
+            print(f"[복원] 총 {restored_count}개 키 복원 완료")
+        else:
+            print("[복원] DB에 저장된 세션 없음")
+
+        # 복원 완료 플래그 설정
         st.session_state[restore_key] = True
+        # 복원 진행 중 플래그 해제
+        if restoring_key in st.session_state:
+            del st.session_state[restoring_key]
+        print(f"[복원] 복원 프로세스 완료")
     except Exception as e:
         print(f"작업 세션 복원 오류: {e}")
+        # 에러 발생 시에도 복원 진행 중 플래그 해제
+        restoring_key = 'work_session_restoring'
+        if restoring_key in st.session_state:
+            del st.session_state[restoring_key]
 
 
 def save_work_session():
@@ -191,9 +239,24 @@ def save_analysis_progress(force: bool = False):
         return
 
     try:
-        from database.db_manager import execute_query
+        from database.db_manager import execute_query, table_exists
         from datetime import datetime
         import json
+
+        # 테이블 존재 확인 및 생성
+        if not table_exists('analysis_progress'):
+            print("[저장] analysis_progress 테이블 생성")
+            execute_query(
+                """
+                CREATE TABLE IF NOT EXISTS analysis_progress (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+                    progress_data TEXT NOT NULL,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                commit=True
+            )
 
         user_id = st.session_state.pms_current_user.get('id')
         if not user_id:

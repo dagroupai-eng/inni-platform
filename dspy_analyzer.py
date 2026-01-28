@@ -673,12 +673,7 @@ class EnhancedArchAnalyzer:
             'accessibility_analysis': AccessibilitySignature,
             'zoning_verification': ZoningSignature,
             'capacity_estimation': CapacitySignature,
-            'feasibility_analysis': FeasibilitySignature,
-            'phase1_facility_program': SimpleAnalysisSignature,
-            'phase1_facility_area_reference': SimpleAnalysisSignature,
-            'phase1_facility_area_calculation': SimpleAnalysisSignature,
-            'phase1_candidate_generation': SimpleAnalysisSignature,
-            'phase1_candidate_evaluation': SimpleAnalysisSignature
+            'feasibility_analysis': FeasibilitySignature
 }
         
         # blocks.json에서 블록을 읽어서 동적으로 Signature 클래스 매핑 추가
@@ -1303,20 +1298,46 @@ class EnhancedArchAnalyzer:
                 if hasattr(message, 'tool_calls') and message.tool_calls:
                     for tool_call in message.tool_calls:
                         if hasattr(tool_call, 'function'):
-                            function_calls.append({
-                                "id": getattr(tool_call, 'id', None),
-                                "name": tool_call.function.name,
-                                "arguments": json.loads(tool_call.function.arguments) if isinstance(tool_call.function.arguments, str) else tool_call.function.arguments
-                            })
+                            try:
+                                # name과 arguments 안전 추출
+                                func_name = tool_call.function.name if hasattr(tool_call.function, 'name') else 'unknown'
+                                func_args = tool_call.function.arguments if hasattr(tool_call.function, 'arguments') else {}
+                                if isinstance(func_args, str):
+                                    func_args = json.loads(func_args)
+
+                                function_calls.append({
+                                    "id": getattr(tool_call, 'id', None),
+                                    "name": func_name,
+                                    "arguments": func_args
+                                })
+                            except Exception as e:
+                                print(f"[WARNING] tool_call 처리 실패: {e}, 타입: {type(tool_call)}")
                 
                 # function_call 확인 (구형 형식)
                 elif hasattr(message, 'function_call') and message.function_call:
                     func_call = message.function_call
-                    function_calls.append({
-                        "id": None,
-                        "name": func_call.name if hasattr(func_call, 'name') else func_call.get('name'),
-                        "arguments": func_call.arguments if hasattr(func_call, 'arguments') else func_call.get('arguments', {})
-                    })
+                    try:
+                        # name 안전 추출
+                        try:
+                            func_name = func_call.name if hasattr(func_call, 'name') else func_call.get('name') if hasattr(func_call, 'get') else 'unknown'
+                        except (AttributeError, Exception) as e:
+                            print(f"[WARNING] func_call.name 접근 실패 (구형): {e}, 타입: {type(func_call)}")
+                            func_name = 'unknown'
+
+                        # arguments 안전 추출
+                        try:
+                            func_args = func_call.arguments if hasattr(func_call, 'arguments') else func_call.get('arguments', {}) if hasattr(func_call, 'get') else {}
+                        except (AttributeError, Exception) as e:
+                            print(f"[WARNING] func_call.arguments 접근 실패 (구형): {e}, 타입: {type(func_call)}")
+                            func_args = {}
+
+                        function_calls.append({
+                            "id": None,
+                            "name": func_name,
+                            "arguments": func_args
+                        })
+                    except Exception as e:
+                        print(f"[WARNING] function_call 처리 실패 (구형): {e}, 타입: {type(func_call)}")
         except Exception as e:
             print(f"⚠️ Function calls 추출 오류: {e}")
         
@@ -1844,7 +1865,7 @@ class EnhancedArchAnalyzer:
             # 확장 사고 지시사항 추가 (모든 블록에 기본 적용)
             # 블록 프롬프트에 이미 Chain of Thought 지시사항이 포함되어 있는 블록 목록
             # (이 블록들은 중복 방지를 위해 시스템 레벨 지시사항을 추가하지 않음)
-            blocks_with_builtin_cot = ['phase1_facility_program']
+            blocks_with_builtin_cot = []  # 제거된 블록들
             
             # 모든 블록에 기본적으로 확장 사고 지시사항 적용 (중복 방지 제외)
             extended_thinking_note = ""
@@ -2324,6 +2345,10 @@ class EnhancedArchAnalyzer:
                 "all_citations": result.get("all_citations", [])
             }
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR] run_cot_step 예외 발생:")
+            print(error_details)
             return {
                 "success": False,
                 "error": str(e),
@@ -2634,7 +2659,7 @@ class EnhancedArchAnalyzer:
             # 확장 사고 지시사항 추가 (모든 블록에 기본 적용)
             # 블록 프롬프트에 이미 Chain of Thought 지시사항이 포함되어 있는 블록 목록
             # (이 블록들은 중복 방지를 위해 시스템 레벨 지시사항을 추가하지 않음)
-            blocks_with_builtin_cot = ['phase1_facility_program']
+            blocks_with_builtin_cot = []  # 제거된 블록들
             
             # 모든 블록에 기본적으로 확장 사고 지시사항 적용 (중복 방지 제외)
             extended_thinking_note = ""
@@ -2791,7 +2816,17 @@ class EnhancedArchAnalyzer:
                 except Exception as stream_error:
                     print(f"⚠️ 스트리밍 오류, 일반 모드로 전환: {stream_error}")
                     # 스트리밍 실패 시 일반 모드로 전환
-                    with lm_context:
+                    # lm_context를 새로 생성 (context manager는 재사용 불가)
+                    if thinking_budget is not None or temperature is not None:
+                        new_lm_context = self._lm_context_with_params(
+                            thinking_budget=thinking_budget,
+                            temperature=temperature,
+                            system_instruction=system_instruction
+                        )
+                    else:
+                        new_lm_context = self._lm_context_with_system_instruction(system_instruction)
+
+                    with new_lm_context:
                         result = dspy.Predict(signature_class)(input=enhanced_prompt)
             else:
                 # 일반 모드 (스트리밍 없음)
@@ -2807,6 +2842,10 @@ class EnhancedArchAnalyzer:
             }
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR] _analyze_block_with_cot_context 예외 발생:")
+            print(error_details)
             return {
                 "success": False,
                 "error": str(e),
@@ -4004,31 +4043,53 @@ class EnhancedArchAnalyzer:
                         # Function call 처리
                         elif hasattr(part, 'function_call') and part.function_call:
                             func_call = part.function_call
-                            # args 안전 처리
+                            # func_call 전체를 안전하게 처리
                             try:
-                                if hasattr(func_call, 'args'):
-                                    if hasattr(func_call.args, 'items'):
-                                        args_value = dict(func_call.args)
-                                    else:
-                                        args_value = func_call.args
-                                else:
-                                    args_value = {}
-                            except Exception as args_error:
-                                print(f"[WARNING] func_call.args 접근 실패: {args_error}")
-                                args_value = {}
+                                # name 추출
+                                try:
+                                    func_name = func_call.name if hasattr(func_call, 'name') else str(func_call)
+                                except (AttributeError, Exception) as name_error:
+                                    print(f"[WARNING] func_call.name 접근 실패: {name_error}, func_call 타입: {type(func_call)}")
+                                    func_name = "unknown_function"
 
-                            function_calls.append({
-                                'name': func_call.name,
-                                'args': args_value
-                            })
-                            
-                            # Thought signature 추출 (Gemini 3 필수)
-                            if hasattr(part, 'thought_signature') and part.thought_signature:
-                                thought_signatures.append({
-                                    'function_call': func_call,
-                                    'signature': part.thought_signature
+                                # args 추출 (hasattr 사용하지 않고 직접 try-except)
+                                args_value = {}
+                                try:
+                                    # 직접 접근 시도
+                                    temp_args = func_call.args
+                                    # 성공하면 타입 확인
+                                    try:
+                                        if hasattr(temp_args, 'items'):
+                                            args_value = dict(temp_args)
+                                        else:
+                                            args_value = temp_args
+                                    except Exception:
+                                        args_value = temp_args
+                                except (AttributeError, Exception) as args_error:
+                                    # args가 없거나 접근 실패
+                                    print(f"[WARNING] func_call.args 접근 실패: {args_error}, func_call 타입: {type(func_call)}")
+                                    args_value = {}
+
+                                function_calls.append({
+                                    'name': func_name,
+                                    'args': args_value
                                 })
-                                print(f"🔐 Thought signature 추출: {func_call.name}")
+                            except Exception as func_call_error:
+                                print(f"[WARNING] func_call 전체 처리 실패: {func_call_error}, func_call 타입: {type(func_call)}")
+                                # 실패해도 계속 진행
+
+                            # Thought signature 추출 (Gemini 3 필수)
+                            try:
+                                if hasattr(part, 'thought_signature') and part.thought_signature:
+                                    thought_signatures.append({
+                                        'function_call': func_call,
+                                        'signature': part.thought_signature
+                                    })
+                                    # func_name은 위에서 안전하게 추출한 값 사용
+                                    safe_func_name = func_name if 'func_name' in locals() else 'unknown'
+                                    print(f"🔐 Thought signature 추출: {safe_func_name}")
+                            except Exception as sig_error:
+                                print(f"[WARNING] Thought signature 추출 실패: {sig_error}")
                         # 일반 텍스트 응답
                         elif hasattr(part, 'text') and part.text:
                             analysis_text += part.text
@@ -4085,9 +4146,21 @@ class EnhancedArchAnalyzer:
                 # Response에서 원본 parts 가져오기 (thought signatures 보존)
                 if hasattr(response, 'candidates') and response.candidates:
                     for part in response.candidates[0].content.parts:
-                        if hasattr(part, 'function_call') and part.function_call:
-                            # 원본 part를 그대로 사용 (thought signature 포함)
-                            model_content_parts.append(part)
+                        try:
+                            if hasattr(part, 'function_call') and part.function_call:
+                                # function_call이 유효한 객체인지 확인 (직접 접근 시도)
+                                try:
+                                    # 직접 name 속성 접근 시도 (GeneratorContextManager는 여기서 실패)
+                                    test_name = part.function_call.name
+                                    # 성공하면 유효한 객체이므로 원본 part 사용
+                                    model_content_parts.append(part)
+                                    print(f"[DEBUG] function_call 추가됨: {test_name}")
+                                except (AttributeError, TypeError, Exception) as fc_error:
+                                    # GeneratorContextManager나 다른 비정상 객체는 스킵
+                                    print(f"[WARNING] function_call 유효성 검증 실패 (name 접근 불가), 스킵: {fc_error}")
+                                    print(f"[WARNING] part.function_call 타입: {type(part.function_call)}")
+                        except Exception as part_error:
+                            print(f"[WARNING] part 처리 중 에러, 스킵: {part_error}")
                 
                 conversation_history.append(
                     types.Content(
@@ -4125,6 +4198,10 @@ class EnhancedArchAnalyzer:
             }
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR] _handle_function_calling_with_pdf 예외 발생:")
+            print(error_details)
             return {
                 "success": False,
                 "error": f"Function calling 처리 오류: {str(e)}",
@@ -4195,7 +4272,6 @@ class EnhancedArchAnalyzer:
                 # 블록별로 Google Search 사용 여부 결정
                 # 정보 검색이 필요한 블록에서 Google Search tool 사용
                 blocks_with_google_search = [
-                    'phase1_candidate_evaluation',
                     'legal_analysis',
                     'feasibility_analysis',
                     'market_research_analysis',  # 시장 조사 분석
@@ -4234,8 +4310,6 @@ class EnhancedArchAnalyzer:
                 # 위치 기반 블록 식별
                 location_based_blocks = [
                     'phase1_site_analysis',
-                    'phase1_facility_program',
-                    'phase1_candidate_evaluation',
                     'transportation_analysis',
                     'facility_analysis'
                 ]
@@ -4302,7 +4376,7 @@ class EnhancedArchAnalyzer:
                 formatted_prompt = f"""{formatted_prompt}{document_based_instruction}"""
             
             # 확장 사고 지시사항 추가
-            blocks_with_builtin_cot = ['phase1_facility_program']
+            blocks_with_builtin_cot = []  # 제거된 블록들
             extended_thinking_note = ""
             if block_id and block_id not in blocks_with_builtin_cot:
                 extended_thinking_note = self._get_extended_thinking_template()
@@ -4383,21 +4457,15 @@ class EnhancedArchAnalyzer:
         THINKING_BUDGET_MAP = {
             # 기본 정보 추출: 낮은 thinking
             'basic_info': 1024,
-            'phase1_data_inventory': 1024,
             
             # 요구사항 분석: 중간 thinking
             'requirements_analysis': 4096,
-            'phase1_requirements_structuring': 4096,
             'accessibility_analysis': 4096,
             
             # 복잡한 분석: 높은 thinking
             'legal_analysis': 8192,
             'feasibility_analysis': 16384,
             'capacity_analysis': 16384,
-            'phase1_facility_program': 8192,
-            'phase1_facility_area_calculation': 8192,
-            'phase1_candidate_generation': 12288,
-            'phase1_candidate_evaluation': 16384,
             
             # 도시재개발 사회경제적 영향 분석: 매우 높은 thinking
             '도시재개발사회경제적영향분석': 16384,
@@ -4438,20 +4506,13 @@ class EnhancedArchAnalyzer:
         TEMPERATURE_MAP = {
             # 사실 기반 분석: 낮은 temperature
             'basic_info': 0.1,
-            'phase1_data_inventory': 0.1,
             'legal_analysis': 0.2,
-            'phase1_facility_area_calculation': 0.2,
             
             # 일반 분석: 중간 temperature
             'requirements_analysis': 0.3,
-            'phase1_requirements_structuring': 0.3,
             'accessibility_analysis': 0.3,
-            'phase1_facility_program': 0.4,
-            'phase1_facility_area_reference': 0.3,
             
             # 창의적 분석: 높은 temperature
-            'phase1_candidate_generation': 0.7,
-            'phase1_candidate_evaluation': 0.6,
             'feasibility_analysis': 0.5,
             'capacity_analysis': 0.5,
             '도시재개발사회경제적영향분석': 0.6,
@@ -4592,7 +4653,7 @@ class EnhancedArchAnalyzer:
                         # 확장 사고 지시사항 추가 (모든 블록에 기본 적용)
                         # 블록 프롬프트에 이미 Chain of Thought 지시사항이 포함되어 있는 블록 목록
                         # (이 블록들은 중복 방지를 위해 시스템 레벨 지시사항을 추가하지 않음)
-                        blocks_with_builtin_cot = ['phase1_facility_program']
+                        blocks_with_builtin_cot = []  # 제거된 블록들
                         
                         # 모든 블록에 기본적으로 확장 사고 지시사항 적용 (중복 방지 제외)
                         extended_thinking_note = ""
