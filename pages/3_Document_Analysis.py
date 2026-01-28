@@ -3123,11 +3123,11 @@ with tab_run:
     # 분석 실행 중에는 블록 추가 UI를 전혀 렌더링하지 않음
     if not is_analysis_running and st.session_state.cot_session and st.session_state.cot_plan:
         with st.expander("➕ 블록 추가 (분석 진행 중)", expanded=False):
-                st.caption("분석 세션이 진행 중일 때 새 블록을 추가할 수 있습니다.")
+            st.caption("분석 세션이 진행 중일 때 새 블록을 추가할 수 있습니다.")
 
-                # 현재 플랜에 없는 블록들만 표시
-                current_plan_ids = set(st.session_state.cot_plan)
-                available_to_add = [
+            # 현재 플랜에 없는 블록들만 표시
+            current_plan_ids = set(st.session_state.cot_plan)
+            available_to_add = [
                 block for block in all_blocks
                 if block.get('id') and block.get('id') not in current_plan_ids
             ]
