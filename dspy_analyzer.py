@@ -1298,11 +1298,20 @@ class EnhancedArchAnalyzer:
                 if hasattr(message, 'tool_calls') and message.tool_calls:
                     for tool_call in message.tool_calls:
                         if hasattr(tool_call, 'function'):
-                            function_calls.append({
-                                "id": getattr(tool_call, 'id', None),
-                                "name": tool_call.function.name,
-                                "arguments": json.loads(tool_call.function.arguments) if isinstance(tool_call.function.arguments, str) else tool_call.function.arguments
-                            })
+                            try:
+                                # name과 arguments 안전 추출
+                                func_name = tool_call.function.name if hasattr(tool_call.function, 'name') else 'unknown'
+                                func_args = tool_call.function.arguments if hasattr(tool_call.function, 'arguments') else {}
+                                if isinstance(func_args, str):
+                                    func_args = json.loads(func_args)
+
+                                function_calls.append({
+                                    "id": getattr(tool_call, 'id', None),
+                                    "name": func_name,
+                                    "arguments": func_args
+                                })
+                            except Exception as e:
+                                print(f"[WARNING] tool_call 처리 실패: {e}, 타입: {type(tool_call)}")
                 
                 # function_call 확인 (구형 형식)
                 elif hasattr(message, 'function_call') and message.function_call:
@@ -2807,7 +2816,17 @@ class EnhancedArchAnalyzer:
                 except Exception as stream_error:
                     print(f"⚠️ 스트리밍 오류, 일반 모드로 전환: {stream_error}")
                     # 스트리밍 실패 시 일반 모드로 전환
-                    with lm_context:
+                    # lm_context를 새로 생성 (context manager는 재사용 불가)
+                    if thinking_budget is not None or temperature is not None:
+                        new_lm_context = self._lm_context_with_params(
+                            thinking_budget=thinking_budget,
+                            temperature=temperature,
+                            system_instruction=system_instruction
+                        )
+                    else:
+                        new_lm_context = self._lm_context_with_system_instruction(system_instruction)
+
+                    with new_lm_context:
                         result = dspy.Predict(signature_class)(input=enhanced_prompt)
             else:
                 # 일반 모드 (스트리밍 없음)
@@ -4129,14 +4148,17 @@ class EnhancedArchAnalyzer:
                     for part in response.candidates[0].content.parts:
                         try:
                             if hasattr(part, 'function_call') and part.function_call:
-                                # function_call이 유효한 객체인지 확인
+                                # function_call이 유효한 객체인지 확인 (직접 접근 시도)
                                 try:
-                                    # 속성 접근 테스트
-                                    _ = part.function_call.name
-                                    # 유효하면 원본 part를 그대로 사용 (thought signature 포함)
+                                    # 직접 name 속성 접근 시도 (GeneratorContextManager는 여기서 실패)
+                                    test_name = part.function_call.name
+                                    # 성공하면 유효한 객체이므로 원본 part 사용
                                     model_content_parts.append(part)
-                                except (AttributeError, Exception) as fc_error:
-                                    print(f"[WARNING] function_call 유효성 검증 실패, 스킵: {fc_error}, 타입: {type(part.function_call)}")
+                                    print(f"[DEBUG] function_call 추가됨: {test_name}")
+                                except (AttributeError, TypeError, Exception) as fc_error:
+                                    # GeneratorContextManager나 다른 비정상 객체는 스킵
+                                    print(f"[WARNING] function_call 유효성 검증 실패 (name 접근 불가), 스킵: {fc_error}")
+                                    print(f"[WARNING] part.function_call 타입: {type(part.function_call)}")
                         except Exception as part_error:
                             print(f"[WARNING] part 처리 중 에러, 스킵: {part_error}")
                 
