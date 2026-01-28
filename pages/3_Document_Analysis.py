@@ -2328,91 +2328,6 @@ with st.sidebar:
             st.write(f"- **{layer_name}**: {data['feature_count']}개 피처")
 
         st.info(f"총 {len(downloaded_geo_data)}개 레이어 사용 가능")
-    
-    # 세션 관리 섹션
-    st.markdown("---")
-    st.subheader("🔄 세션 관리")
-
-    # 분석 진행 상태 복원 확인
-    try:
-        from auth.session_init import restore_analysis_progress, apply_restored_progress, reset_analysis_state_selective
-
-        # 페이지 로드 시 한 번만 복원 확인
-        if 'analysis_restore_checked' not in st.session_state:
-            st.session_state.analysis_restore_checked = True
-            restored_progress = restore_analysis_progress()
-            if restored_progress:
-                st.session_state.pending_restore = restored_progress
-
-        # 복원 대기 중인 상태가 있으면 알림 표시
-        if 'pending_restore' in st.session_state and st.session_state.pending_restore:
-            restored_progress = st.session_state.pending_restore
-            restored_time = restored_progress.get('_restored_from', '')[:16].replace('T', ' ')
-            results_count = len(restored_progress.get('cot_results', {}))
-            current_idx = restored_progress.get('cot_current_index', 0)
-
-            st.warning(f"📂 중단된 분석 세션이 발견되었습니다. (저장 시간: {restored_time})")
-            st.info(f"완료된 블록: {results_count}개, 진행 위치: {current_idx}단계")
-
-            col_restore, col_discard = st.columns(2)
-            with col_restore:
-                if st.button("✅ 분석 계속하기", use_container_width=True, type="primary"):
-                    if apply_restored_progress(restored_progress):
-                        st.session_state.pop('pending_restore', None)
-                        st.success("분석 상태가 복원되었습니다.")
-                        st.rerun()
-                    else:
-                        st.error("복원 실패")
-            with col_discard:
-                if st.button("❌ 새로 시작하기", use_container_width=True):
-                    st.session_state.pop('pending_restore', None)
-                    st.info("새 분석을 시작합니다.")
-                    st.rerun()
-    except ImportError:
-        pass
-
-    # 선택적 초기화 옵션
-    with st.expander("⚙️ 초기화 옵션", expanded=False):
-        st.caption("초기화할 항목과 유지할 항목을 선택하세요.")
-
-        col_reset, col_preserve = st.columns(2)
-        with col_reset:
-            st.markdown("**초기화 항목**")
-            reset_results = st.checkbox("분석 결과", value=True, key="reset_opt_results",
-                                       help="모든 분석 결과를 삭제합니다.")
-            reset_session = st.checkbox("CoT 세션", value=True, key="reset_opt_session",
-                                       help="분석 진행 상태를 초기화합니다.")
-
-        with col_preserve:
-            st.markdown("**유지 항목**")
-            preserve_api_keys = st.checkbox("API 키", value=True, key="reset_preserve_api",
-                                           help="입력된 API 키를 유지합니다.")
-            preserve_blocks = st.checkbox("선택된 블록", value=True, key="reset_preserve_blocks",
-                                         help="블록 선택 상태를 유지합니다.")
-            preserve_project = st.checkbox("프로젝트 정보", value=True, key="reset_preserve_project",
-                                          help="프로젝트명, 위치, 파일 등을 유지합니다.")
-
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("🔄 선택 항목 초기화", use_container_width=True):
-                try:
-                    reset_analysis_state_selective(
-                        reset_results=reset_results,
-                        reset_session=reset_session,
-                        preserve_api_keys=preserve_api_keys,
-                        preserve_blocks=preserve_blocks,
-                        preserve_project_info=preserve_project
-                    )
-                    st.success("선택 항목이 초기화되었습니다.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"초기화 오류: {e}")
-
-        with col_btn2:
-            if st.button("🗑️ 전체 초기화", use_container_width=True, type="secondary"):
-                reset_all_state()
-                st.success("모든 데이터가 초기화되었습니다.")
-                st.rerun()
 
 # 메인 컨텐츠
 tab_project = tab_blocks = tab_run = tab_download = None  # type: ignore
@@ -2607,7 +2522,25 @@ with tab_blocks:
                 
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.markdown(f"**{block.get('name', '이름 없음')}**")
+                    # Mapping에서 연동된 블록인지 확인
+                    prelinked = st.session_state.get('prelinked_block_layers', {})
+                    block_spatial = st.session_state.get('block_spatial_data', {})
+                    is_linked = block_id in prelinked or block_id in block_spatial
+
+                    block_name = block.get('name', '이름 없음')
+                    if is_linked:
+                        # 연동된 레이어 이름 가져오기
+                        if block_id in block_spatial:
+                            linked_layer = block_spatial[block_id].get('layer_name', '')
+                        elif block_id in prelinked:
+                            linked_layer = ', '.join(prelinked[block_id])
+                        else:
+                            linked_layer = ''
+                        st.markdown(f"**{block_name}** 📍")
+                        st.caption(f"🔗 Mapping 연동: {linked_layer}")
+                    else:
+                        st.markdown(f"**{block_name}**")
+
                     description = block.get('description')
                     if description:
                         st.caption(description)
@@ -2953,15 +2886,65 @@ with tab_run:
                     summary_text = f"**Mapping 연동 레이어: {layer_name}** (블록: {block_id})\n"
                     summary_text += f"- 총 피처 수: {feature_count}개\n"
 
-                    # 샘플 속성 정보 추출 (첫 3개 피처)
+                    # 속성별 분포 통계 계산 (용도지역, 건물용도 등)
                     if features:
-                        summary_text += "- 샘플 데이터:\n"
-                        for i, feature in enumerate(features[:3], 1):
+                        from collections import Counter
+                        # 용도지역/건물용도 관련 컬럼 찾기
+                        zone_counters = {}
+                        price_values = []
+                        area_values = []
+
+                        for feature in features:
                             props = feature.get('properties', {})
-                            if props:
-                                key_props = list(props.items())[:5]  # 주요 속성 5개만
-                                props_str = ', '.join([f"{k}: {v}" for k, v in key_props])
-                                summary_text += f"  {i}. {props_str}\n"
+                            for key, value in props.items():
+                                if value is None or value == '':
+                                    continue
+                                key_upper = key.upper()
+                                # 용도지역 관련 컬럼
+                                if any(k in key_upper for k in ['USG_NM', 'PRPOS_AREA_NM', '용도지역', 'ZONE_NM', 'JIJIMOK']):
+                                    if '용도지역' not in zone_counters:
+                                        zone_counters['용도지역'] = Counter()
+                                    zone_counters['용도지역'][str(value)] += 1
+                                # 건물용도 관련 컬럼
+                                elif any(k in key_upper for k in ['PURPS_NM', 'MAIN_PURPS', '주용도', 'BDTYP_NM']):
+                                    if '건물용도' not in zone_counters:
+                                        zone_counters['건물용도'] = Counter()
+                                    zone_counters['건물용도'][str(value)] += 1
+                                # 공시지가
+                                elif any(k in key_upper for k in ['PBLNTF', '공시지가', 'PRICE']):
+                                    try:
+                                        price_values.append(float(value))
+                                    except:
+                                        pass
+                                # 면적
+                                elif any(k in key_upper for k in ['AREA', '면적', 'LNDPCLR']):
+                                    try:
+                                        area_values.append(float(value))
+                                    except:
+                                        pass
+
+                        # 분포 통계 텍스트 생성
+                        for category, counter in zone_counters.items():
+                            if counter:
+                                summary_text += f"\n**{category} 분포:**\n"
+                                for zone_name, count in counter.most_common(10):
+                                    summary_text += f"  - {zone_name}: {count}개\n"
+
+                        # 공시지가 통계
+                        if price_values:
+                            avg_price = sum(price_values) / len(price_values)
+                            summary_text += f"\n**공시지가 통계:**\n"
+                            summary_text += f"  - 평균: {int(avg_price):,}원/㎡\n"
+                            summary_text += f"  - 최소: {int(min(price_values)):,}원/㎡\n"
+                            summary_text += f"  - 최대: {int(max(price_values)):,}원/㎡\n"
+
+                        # 면적 통계
+                        if area_values:
+                            total_area = sum(area_values)
+                            avg_area = total_area / len(area_values)
+                            summary_text += f"\n**면적 통계:**\n"
+                            summary_text += f"  - 총 면적: {total_area:,.1f}㎡\n"
+                            summary_text += f"  - 평균 면적: {avg_area:,.1f}㎡\n"
 
                     spatial_contexts.append(summary_text)
 
@@ -3162,50 +3145,7 @@ with tab_run:
             with expander:
                 st.caption((block.get('description') if block else "설명이 없습니다.") or "설명이 없습니다.")
                 if block_id in st.session_state.cot_results:
-                    toggle_key = f"show_result_{block_id}"
-                    show_result = st.checkbox(f"분석 결과 보기 · {block_name}", key=toggle_key)
-                    if show_result:
-                        result_text = st.session_state.cot_results.get(block_id, "결과가 없습니다.")
-                        # 결과를 섹션별로 파싱하여 탭으로 표시
-                        sections = parse_result_into_sections(result_text)
-                        if len(sections) > 1:
-                            # 여러 섹션이 있으면 탭으로 표시
-                            tab_names = [f"섹션 {i+1}" if not sec.get('title') else sec['title'][:30] for i, sec in enumerate(sections)]
-                            tabs = st.tabs(tab_names)
-                            for tab, section in zip(tabs, sections):
-                                with tab:
-                                    if section.get('title'):
-                                        st.markdown(f"### {section['title']}")
-                                    st.markdown(section.get('content', ''))
-                        else:
-                            # 섹션이 하나거나 없으면 기존 방식으로 표시
-                            st.markdown(result_text)
-                        
-                        # 참고 문헌 섹션 표시
-                        citations = st.session_state.cot_citations.get(block_id, [])
-                        if citations:
-                            try:
-                                from maps_grounding_helper import format_all_citations_for_display
-                                citations_section = format_all_citations_for_display(citations)
-                                st.markdown(citations_section)
-                            except Exception as e:
-                                st.warning(f"참고 문헌 표시 오류: {e}")
-                                # 폴백: 간단한 형식으로 표시
-                                st.markdown("---\n\n## 참고 문헌\n")
-                                for i, cit in enumerate(citations, 1):
-                                    title = cit.get('title', cit.get('display_name', 'Unknown'))
-                                    uri = cit.get('uri', cit.get('file_uri', ''))
-                                    if uri:
-                                        st.markdown(f"{i}. [{title}]({uri})")
-                                    else:
-                                        st.markdown(f"{i}. {title}")
-                    st.download_button(
-                        label="결과 내려받기",
-                        data=st.session_state.cot_results.get(block_id, "").encode("utf-8"),
-                        file_name=f"{block_id}_analysis.txt",
-                        mime="text/plain",
-                        key=f"download_result_{block_id}"
-                    )
+                    pass  # 완료된 블록은 상태 배지로만 표시
                     # 피드백 유형 선택
                     from dspy_analyzer import FEEDBACK_TYPES
                     feedback_type_options = {

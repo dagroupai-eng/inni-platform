@@ -401,35 +401,82 @@ def render_session_manager_sidebar():
                     st.session_state.pop('pending_restore', None)
                     st.rerun()
 
-        # 현재 세션 상태 표시
-        cot_results = st.session_state.get('cot_results', {})
-        selected_blocks = st.session_state.get('selected_blocks', [])
-        if cot_results:
-            st.success(f"✓ 분석 완료: {len(cot_results)}개 블록")
-        if selected_blocks:
-            st.info(f"선택된 블록: {len(selected_blocks)}개")
+        # 초기화 항목 선택
+        st.caption("⚙️ 초기화 항목 선택")
 
-        # 초기화 버튼들
-        st.caption("초기화 옵션")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 분석만", key="sidebar_reset_analysis_btn", use_container_width=True, help="분석 결과만 초기화"):
-                reset_analysis_state_selective(
-                    reset_results=True,
-                    reset_session=True,
-                    preserve_api_keys=True,
-                    preserve_blocks=True,
-                    preserve_project_info=True
-                )
-                st.success("초기화됨")
-                st.rerun()
-        with col2:
-            if st.button("🗑️ 전체", key="sidebar_reset_all_btn", use_container_width=True, help="모든 데이터 초기화"):
-                # 전체 초기화 (로그인, API 키 제외)
-                keys_to_keep = ['authenticated', 'user', 'api_keys_loaded', 'pms_session_token', 'pms_current_user']
-                api_key_prefix = 'user_api_key_'
-                for key in list(st.session_state.keys()):
-                    if key not in keys_to_keep and not key.startswith(api_key_prefix):
+        # 초기화 항목 체크박스
+        reset_analysis = st.checkbox("분석 결과", key="reset_analysis_cb", value=False,
+                                     help="블록 분석 결과 초기화")
+        reset_api_keys = st.checkbox("API 키", key="reset_api_keys_cb", value=False,
+                                     help="저장된 API 키 초기화")
+        reset_blocks = st.checkbox("선택 블록", key="reset_blocks_cb", value=False,
+                                   help="선택된 블록 목록 초기화")
+        reset_project = st.checkbox("프로젝트 정보", key="reset_project_cb", value=False,
+                                    help="프로젝트명, 위치, PDF 등 초기화")
+
+        # 선택 항목 초기화 버튼
+        if st.button("🗑️ 선택 항목 초기화", key="sidebar_reset_selected_btn", use_container_width=True):
+            reset_count = 0
+            reset_items = []
+
+            if reset_analysis:
+                # 분석 결과 초기화
+                analysis_keys = ['cot_results', 'cot_session', 'cot_plan', 'cot_current_index',
+                                'cot_running_block', 'cot_progress_messages', 'cot_feedback_inputs',
+                                'skipped_blocks', 'cot_citations', 'cot_history', 'analysis_results']
+                deleted = 0
+                for key in analysis_keys:
+                    if key in st.session_state:
                         del st.session_state[key]
-                st.success("전체 초기화됨")
+                        deleted += 1
+                if deleted > 0:
+                    reset_count += 1
+                    reset_items.append("분석 결과")
+
+            if reset_api_keys:
+                # API 키 초기화
+                api_key_keys = [key for key in st.session_state.keys() if key.startswith('user_api_key_')]
+                api_key_keys.extend(['api_keys_loaded', 'gemini_api_key', 'openai_api_key', 'anthropic_api_key'])
+                deleted = 0
+                for key in list(api_key_keys):
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        deleted += 1
+                if deleted > 0:
+                    reset_count += 1
+                    reset_items.append("API 키")
+
+            if reset_blocks:
+                # 블록 초기화
+                block_keys = ['selected_blocks', 'block_spatial_data', 'prelinked_block_layers']
+                deleted = 0
+                for key in block_keys:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        deleted += 1
+                if deleted > 0:
+                    reset_count += 1
+                    reset_items.append("선택 블록")
+
+            if reset_project:
+                # 프로젝트 정보 초기화
+                project_keys = ['project_name', 'location', 'latitude', 'longitude',
+                               'project_goals', 'additional_info', 'pdf_text',
+                               'preprocessed_text', 'preprocessing_meta',
+                               'reference_documents', 'reference_combined_text',
+                               'downloaded_geo_data', 'cadastral_data', 'cadastral_center_lat',
+                               'cadastral_center_lon', 'geo_stats_result']
+                deleted = 0
+                for key in project_keys:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        deleted += 1
+                if deleted > 0:
+                    reset_count += 1
+                    reset_items.append("프로젝트 정보")
+
+            if reset_count > 0:
+                st.success(f"초기화 완료: {', '.join(reset_items)}")
                 st.rerun()
+            else:
+                st.warning("초기화할 항목을 선택하세요")

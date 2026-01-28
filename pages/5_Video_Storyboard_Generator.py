@@ -90,30 +90,15 @@ AUDIO_KEYWORDS = {
     "테크/모던": "modern electronic ambience, tech soundscape, digital tones",
 }
 
-# 템플릿 정의 (마스터플랜 계획 설명 중심)
+# 템플릿 정의 (예시용)
 STORYBOARD_TEMPLATES = {
-    "마스터플랜 기본": [
+    "마스터플랜 기본 (예시)": [
         {"name": "대상지 위치", "description": "대상지 위치와 경계, 주변 도시 맥락을 보여주는 넓은 조감도", "angle": "조감", "movement": "줌 인", "duration": 5, "audio": "도시 앰비언스"},
         {"name": "마스터플랜 전체도", "description": "전체 마스터플랜 배치도를 천천히 스캔하며 보여줌", "angle": "조감", "movement": "팬 좌우", "duration": 6, "audio": "미니멀 음악"},
         {"name": "토지이용계획", "description": "용도별 존(Zone) 구분과 면적 배분을 컬러 코딩으로 시각화", "angle": "조감", "movement": "고정", "duration": 5, "audio": "미니멀 음악"},
         {"name": "동선 체계", "description": "차량과 보행자 동선 네트워크가 활성화되며 흐름을 보여줌", "angle": "조감", "movement": "고정", "duration": 5, "audio": "도시 앰비언스"},
         {"name": "오픈스페이스 체계", "description": "공원, 광장, 녹지축이 연결되는 그린 네트워크", "angle": "조감", "movement": "팬 좌우", "duration": 5, "audio": "자연 환경음"},
         {"name": "주요 시설 배치", "description": "주요 건물과 시설의 위치, 규모, 형태를 하이라이트", "angle": "조감", "movement": "줌 인", "duration": 5, "audio": "드라마틱 음악"},
-    ],
-    "건축물 소개": [
-        {"name": "외관 전경", "description": "건물 전체 외관을 보여주는 확립 샷", "angle": "와이드", "movement": "달리 인", "duration": 5, "audio": "드라마틱 음악"},
-        {"name": "파사드 디테일", "description": "건물 파사드의 재료와 디테일을 클로즈업", "angle": "클로즈업", "movement": "틸트 상하", "duration": 4, "audio": "미니멀 음악"},
-        {"name": "주출입구", "description": "메인 엔트런스와 진입 공간", "angle": "정면", "movement": "달리 인", "duration": 4, "audio": "활기찬 거리"},
-        {"name": "내부 로비", "description": "로비 공간의 규모와 분위기", "angle": "와이드", "movement": "팬 좌우", "duration": 5, "audio": "실내 정적"},
-        {"name": "주요 공간", "description": "핵심 프로그램 공간의 활용 모습", "angle": "와이드", "movement": "트래킹", "duration": 5, "audio": "활기찬 거리"},
-        {"name": "옥상/조망", "description": "옥상 정원 또는 전망 공간에서의 뷰", "angle": "와이드", "movement": "크레인", "duration": 5, "audio": "자연 환경음"},
-    ],
-    "드론 투어": [
-        {"name": "접근 비행", "description": "원거리에서 대상지로 접근하는 드론 비행", "angle": "FPV 드론", "movement": "FPV 비행", "duration": 6, "audio": "드라마틱 음악"},
-        {"name": "상공 선회", "description": "대상지 상공을 원형으로 선회하며 전체 파악", "angle": "조감", "movement": "팬 좌우", "duration": 8, "audio": "자연 환경음"},
-        {"name": "건물 근접", "description": "주요 건물에 근접하며 디테일 확인", "angle": "FPV 드론", "movement": "줌 인", "duration": 5, "audio": "미니멀 음악"},
-        {"name": "스트리트 레벨", "description": "거리 높이까지 하강하여 보행자 시점 제공", "angle": "정면", "movement": "크레인", "duration": 5, "audio": "활기찬 거리"},
-        {"name": "상승 마무리", "description": "다시 상승하며 전체 전경으로 마무리", "angle": "조감", "movement": "줌 아웃", "duration": 6, "audio": "드라마틱 음악"},
     ],
 }
 
@@ -326,7 +311,7 @@ def generate_full_timeline_script(scenes, project_info):
 
 def main():
     st.title("Video Storyboard Generator")
-    st.markdown("**건축 프로젝트 영상용 스토리보드 및 Narrative 생성**")
+    st.markdown("**건축 프로젝트 영상용 스토리보드 및 나레이션 생성**")
     st.markdown("---")
 
     # Session state 초기화
@@ -345,58 +330,48 @@ def main():
 
         data_source = st.radio(
             "데이터 소스 선택",
-            ["Document Analysis 결과 활용", "직접 입력"]
+            ["PDF 업로드", "직접 입력"]
         )
 
-        if st.button("데이터 확인", type="secondary"):
-            if data_source == "Document Analysis 결과 활용":
-                analysis_data = load_analysis_data()
-                if analysis_data:
-                    st.success("Document Analysis 결과가 확인되었습니다.")
-                else:
-                    st.warning("Document Analysis 결과가 없습니다.")
-            else:
-                st.info("직접 입력 모드입니다.")
+        if data_source == "PDF 업로드":
+            uploaded_pdf = st.file_uploader("PDF 파일 업로드", type=['pdf'], key="storyboard_pdf")
+            if uploaded_pdf:
+                st.session_state['storyboard_uploaded_pdf'] = uploaded_pdf
+                st.success(f"'{uploaded_pdf.name}' 업로드 완료")
+        else:
+            st.info("직접 입력 모드입니다.")
 
         st.markdown("---")
-        st.header("Narrative 옵션")
+        st.header("나레이션 옵션")
 
-        narrative_type = st.selectbox("Narrative 타입", NARRATIVE_TYPES)
-        narrative_tone = st.selectbox("Narrative 톤", NARRATIVE_TONES)
+        narrative_type = st.selectbox("나레이션 타입", NARRATIVE_TYPES)
+        narrative_tone = st.selectbox("나레이션 톤", NARRATIVE_TONES)
 
     # 메인 컨텐츠 - 탭 구성
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "프로젝트 정보", "Scene 구성", "Narrative 생성", "스토리보드 미리보기", "다운로드"
+        "프로젝트 정보", "Scene 구성", "나레이션 생성", "스토리보드 미리보기", "다운로드"
     ])
 
     # 탭 1: 프로젝트 정보
     with tab1:
         st.header("프로젝트 정보")
 
-        if data_source == "Document Analysis 결과 활용":
-            analysis_data = load_analysis_data()
-            if analysis_data and 'project_info' in analysis_data:
-                project_info = analysis_data['project_info']
+        if data_source == "PDF 업로드":
+            uploaded_pdf = st.session_state.get('storyboard_uploaded_pdf')
+            if uploaded_pdf:
+                st.success(f"업로드된 PDF: {uploaded_pdf.name}")
+                st.info("PDF에서 프로젝트 정보를 추출하여 아래 필드를 채워주세요.")
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    project_name = st.text_input("프로젝트명", value=project_info.get('project_name', ''))
-                    location = st.text_input("위치", value=project_info.get('location', ''))
-                with col2:
-                    building_type = st.selectbox(
-                        "건물 유형",
-                        ["", "마스터플랜", "도시재생", "복합개발", "캠퍼스/연구단지", "산업단지", "주거단지", "상업/업무단지", "기타"]
-                    )
-                    owner = st.text_input("건축주", value=project_info.get('owner', ''))
-
-                # CoT 히스토리 요약 표시
-                if 'cot_history' in analysis_data and analysis_data['cot_history']:
-                    with st.expander("분석 결과 요약"):
-                        for i, history in enumerate(analysis_data['cot_history'][:5], 1):
-                            st.write(f"**{i}단계**: {history.get('step', '')} - {history.get('summary', '')[:100]}...")
-            else:
-                st.warning("Document Analysis 결과가 없습니다. 직접 입력해주세요.")
+            col1, col2 = st.columns(2)
+            with col1:
                 project_name = st.text_input("프로젝트명", value="")
+                location = st.text_input("위치", value="")
+            with col2:
+                building_type = st.selectbox(
+                    "건물 유형",
+                    ["", "마스터플랜", "도시재생", "복합개발", "캠퍼스/연구단지", "산업단지", "주거단지", "상업/업무단지", "기타"]
+                )
+                owner = st.text_input("건축주", value="")
                 location = st.text_input("위치", value="")
                 building_type = st.selectbox(
                     "건물 유형",
@@ -436,55 +411,58 @@ def main():
     with tab2:
         st.header("Scene 구성")
 
-        # 템플릿 선택
-        st.subheader("템플릿 선택 (선택사항)")
-        template_col1, template_col2 = st.columns([3, 1])
-        with template_col1:
-            selected_template = st.selectbox(
-                "템플릿 선택",
-                ["직접 구성"] + list(STORYBOARD_TEMPLATES.keys()),
-                help="템플릿을 선택하면 기본 Scene이 자동으로 생성됩니다"
-            )
-        with template_col2:
-            if st.button("템플릿 적용", type="secondary"):
-                if selected_template != "직접 구성":
+        st.info("Scene을 직접 추가하고 편집하세요. 참고용 예시 템플릿을 적용할 수도 있습니다.")
+
+        # 예시 템플릿 적용 (선택사항)
+        with st.expander("📋 예시 템플릿 참고하기", expanded=False):
+            st.caption("마스터플랜 프로젝트의 일반적인 Scene 구성 예시입니다. 적용 후 자유롭게 수정하세요.")
+            template_col1, template_col2 = st.columns([3, 1])
+            with template_col1:
+                selected_template = st.selectbox(
+                    "예시 템플릿",
+                    list(STORYBOARD_TEMPLATES.keys()),
+                    help="예시를 적용한 후 자유롭게 수정할 수 있습니다"
+                )
+            with template_col2:
+                if st.button("예시 적용", type="secondary"):
                     import copy
                     st.session_state.storyboard_scenes = copy.deepcopy(STORYBOARD_TEMPLATES[selected_template])
                     st.session_state.scene_count_confirmed = True
-                    st.success(f"'{selected_template}' 템플릿이 적용되었습니다.")
+                    st.success(f"'{selected_template}' 예시가 적용되었습니다. 자유롭게 수정하세요.")
                     st.rerun()
 
         st.markdown("---")
 
-        # Scene 개수 설정
-        st.subheader("Scene 개수 설정")
-        scene_count = st.slider("Scene 개수", min_value=3, max_value=20, value=len(st.session_state.storyboard_scenes) if st.session_state.storyboard_scenes else 6)
+        # Scene 직접 구성
+        st.subheader("Scene 목록")
 
-        if st.button("Scene 개수 확인", type="secondary"):
-            if len(st.session_state.storyboard_scenes) != scene_count:
-                # Scene 개수 조정
-                current_count = len(st.session_state.storyboard_scenes)
-                if scene_count > current_count:
-                    # Scene 추가
-                    for i in range(current_count, scene_count):
-                        st.session_state.storyboard_scenes.append({
-                            'name': f'Scene {i+1}',
-                            'description': '',
-                            'angle': '정면',
-                            'movement': '고정',
-                            'audio': '없음',
-                            'duration': 5,
-                            'narrative': ''
-                        })
-                else:
-                    # Scene 제거
-                    st.session_state.storyboard_scenes = st.session_state.storyboard_scenes[:scene_count]
-            st.session_state.scene_count_confirmed = True
-            st.success(f"{scene_count}개의 Scene이 설정되었습니다.")
-            st.rerun()
+        # Scene 추가/초기화 버튼
+        btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
+        with btn_col1:
+            if st.button("➕ Scene 추가", use_container_width=True):
+                scene_num = len(st.session_state.storyboard_scenes) + 1
+                st.session_state.storyboard_scenes.append({
+                    'name': f'Scene {scene_num}',
+                    'description': '',
+                    'angle': '정면',
+                    'movement': '고정',
+                    'audio': '없음',
+                    'duration': 5,
+                    'narrative': ''
+                })
+                st.session_state.scene_count_confirmed = True
+                st.rerun()
+        with btn_col2:
+            if st.button("🗑️ 전체 초기화", use_container_width=True):
+                st.session_state.storyboard_scenes = []
+                st.session_state.scene_count_confirmed = False
+                st.rerun()
+        with btn_col3:
+            current_count = len(st.session_state.storyboard_scenes)
+            st.caption(f"현재 {current_count}개 Scene")
 
         # Scene 편집
-        if st.session_state.scene_count_confirmed and st.session_state.storyboard_scenes:
+        if st.session_state.storyboard_scenes:
             st.markdown("---")
             st.subheader("Scene 편집")
 
@@ -577,9 +555,17 @@ def main():
             total_duration = sum(s.get('duration', 0) for s in st.session_state.storyboard_scenes)
             st.info(f"총 예상 시간: {total_duration}초 ({total_duration // 60}분 {total_duration % 60}초)")
 
-    # 탭 3: Narrative 생성
+            # Scene 편집 완료 버튼
+            st.markdown("---")
+            if st.button("✅ Scene 편집 완료", type="primary", use_container_width=True):
+                st.session_state.scene_count_confirmed = True
+                st.success("Scene 편집이 완료되었습니다. '나레이션 생성' 탭으로 이동하세요.")
+        else:
+            st.info("위의 '➕ Scene 추가' 버튼을 클릭하여 Scene을 추가하세요.")
+
+    # 탭 3: 나레이션 생성
     with tab3:
-        st.header("Narrative 생성")
+        st.header("나레이션 생성")
 
         if not st.session_state.storyboard_scenes:
             st.warning("먼저 Scene 구성을 완료해주세요.")
@@ -590,10 +576,10 @@ def main():
 
             st.markdown("---")
 
-            if st.button("Narrative 생성", type="primary", use_container_width=True):
+            if st.button("나레이션 생성", type="primary", use_container_width=True):
                 project_info = st.session_state.get('storyboard_project_info', {})
 
-                with st.spinner("Narrative를 생성하고 있습니다..."):
+                with st.spinner("나레이션을 생성하고 있습니다..."):
                     result = generate_narrative(
                         st.session_state.storyboard_scenes,
                         project_info,
@@ -613,8 +599,8 @@ def main():
                                 st.session_state.storyboard_scenes[i]['narrative'] = st.session_state.scene_narratives[scene_num]
                                 applied_count += 1
 
-                        st.success(f"Narrative가 생성되었습니다! {applied_count}개 씬에 적용됨")
-                        st.info("스토리보드 미리보기 탭에서 각 씬의 Narrative를 확인하세요.")
+                        st.success(f"나레이션이 생성되었습니다! {applied_count}개 씬에 적용됨")
+                        st.info("스토리보드 미리보기 탭에서 각 씬의 나레이션을 확인하세요.")
 
                         # 디버깅 정보 표시
                         with st.expander("적용 상태 확인"):
@@ -625,22 +611,22 @@ def main():
                                 status = "✅" if has_narrative else "❌"
                                 st.write(f"{status} Scene {i+1}: {scene.get('name', '')}")
                     else:
-                        st.error(f"Narrative 생성 실패: {result.get('error', '알 수 없는 오류')}")
+                        st.error(f"나레이션 생성 실패: {result.get('error', '알 수 없는 오류')}")
 
             # Narrative 결과 표시 및 편집
             if st.session_state.narratives:
                 st.markdown("---")
-                st.subheader("생성된 Narrative")
+                st.subheader("생성된 나레이션")
 
                 edited_narratives = st.text_area(
-                    "Narrative (편집 가능)",
+                    "나레이션 (편집 가능)",
                     value=st.session_state.narratives,
                     height=400
                 )
 
-                if st.button("Narrative 저장"):
+                if st.button("나레이션 저장"):
                     st.session_state.narratives = edited_narratives
-                    st.success("Narrative가 저장되었습니다.")
+                    st.success("나레이션이 저장되었습니다.")
 
     # 탭 4: 스토리보드 미리보기
     with tab4:
@@ -670,9 +656,9 @@ def main():
                         # Narrative 표시 (있는 경우)
                         narrative = scene.get('narrative', '').strip()
                         if narrative:
-                            st.info(f"**Narrative:** {narrative}")
+                            st.info(f"**나레이션:** {narrative}")
                         else:
-                            st.caption("⚠️ Narrative 미생성")
+                            st.caption("⚠️ 나레이션 미생성")
 
                     with col3:
                         cumulative_time += scene.get('duration', 0)
@@ -691,7 +677,7 @@ def main():
                         "번호": i + 1,
                         "Scene 이름": scene.get('name', ''),
                         "설명": scene.get('description', ''),
-                        "Narrative": scene.get('narrative', ''),
+                        "나레이션": scene.get('narrative', ''),
                         "촬영 각도": scene.get('angle', ''),
                         "카메라 움직임": scene.get('movement', ''),
                         "시간(초)": scene.get('duration', 0),
@@ -767,9 +753,9 @@ def main():
                 st.success("프롬프트가 생성되었습니다!")
 
             st.subheader("다운로드 옵션")
-            st.info("📦 포함 내용: 스토리보드 + Narrative + 이미지 프롬프트")
+            st.info("📦 포함 내용: 스토리보드 + 나레이션 + 이미지 프롬프트")
 
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
 
             with col1:
                 st.markdown("**Excel 다운로드**")
@@ -797,7 +783,7 @@ def main():
                         "번호": scene_num,
                         "Scene 이름": scene.get('name', ''),
                         "설명": scene.get('description', ''),
-                        "Narrative": scene.get('narrative', ''),
+                        "나레이션": scene.get('narrative', ''),
                         "이미지 프롬프트": prompt_dict.get(scene_num, ''),
                         "비디오 프롬프트": video_prompt_dict.get(scene_num, ''),
                         "타임라인 스크립트": timeline_prompt_dict.get(scene_num, ''),
@@ -838,27 +824,8 @@ def main():
                     )
 
             with col2:
-                st.markdown("**JSON 다운로드**")
-                st.caption("프로그램에서 재사용 가능한 JSON 형식 (Scene + Narrative + 프롬프트)")
-
-                json_data = {
-                    'project_info': st.session_state.get('storyboard_project_info', {}),
-                    'scenes': st.session_state.storyboard_scenes,
-                    'narratives': st.session_state.narratives,
-                    'scene_prompts': st.session_state.get('scene_prompts', []),
-                    'created_at': datetime.now().isoformat()
-                }
-
-                st.download_button(
-                    "JSON 다운로드",
-                    data=json.dumps(json_data, ensure_ascii=False, indent=2),
-                    file_name=f"storyboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json"
-                )
-
-            with col3:
                 st.markdown("**텍스트 다운로드**")
-                st.caption("읽기 쉬운 문서 형식 (Scene + Narrative + 프롬프트)")
+                st.caption("읽기 쉬운 문서 형식 (Scene + 나레이션 + 프롬프트)")
 
                 project_info = st.session_state.get('storyboard_project_info', {})
 
@@ -892,7 +859,7 @@ def main():
 **장면 설명:**
 {scene.get('description', '')}
 
-**Narrative (나레이션):**
+**나레이션:**
 {scene.get('narrative', 'N/A')}
 
 **이미지 프롬프트:**
@@ -910,7 +877,7 @@ def main():
                 # 전체 Narrative 섹션 추가
                 if st.session_state.narratives:
                     text_content += f"""
-## 전체 Narrative (통합)
+## 전체 나레이션 (통합)
 
 {st.session_state.narratives}
 
@@ -951,20 +918,19 @@ def main():
     - 씬 개수는 3~20개 사이에서 자유롭게 조정 가능합니다
     - 각 Scene의 이름, 설명, 카메라 설정, 시간을 편집할 수 있습니다
 
-    **3. Narrative 생성:**
-    - AI가 각 Scene에 맞는 Narrative(나레이션)를 자동 생성합니다
-    - 생성된 Narrative는 각 씬에 자동으로 매칭됩니다
-    - 스토리보드 미리보기에서 씬별 Narrative를 확인할 수 있습니다
-    - Narrative는 편집 가능하며, 다운로드 시 포함됩니다
+    **3. 나레이션 생성:**
+    - AI가 각 Scene에 맞는 나레이션을 자동 생성합니다
+    - 생성된 나레이션은 각 씬에 자동으로 매칭됩니다
+    - 스토리보드 미리보기에서 씬별 나레이션을 확인할 수 있습니다
+    - 나레이션은 편집 가능하며, 다운로드 시 포함됩니다
 
     **4. 이미지 프롬프트:**
     - Scene별 Midjourney 프롬프트가 자동 생성됩니다
     - 카메라 각도와 움직임이 프롬프트에 반영됩니다
 
     **5. 다운로드:**
-    - Excel/CSV: 씬 데이터를 표 형식으로 다운로드
-    - JSON: 전체 스토리보드 데이터를 JSON 형식으로 다운로드
-    - 텍스트: 씬별 Narrative를 포함한 텍스트 문서로 다운로드
+    - Excel: 씬 데이터를 표 형식으로 다운로드
+    - 텍스트: 씬별 나레이션을 포함한 텍스트 문서로 다운로드
     """)
 
 
