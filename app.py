@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 # 페이지 설정 (가장 먼저 호출해야 함)
 st.set_page_config(
-    page_title="Urban ArchInsight - 교육용",
+    page_title="Urban Insight - 교육용",
     page_icon=None,
     layout="wide"
 )
@@ -45,7 +45,7 @@ except UnicodeDecodeError:
 
 def show_login_page():
     """로그인 페이지를 표시합니다."""
-    st.title("Urban ArchInsight")
+    st.title("Urban Insight")
     st.markdown("**학생들을 위한 도시 프로젝트 분석 도구**")
     st.markdown("---")
 
@@ -208,12 +208,12 @@ def show_main_app():
         st.markdown("---")
 
     # 제목
-    st.title("Urban ArchInsight")
+    st.title("Urban Insight")
     st.markdown("**학생들을 위한 도시 프로젝트 분석 도구**")
 
     # 메인 페이지 내용 - 탭 기반 UI
     st.markdown("""
-    Urban ArchInsight는 도시 프로젝트 분석을 위한 종합 AI 플랫폼입니다.
+    Urban Insight는 도시 프로젝트 분석을 위한 종합 AI 플랫폼입니다.
     아래 탭에서 각 기능의 상세 설명과 사용 방법을 확인하세요.
     """)
     
@@ -229,12 +229,12 @@ def show_main_app():
     
     # 개요 탭
     with tabs[0]:
-        st.header("Urban ArchInsight 사용 가이드")
+        st.header("Urban Insight 사용 가이드")
         
         st.markdown("""
         ### 전체 워크플로우
         
-        Urban ArchInsight는 도시 프로젝트 분석의 전 과정을 지원합니다:
+        Urban Insight는 도시 프로젝트 분석의 전 과정을 지원합니다:
         """)
         
         # 전체 개요 다이어그램 1
@@ -441,7 +441,7 @@ def show_main_app():
         st.markdown("""
         ### 개요
         
-        문서 분석은 Urban ArchInsight의 핵심 기능입니다.
+        문서 분석은 Urban Insight의 핵심 기능입니다.
         PDF, Excel, CSV, 텍스트 파일을 업로드하면, AI가 선택한 분석 블록에 따라
         Chain of Thought 방식으로 심층 분석을 수행합니다.
         """)
@@ -896,7 +896,7 @@ def show_main_app():
 
     # 푸터
     st.markdown("---")
-    st.markdown("**Urban ArchInsight** - 도시 교육을 위한 AI 분석 도구")
+    st.markdown("**Urban Insight** - 도시 교육을 위한 AI 분석 도구")
 
 
 # 메인 로직
