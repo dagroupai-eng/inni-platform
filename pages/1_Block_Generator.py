@@ -337,18 +337,23 @@ def main():
         if existing_blocks:
             for i, block in enumerate(existing_blocks):
                 block_name = block.get('name', 'Unknown')
-                block_source = "[DB]" if block.get('_db_id') else "[File]"
+                is_db_block = block.get('_db_id')
 
-                # 공개 범위 아이콘
-                visibility = block.get('_visibility', 'personal')
-                visibility_icons = {
-                    'personal': '[개인]',
-                    'team': '[팀]',
-                    'public': '[공개]'
-                }
-                visibility_icon = visibility_icons.get(visibility, '[개인]')
+                # DB 블록에만 [개인]/[팀] 태그 추가, 시스템 블록은 이름 그대로 (이미 [예시] 포함)
+                if is_db_block:
+                    visibility = block.get('_visibility', 'personal')
+                    visibility_icons = {
+                        'personal': '[개인]',
+                        'team': '[팀]',
+                        'public': '[공개]'
+                    }
+                    visibility_icon = visibility_icons.get(visibility, '[개인]')
+                    display_name = f"{visibility_icon} {block_name}"
+                else:
+                    display_name = block_name
+                    visibility = 'system'
 
-                with st.expander(f"{visibility_icon} {block_source} {block_name}"):
+                with st.expander(display_name):
                     # 기본 정보
                     st.write(f"**ID:** {block.get('id', 'N/A')}")
                     st.write(f"**카테고리:** {block.get('category', '미지정')}")

@@ -2032,25 +2032,25 @@ with tab_project:
     st.header("프로젝트 기본 정보 입력")
     st.caption("프로젝트 기본 정보는 이 탭에서 별도로 관리됩니다. 입력값은 자동 저장됩니다.")
 
-    # 디버그 정보 (개발 중 확인용)
-    with st.expander("🔍 세션 상태 확인 (디버그)", expanded=False):
-        st.caption("현재 세션에 저장된 프로젝트 정보를 확인할 수 있습니다.")
-        debug_info = {
-            "프로젝트명": st.session_state.get('project_name', '(없음)'),
-            "위치": st.session_state.get('location', '(없음)'),
-            "위도": st.session_state.get('latitude', '(없음)'),
-            "경도": st.session_state.get('longitude', '(없음)'),
-            "프로젝트 목표": st.session_state.get('project_goals', '(없음)')[:50] + "..." if len(st.session_state.get('project_goals', '')) > 50 else st.session_state.get('project_goals', '(없음)'),
-        }
-        for key, value in debug_info.items():
-            st.text(f"{key}: {value}")
-
-        # DB 저장 확인
-        if 'pms_current_user' in st.session_state:
-            user_id = st.session_state.pms_current_user.get('id')
-            st.text(f"사용자 ID: {user_id}")
-        else:
-            st.warning("로그인 정보 없음")
+    # 디버그 정보 (개발 중 확인용) - 숨김 처리
+    # with st.expander("🔍 세션 상태 확인 (디버그)", expanded=False):
+    #     st.caption("현재 세션에 저장된 프로젝트 정보를 확인할 수 있습니다.")
+    #     debug_info = {
+    #         "프로젝트명": st.session_state.get('project_name', '(없음)'),
+    #         "위치": st.session_state.get('location', '(없음)'),
+    #         "위도": st.session_state.get('latitude', '(없음)'),
+    #         "경도": st.session_state.get('longitude', '(없음)'),
+    #         "프로젝트 목표": st.session_state.get('project_goals', '(없음)')[:50] + "..." if len(st.session_state.get('project_goals', '')) > 50 else st.session_state.get('project_goals', '(없음)'),
+    #     }
+    #     for key, value in debug_info.items():
+    #         st.text(f"{key}: {value}")
+    #
+    #     # DB 저장 확인
+    #     if 'pms_current_user' in st.session_state:
+    #         user_id = st.session_state.pms_current_user.get('id')
+    #         st.text(f"사용자 ID: {user_id}")
+    #     else:
+    #         st.warning("로그인 정보 없음")
 
     st.text_input(
         "프로젝트명",
@@ -2296,6 +2296,17 @@ with tab_blocks:
                     is_linked = block_id in prelinked or block_id in block_spatial
 
                     block_name = block.get('name', '이름 없음')
+
+                    # 사용자 블록에 [개인]/[팀] 태그 추가
+                    if is_custom_block or block.get('_db_id'):
+                        visibility = block.get('_visibility', block.get('visibility', ''))
+                        if visibility in ['personal', 'PERSONAL']:
+                            if not block_name.startswith('[개인]'):
+                                block_name = f"[개인] {block_name}"
+                        elif visibility in ['team', 'TEAM']:
+                            if not block_name.startswith('[팀]'):
+                                block_name = f"[팀] {block_name}"
+
                     if is_linked:
                         # 연동된 레이어 이름 가져오기
                         if block_id in block_spatial:
@@ -2312,8 +2323,6 @@ with tab_blocks:
                     description = block.get('description')
                     if description:
                         st.caption(description)
-                    if is_custom_block:
-                        st.caption("사용자 정의 블록")
                 
                 with col2:
                     is_selected = block_id in st.session_state['selected_blocks']
@@ -2374,6 +2383,17 @@ with tab_blocks:
         for order, block_id in enumerate(selected_blocks, start=1):
             block = block_lookup.get(block_id)
             block_name = block.get('name', '알 수 없음') if block else "알 수 없음"
+
+            # 사용자 블록에 [개인]/[팀] 태그 추가
+            if block:
+                is_custom = block.get('created_by') == 'user' or str(block_id).startswith('custom_') or block.get('_db_id')
+                if is_custom:
+                    visibility = block.get('_visibility', block.get('visibility', ''))
+                    if visibility in ['personal', 'PERSONAL'] and not block_name.startswith('[개인]'):
+                        block_name = f"[개인] {block_name}"
+                    elif visibility in ['team', 'TEAM'] and not block_name.startswith('[팀]'):
+                        block_name = f"[팀] {block_name}"
+
             block_description = block.get('description', '') if block else ""
             block_category = resolve_block_category(block) if block else "기타"
             block_info_list.append({
@@ -2381,7 +2401,7 @@ with tab_blocks:
                 '카테고리': block_category,
                 '블록명': block_name,
                 '설명': block_description,
-                '블록ID': block_id 
+                '블록ID': block_id
             })
         
         # 순서 조정을 위한 데이터프레임 생성
@@ -2844,7 +2864,7 @@ with tab_run:
 
             if available_to_add:
                 # 블록 선택
-                block_options = {block['id']: f"[{resolve_block_category(block)}] {block.get('name', block['id'])}" for block in available_to_add}
+                block_options = {block['id']: block.get('name', block['id']) for block in available_to_add}
                 selected_block_to_add = st.selectbox(
                     "추가할 블록 선택",
                     options=list(block_options.keys()),
@@ -2958,7 +2978,7 @@ with tab_run:
                 # 준비 상태
                 status_badge = "⚪ 준비"
             is_collapsed = status_badge in ["✅ 완료", "⏭️ 건너뜀"]
-            expander = st.expander(f"{idx}. [{category}] {block_name} · {status_badge}", expanded=(not is_collapsed))
+            expander = st.expander(f"{idx}. {block_name} · {status_badge}", expanded=(not is_collapsed))
             with expander:
                 st.caption((block.get('description') if block else "설명이 없습니다.") or "설명이 없습니다.")
 
