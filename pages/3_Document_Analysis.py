@@ -2290,10 +2290,9 @@ with tab_blocks:
                 
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    # Mapping에서 연동된 블록인지 확인
-                    prelinked = st.session_state.get('prelinked_block_layers', {})
+                    # 공간 데이터 연동 여부 확인
                     block_spatial = st.session_state.get('block_spatial_data', {})
-                    is_linked = block_id in prelinked or block_id in block_spatial
+                    is_linked = block_id in block_spatial
 
                     block_name = block.get('name', '이름 없음')
 
@@ -2308,15 +2307,9 @@ with tab_blocks:
                                 block_name = f"[팀] {block_name}"
 
                     if is_linked:
-                        # 연동된 레이어 이름 가져오기
-                        if block_id in block_spatial:
-                            linked_layer = block_spatial[block_id].get('layer_name', '')
-                        elif block_id in prelinked:
-                            linked_layer = ', '.join(prelinked[block_id])
-                        else:
-                            linked_layer = ''
+                        linked_layer = block_spatial[block_id].get('layer_name', '')
                         st.markdown(f"**{block_name}** 📍")
-                        st.caption(f"🔗 Mapping 연동: {linked_layer}")
+                        st.caption(f"🔗 연동: {linked_layer}")
                     else:
                         st.markdown(f"**{block_name}**")
 
@@ -2336,30 +2329,6 @@ with tab_blocks:
                     
                     if checkbox_value and not is_selected:
                         st.session_state['selected_blocks'].append(block_id)
-                        # 사전 연동된 레이어가 있으면 자동 적용
-                        prelinked = st.session_state.get('prelinked_block_layers', {})
-                        if block_id in prelinked and st.session_state.get('downloaded_geo_data'):
-                            layers = prelinked[block_id]
-                            combined_features = []
-                            total_count = 0
-                            for layer_name in layers:
-                                if layer_name in st.session_state.downloaded_geo_data:
-                                    data = st.session_state.downloaded_geo_data[layer_name]
-                                    geojson = data.get('geojson', {})
-                                    for feature in geojson.get('features', []):
-                                        feature['properties']['_layer'] = layer_name
-                                        combined_features.append(feature)
-                                    total_count += data.get('feature_count', 0)
-                            if combined_features:
-                                if 'block_spatial_data' not in st.session_state:
-                                    st.session_state.block_spatial_data = {}
-                                st.session_state.block_spatial_data[block_id] = {
-                                    'layer_name': ', '.join(layers),
-                                    'geojson': {'type': 'FeatureCollection', 'features': combined_features},
-                                    'feature_count': total_count,
-                                    'layers': layers,
-                                    'prelinked': True
-                                }
                     elif not checkbox_value and is_selected:
                         # 분석 세션 진행 중이고 cot_plan에 있는 블록은 제거하지 않음
                         if st.session_state.get('cot_session') and block_id in st.session_state.get('cot_plan', []):
@@ -2534,6 +2503,78 @@ with tab_blocks:
                             st.error("순서 값이 중복되었습니다.")
                     except Exception as e:
                         st.error(f"순서 업데이트 중 오류: {e}")
+
+        # 공간 데이터 연동 섹션
+        if st.session_state.get('downloaded_geo_data'):
+            st.markdown("---")
+            st.subheader("🔗 공간 데이터 연동")
+            st.caption("Mapping에서 조회한 공간 데이터를 각 블록의 분석에 활용할 수 있습니다.")
+
+            # block_spatial_data 초기화
+            if 'block_spatial_data' not in st.session_state:
+                st.session_state.block_spatial_data = {}
+
+            # 사용 가능한 레이어 목록
+            available_layers = list(st.session_state.downloaded_geo_data.keys())
+            layer_info = {
+                layer_name: f"{layer_name} ({data.get('feature_count', 0)}개)"
+                for layer_name, data in st.session_state.downloaded_geo_data.items()
+            }
+
+            # 각 선택된 블록에 대해 레이어 연동 UI
+            for block_id in selected_blocks:
+                block = block_lookup.get(block_id)
+                block_name = block.get('name', block_id) if block else block_id
+
+                # 현재 연동된 레이어 가져오기
+                current_linked = []
+                if block_id in st.session_state.block_spatial_data:
+                    current_linked = st.session_state.block_spatial_data[block_id].get('layers', [])
+
+                col_block, col_layer = st.columns([2, 3])
+                with col_block:
+                    st.markdown(f"**{block_name}**")
+                with col_layer:
+                    # multiselect로 레이어 선택
+                    selected_layers = st.multiselect(
+                        "연동할 레이어",
+                        options=available_layers,
+                        default=[l for l in current_linked if l in available_layers],
+                        format_func=lambda x: layer_info.get(x, x),
+                        key=f"layer_link_{block_id}",
+                        label_visibility="collapsed"
+                    )
+
+                    # 선택 변경 시 block_spatial_data 업데이트
+                    if selected_layers:
+                        combined_features = []
+                        total_count = 0
+                        for layer_name in selected_layers:
+                            if layer_name in st.session_state.downloaded_geo_data:
+                                data = st.session_state.downloaded_geo_data[layer_name]
+                                geojson = data.get('geojson', {})
+                                for feature in geojson.get('features', []):
+                                    feature_copy = dict(feature)
+                                    if 'properties' not in feature_copy:
+                                        feature_copy['properties'] = {}
+                                    feature_copy['properties']['_layer'] = layer_name
+                                    combined_features.append(feature_copy)
+                                total_count += data.get('feature_count', 0)
+
+                        st.session_state.block_spatial_data[block_id] = {
+                            'layer_name': ', '.join(selected_layers),
+                            'geojson': {'type': 'FeatureCollection', 'features': combined_features},
+                            'feature_count': total_count,
+                            'layers': selected_layers
+                        }
+                    elif block_id in st.session_state.block_spatial_data:
+                        # 선택 해제 시 삭제
+                        del st.session_state.block_spatial_data[block_id]
+
+            # 연동 현황 요약
+            linked_blocks = [bid for bid in selected_blocks if bid in st.session_state.block_spatial_data]
+            if linked_blocks:
+                st.success(f"✓ {len(linked_blocks)}개 블록에 공간 데이터가 연동되었습니다.")
 
         # 블록 선택 완료 버튼
         st.markdown("---")
