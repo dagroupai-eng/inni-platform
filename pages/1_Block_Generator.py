@@ -982,36 +982,12 @@ def main():
             value=edit_block.get('instructions', '') if edit_block else ("" if reset_form else None)
         )
         
-        # 단계 개수 설정
+        # 단계 개수 설정 (4개로 고정)
         st.markdown("---")
-        
-        # 수정 모드일 때 기존 단계 수 사용
-        default_steps = len(edit_block.get('steps', [])) if edit_block and edit_block.get('steps') else 3
-        
-        # session_state에 단계 개수 초기화
-        if 'confirmed_num_steps' not in st.session_state:
-            st.session_state.confirmed_num_steps = default_steps
-        
-        # 단계 개수 선택 및 확인 버튼
-        st.markdown("**단계 개수 설정**")
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            selected_steps = st.selectbox(
-                "단계 (Steps) 개수",
-                options=list(range(1, 11)),
-                index=st.session_state.confirmed_num_steps - 1 if 1 <= st.session_state.confirmed_num_steps <= 10 else 2,
-                key="temp_num_steps",
-                help="분석에 필요한 단계의 개수를 선택하고 확인 버튼을 누르세요"
-            )
-        with col2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("✓ 확인", key="confirm_steps", use_container_width=True, type="primary"):
-                st.session_state.confirmed_num_steps = selected_steps
-                st.success("적용됨!")
-                st.rerun()
-        
-        num_steps = st.session_state.confirmed_num_steps
-        st.info(f"총 **{num_steps}개**의 단계를 작성합니다")
+
+        # 단계는 항상 4개로 고정
+        num_steps = 4
+        st.info("총 **4개**의 단계를 작성합니다 (모두 채우지 않아도 됩니다)")
         
         # Steps (단계) 입력
         st.markdown("---")
