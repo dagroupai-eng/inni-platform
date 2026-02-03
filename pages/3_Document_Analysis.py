@@ -320,18 +320,19 @@ def build_fixed_program_markdown() -> str:
     ])
 
 def save_analysis_result(block_id, analysis_result, project_info=None):
-    """개별 블록 분석 결과를 JSON 파일로 저장"""
+    """개별 블록 분석 결과를 JSON 파일로 저장 + GitHub 백업"""
     from datetime import datetime
     import json
     import os
-    
+
+    # 1. 로컬 저장 (기존 방식)
     analysis_folder = "analysis_results"
     os.makedirs(analysis_folder, exist_ok=True)
-    
+
     # 파일명: block_{block_id}_{timestamp}.json
     filename = f"block_{block_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     filepath = os.path.join(analysis_folder, filename)
-    
+
     block_record = {
         "block_id": block_id,
         "analysis_result": analysis_result,
@@ -341,53 +342,77 @@ def save_analysis_result(block_id, analysis_result, project_info=None):
             "location": st.session_state.get('location', '')
         }
     }
-    
+
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(block_record, f, ensure_ascii=False, indent=2)
-        return filepath
     except Exception as e:
         st.error(f"분석 결과 저장 실패 ({block_id}): {e}")
         return None
 
+    # 2. GitHub 백업 (Streamlit Cloud용)
+    try:
+        from github_storage import save_analysis_to_github, is_github_storage_available
+        if is_github_storage_available():
+            user_id = st.session_state.get('pms_current_user', {}).get('id', 'anonymous')
+            if isinstance(user_id, int):
+                user_id = str(user_id)
+            save_analysis_to_github(user_id, block_id, analysis_result, block_record.get('project_info'))
+    except Exception as e:
+        print(f"[GitHub 백업] 오류 (무시): {e}")
+
+    return filepath
+
 def load_saved_analysis_results():
-    """analysis_results 폴더에서 저장된 모든 블록 결과를 로드"""
+    """analysis_results 폴더 + GitHub에서 저장된 모든 블록 결과를 로드"""
     import json
     import os
     import glob
     from datetime import datetime
-    
+
+    results = {}
+
+    # 1. 로컬 파일에서 먼저 로드
     analysis_folder = "analysis_results"
-    if not os.path.exists(analysis_folder):
-        return {}
-    
-    # block_{block_id}_*.json 패턴의 파일 찾기
-    pattern = os.path.join(analysis_folder, "block_*.json")
-    files = glob.glob(pattern)
-    
-    if not files:
-        return {}
-    
-    # 블록별로 최신 파일만 선택
-    block_latest = {}
-    for filepath in files:
+    if os.path.exists(analysis_folder):
+        pattern = os.path.join(analysis_folder, "block_*.json")
+        files = glob.glob(pattern)
+
+        block_latest = {}
+        for filepath in files:
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    block_id = data.get('block_id')
+                    if block_id:
+                        saved_time = datetime.fromisoformat(data.get('saved_timestamp', ''))
+                        if block_id not in block_latest or saved_time > block_latest[block_id]['time']:
+                            block_latest[block_id] = {
+                                'result': data.get('analysis_result', ''),
+                                'time': saved_time,
+                                'file': filepath
+                            }
+            except Exception:
+                continue
+
+        results = {block_id: info['result'] for block_id, info in block_latest.items()}
+
+    # 2. 로컬에 없으면 GitHub에서 불러오기 (Streamlit Cloud 재시작 후)
+    if not results:
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                block_id = data.get('block_id')
-                if block_id:
-                    saved_time = datetime.fromisoformat(data.get('saved_timestamp', ''))
-                    if block_id not in block_latest or saved_time > block_latest[block_id]['time']:
-                        block_latest[block_id] = {
-                            'result': data.get('analysis_result', ''),
-                            'time': saved_time,
-                            'file': filepath
-                        }
+            from github_storage import load_all_analysis_from_github, is_github_storage_available
+            if is_github_storage_available():
+                user_id = st.session_state.get('pms_current_user', {}).get('id', 'anonymous')
+                if isinstance(user_id, int):
+                    user_id = str(user_id)
+                github_results = load_all_analysis_from_github(user_id)
+                if github_results:
+                    results = github_results
+                    print(f"[GitHub] {len(results)}개 분석 결과 복원됨")
         except Exception as e:
-            continue
-    
-    # block_id를 키로 하는 딕셔너리로 변환
-    return {block_id: info['result'] for block_id, info in block_latest.items()}
+            print(f"[GitHub 불러오기] 오류 (무시): {e}")
+
+    return results
 
 def get_cot_analyzer() -> Optional[EnhancedArchAnalyzer]:
     """CoT Analyzer를 가져오거나 생성합니다. Provider 변경 시 재생성합니다."""
@@ -1224,20 +1249,104 @@ def is_table_line(line):
     """한 줄이 표 행인지 확인"""
     if not line:
         return False
-    
+
     # | 구분자가 있는 경우 (마크다운 표 형식)
     if '|' in line and line.count('|') >= 2:
         return True
-    
+
     # 탭으로 구분된 경우
     if '\t' in line:
         return True
-    
+
     # 2개 이상의 공백으로 구분된 경우 (정렬된 텍스트)
     if re.search(r'\s{2,}', line):
         return True
-    
+
     return False
+
+def render_markdown_with_tables(text):
+    """마크다운 텍스트를 렌더링하면서 테이블은 st.dataframe()으로 변환합니다."""
+    if not text or not isinstance(text, str):
+        return
+
+    lines = text.split('\n')
+    i = 0
+    buffer = []  # 일반 텍스트 버퍼
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # 마크다운 테이블 시작 감지 (| 구분자 기준)
+        if '|' in stripped and stripped.count('|') >= 2:
+            # 버퍼에 있는 텍스트 먼저 출력
+            if buffer:
+                st.markdown('\n'.join(buffer))
+                buffer = []
+
+            # 테이블 라인 수집
+            table_lines = [stripped]
+            i += 1
+            while i < len(lines):
+                next_line = lines[i].strip()
+                if '|' in next_line and next_line.count('|') >= 2:
+                    table_lines.append(next_line)
+                    i += 1
+                else:
+                    break
+
+            # 테이블을 DataFrame으로 변환
+            if len(table_lines) >= 2 and pd is not None:
+                try:
+                    # 파싱
+                    parsed_rows = []
+                    for tl in table_lines:
+                        cells = [c.strip() for c in tl.split('|')[1:-1]]
+                        if cells:
+                            parsed_rows.append(cells)
+
+                    if len(parsed_rows) >= 2:
+                        # 구분선 확인 (--- 패턴)
+                        is_separator = all(
+                            re.match(r'^[-:]+$', c) or c == ''
+                            for c in parsed_rows[1]
+                        )
+
+                        if is_separator and len(parsed_rows) >= 3:
+                            headers = parsed_rows[0]
+                            data = parsed_rows[2:]
+                        else:
+                            headers = [f"열{j+1}" for j in range(len(parsed_rows[0]))]
+                            data = parsed_rows
+
+                        # DataFrame 생성
+                        if data:
+                            max_cols = len(headers)
+                            normalized_data = []
+                            for row in data:
+                                if len(row) < max_cols:
+                                    row = row + [''] * (max_cols - len(row))
+                                elif len(row) > max_cols:
+                                    row = row[:max_cols]
+                                normalized_data.append(row)
+
+                            df = pd.DataFrame(normalized_data, columns=headers)
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+                            continue
+                except Exception as e:
+                    pass
+
+            # 파싱 실패 시 원본 출력
+            st.code('\n'.join(table_lines), language=None)
+            continue
+
+        # 일반 라인은 버퍼에 추가
+        buffer.append(line)
+        i += 1
+
+    # 남은 버퍼 출력
+    if buffer:
+        st.markdown('\n'.join(buffer))
 
 def is_table_format(text):
     """텍스트가 표 형식인지 확인"""
@@ -3279,7 +3388,7 @@ with tab_run:
                 with tab:
                     block = block_lookup.get(block_id)
                     st.markdown("**분석 결과**")
-                    st.markdown(ordered_results[block_id])
+                    render_markdown_with_tables(ordered_results[block_id])
 
     all_blocks_completed = (
         st.session_state.cot_plan
