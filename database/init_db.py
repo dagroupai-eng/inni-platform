@@ -112,18 +112,26 @@ def init_database():
 
 def _restore_from_github():
     """GitHub에서 공유 데이터(블록, 팀, 사용자)를 복원합니다."""
+    print("[GitHub] _restore_from_github 함수 시작")
     try:
-        from github_storage import restore_all_shared_data, is_github_storage_available
+        from github_storage import restore_all_shared_data, is_github_storage_available, get_github_token
+
+        token = get_github_token()
+        print(f"[GitHub] 토큰 존재: {token is not None}")
+        print(f"[GitHub] 토큰 앞 10자: {token[:10] if token else 'None'}...")
 
         if is_github_storage_available():
             print("[GitHub] 공유 데이터 복원 시도...")
-            restore_all_shared_data()
+            result = restore_all_shared_data()
+            print(f"[GitHub] 복원 결과: {result}")
         else:
             print("[GitHub] GitHub 저장소 사용 불가 (토큰 미설정)")
-    except ImportError:
-        print("[GitHub] github_storage 모듈 없음")
+    except ImportError as e:
+        print(f"[GitHub] github_storage 모듈 없음: {e}")
     except Exception as e:
-        print(f"[GitHub] 복원 오류 (무시): {e}")
+        import traceback
+        print(f"[GitHub] 복원 오류: {e}")
+        print(traceback.format_exc())
 
 
 def _create_admin_users():
