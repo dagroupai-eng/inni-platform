@@ -250,6 +250,15 @@ def update_user_block(
             tuple(values),
             commit=True
         )
+
+        # GitHub 백업
+        try:
+            from github_storage import backup_all_blocks, is_github_storage_available
+            if is_github_storage_available():
+                backup_all_blocks()
+        except Exception:
+            pass
+
         return True
     except Exception as e:
         print(f"블록 업데이트 오류: {e}")
@@ -278,6 +287,15 @@ def delete_user_block(block_db_id: int, owner_id: int) -> bool:
             (block_db_id,),
             commit=True
         )
+
+        # GitHub 백업
+        try:
+            from github_storage import backup_all_blocks, is_github_storage_available
+            if is_github_storage_available():
+                backup_all_blocks()
+        except Exception:
+            pass
+
         return True
     except Exception as e:
         print(f"블록 삭제 오류: {e}")
