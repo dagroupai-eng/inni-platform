@@ -355,3 +355,290 @@ def load_all_analysis_from_github(user_id: str) -> Dict[str, str]:
 def is_github_storage_available() -> bool:
     """GitHub 스토리지 사용 가능 여부"""
     return REQUESTS_AVAILABLE and get_github_token() is not None
+
+
+# ============================================
+# 공유 데이터 (블록, 팀, 사용자) 백업/복원
+# ============================================
+
+def _save_shared_data(data_type: str, data: Dict) -> bool:
+    """공유 데이터를 GitHub에 저장 (shared_data 폴더)"""
+    if not REQUESTS_AVAILABLE:
+        return False
+
+    token = get_github_token()
+    if not token:
+        return False
+
+    config = get_github_config()
+
+    if not _ensure_branch_exists():
+        return False
+
+    file_path = f"shared_data/{data_type}.json.gz"
+
+    try:
+        compressed_content = _compress_data(data)
+    except Exception as e:
+        print(f"[GitHub] 공유 데이터 압축 실패: {e}")
+        return False
+
+    sha = _get_file_sha(file_path)
+
+    url = f"https://api.github.com/repos/{config['owner']}/{config['repo']}/contents/{file_path}"
+    headers = {
+        'Authorization': f'token {token}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+
+    payload = {
+        'message': f"[Auto] Update shared {data_type}",
+        'content': base64.b64encode(compressed_content.encode('utf-8')).decode('ascii'),
+        'branch': config['branch']
+    }
+
+    if sha:
+        payload['sha'] = sha
+
+    try:
+        response = requests.put(url, headers=headers, json=payload, timeout=30)
+        if response.status_code in [200, 201]:
+            print(f"[GitHub] 공유 데이터 저장 성공: {data_type}")
+            return True
+        else:
+            print(f"[GitHub] 공유 데이터 저장 실패: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"[GitHub] 공유 데이터 API 오류: {e}")
+        return False
+
+
+def _load_shared_data(data_type: str) -> Optional[Dict]:
+    """GitHub에서 공유 데이터 불러오기"""
+    if not REQUESTS_AVAILABLE:
+        return None
+
+    token = get_github_token()
+    if not token:
+        return None
+
+    config = get_github_config()
+    file_path = f"shared_data/{data_type}.json.gz"
+
+    url = f"https://api.github.com/repos/{config['owner']}/{config['repo']}/contents/{file_path}"
+    headers = {
+        'Authorization': f'token {token}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    params = {'ref': config['branch']}
+
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+
+        if response.status_code == 200:
+            content = response.json().get('content', '')
+            decoded = base64.b64decode(content).decode('utf-8')
+            data = _decompress_data(decoded)
+            print(f"[GitHub] 공유 데이터 불러오기 성공: {data_type}")
+            return data
+        elif response.status_code == 404:
+            return None
+        else:
+            print(f"[GitHub] 공유 데이터 불러오기 실패: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"[GitHub] 공유 데이터 불러오기 오류: {e}")
+        return None
+
+
+def backup_all_blocks() -> bool:
+    """모든 블록 데이터를 GitHub에 백업"""
+    try:
+        from database.db_manager import execute_query
+
+        result = execute_query("SELECT * FROM blocks")
+        blocks = [dict(row) for row in result] if result else []
+
+        return _save_shared_data("blocks", {"blocks": blocks, "updated_at": datetime.now().isoformat()})
+    except Exception as e:
+        print(f"[GitHub] 블록 백업 오류: {e}")
+        return False
+
+
+def restore_all_blocks() -> bool:
+    """GitHub에서 블록 데이터 복원"""
+    try:
+        data = _load_shared_data("blocks")
+        if not data or "blocks" not in data:
+            print("[GitHub] 복원할 블록 데이터 없음")
+            return False
+
+        from database.db_manager import execute_query
+
+        blocks = data["blocks"]
+        restored = 0
+
+        for block in blocks:
+            # 이미 존재하는지 확인
+            existing = execute_query(
+                "SELECT id FROM blocks WHERE block_id = ?",
+                (block.get('block_id'),)
+            )
+
+            if not existing:
+                execute_query(
+                    """
+                    INSERT INTO blocks (block_id, owner_id, name, category, block_data, visibility, shared_with_teams, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        block.get('block_id'),
+                        block.get('owner_id'),
+                        block.get('name'),
+                        block.get('category'),
+                        block.get('block_data'),
+                        block.get('visibility'),
+                        block.get('shared_with_teams'),
+                        block.get('created_at')
+                    ),
+                    commit=True
+                )
+                restored += 1
+
+        print(f"[GitHub] {restored}개 블록 복원 완료")
+        return True
+    except Exception as e:
+        print(f"[GitHub] 블록 복원 오류: {e}")
+        return False
+
+
+def backup_all_teams() -> bool:
+    """모든 팀 데이터를 GitHub에 백업"""
+    try:
+        from database.db_manager import execute_query
+
+        result = execute_query("SELECT * FROM teams")
+        teams = [dict(row) for row in result] if result else []
+
+        return _save_shared_data("teams", {"teams": teams, "updated_at": datetime.now().isoformat()})
+    except Exception as e:
+        print(f"[GitHub] 팀 백업 오류: {e}")
+        return False
+
+
+def restore_all_teams() -> bool:
+    """GitHub에서 팀 데이터 복원"""
+    try:
+        data = _load_shared_data("teams")
+        if not data or "teams" not in data:
+            return False
+
+        from database.db_manager import execute_query
+
+        teams = data["teams"]
+        restored = 0
+
+        for team in teams:
+            existing = execute_query(
+                "SELECT id FROM teams WHERE id = ?",
+                (team.get('id'),)
+            )
+
+            if not existing:
+                execute_query(
+                    """
+                    INSERT INTO teams (id, name, description, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        team.get('id'),
+                        team.get('name'),
+                        team.get('description'),
+                        team.get('created_at')
+                    ),
+                    commit=True
+                )
+                restored += 1
+
+        print(f"[GitHub] {restored}개 팀 복원 완료")
+        return True
+    except Exception as e:
+        print(f"[GitHub] 팀 복원 오류: {e}")
+        return False
+
+
+def backup_all_users() -> bool:
+    """모든 사용자 데이터를 GitHub에 백업 (비밀번호 해시 포함)"""
+    try:
+        from database.db_manager import execute_query
+
+        result = execute_query("SELECT * FROM users")
+        users = [dict(row) for row in result] if result else []
+
+        return _save_shared_data("users", {"users": users, "updated_at": datetime.now().isoformat()})
+    except Exception as e:
+        print(f"[GitHub] 사용자 백업 오류: {e}")
+        return False
+
+
+def restore_all_users() -> bool:
+    """GitHub에서 사용자 데이터 복원"""
+    try:
+        data = _load_shared_data("users")
+        if not data or "users" not in data:
+            return False
+
+        from database.db_manager import execute_query
+
+        users = data["users"]
+        restored = 0
+
+        for user in users:
+            existing = execute_query(
+                "SELECT id FROM users WHERE personal_number = ?",
+                (user.get('personal_number'),)
+            )
+
+            if not existing:
+                execute_query(
+                    """
+                    INSERT INTO users (personal_number, password_hash, display_name, email, role, team_id, created_at, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        user.get('personal_number'),
+                        user.get('password_hash'),
+                        user.get('display_name'),
+                        user.get('email'),
+                        user.get('role'),
+                        user.get('team_id'),
+                        user.get('created_at'),
+                        user.get('is_active', 1)
+                    ),
+                    commit=True
+                )
+                restored += 1
+
+        print(f"[GitHub] {restored}명 사용자 복원 완료")
+        return True
+    except Exception as e:
+        print(f"[GitHub] 사용자 복원 오류: {e}")
+        return False
+
+
+def backup_all_shared_data() -> bool:
+    """모든 공유 데이터 백업 (블록, 팀, 사용자)"""
+    success = True
+    success = backup_all_blocks() and success
+    success = backup_all_teams() and success
+    success = backup_all_users() and success
+    return success
+
+
+def restore_all_shared_data() -> bool:
+    """모든 공유 데이터 복원 (블록, 팀, 사용자)"""
+    success = True
+    success = restore_all_users() and success  # 사용자 먼저 (FK 때문)
+    success = restore_all_teams() and success
+    success = restore_all_blocks() and success
+    return success
