@@ -602,18 +602,17 @@ def restore_all_users() -> bool:
             if not existing:
                 execute_query(
                     """
-                    INSERT INTO users (personal_number, password_hash, display_name, email, role, team_id, created_at, is_active)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO users (personal_number, display_name, role, team_id, status, last_login, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         user.get('personal_number'),
-                        user.get('password_hash'),
                         user.get('display_name'),
-                        user.get('email'),
                         user.get('role'),
                         user.get('team_id'),
-                        user.get('created_at'),
-                        user.get('is_active', 1)
+                        user.get('status', 'active'),
+                        user.get('last_login'),
+                        user.get('created_at')
                     ),
                     commit=True
                 )
