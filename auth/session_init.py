@@ -131,7 +131,44 @@ def restore_work_session():
 
             print(f"[복원] 총 {restored_count}개 키 복원 완료")
         else:
-            print("[복원] DB에 저장된 세션 없음")
+            print("[복원] DB에 저장된 세션 없음, GitHub에서 시도...")
+
+            # GitHub에서 복원 시도 (Streamlit Cloud 재시작 후)
+            try:
+                from github_storage import load_from_github, is_github_storage_available
+                if is_github_storage_available():
+                    github_user_id = str(user_id) if isinstance(user_id, int) else user_id
+                    session_data = load_from_github(github_user_id, "session")
+
+                    if session_data:
+                        print(f"[GitHub] 세션 복원 성공: {len(session_data)}개 키")
+
+                        # 프로젝트 정보 키
+                        project_info_keys = ['project_name', 'location', 'latitude', 'longitude',
+                                            'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded']
+                        # 분석 결과 키
+                        analysis_keys = ['analysis_results', 'cot_results', 'cot_session', 'cot_plan',
+                                       'cot_current_index', 'selected_blocks', 'cot_history', 'cot_citations']
+
+                        restored_count = 0
+                        for key, value in session_data.items():
+                            if key in project_info_keys:
+                                if value is not None:
+                                    st.session_state[key] = value
+                                    restored_count += 1
+                            elif key in analysis_keys:
+                                if value is not None and value not in [[], {}, ""]:
+                                    st.session_state[key] = value
+                                    restored_count += 1
+                            elif key not in st.session_state:
+                                st.session_state[key] = value
+                                restored_count += 1
+
+                        print(f"[GitHub] 총 {restored_count}개 키 복원 완료")
+                    else:
+                        print("[GitHub] 저장된 세션 없음")
+            except Exception as gh_e:
+                print(f"[GitHub] 복원 오류 (무시): {gh_e}")
 
         # 복원 완료 플래그 설정
         st.session_state[restore_key] = True
@@ -198,6 +235,17 @@ def save_work_session():
                 (user_id, json.dumps(session_data, ensure_ascii=False), datetime.now().isoformat()),
                 commit=True
             )
+
+            # GitHub 백업 (Streamlit Cloud용)
+            try:
+                from github_storage import save_to_github, is_github_storage_available
+                if is_github_storage_available():
+                    github_user_id = str(user_id) if isinstance(user_id, int) else user_id
+                    save_to_github(github_user_id, "session", session_data)
+                    print(f"[GitHub] 세션 백업 완료: {len(session_data)}개 키")
+            except Exception as gh_e:
+                print(f"[GitHub] 세션 백업 오류 (무시): {gh_e}")
+
     except Exception as e:
         print(f"작업 세션 저장 오류: {e}")
 

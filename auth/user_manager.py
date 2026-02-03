@@ -108,6 +108,15 @@ def create_user(
             ),
             commit=True
         )
+
+        # GitHub 백업 (Streamlit Cloud용)
+        try:
+            from github_storage import backup_all_users, is_github_storage_available
+            if is_github_storage_available():
+                backup_all_users()
+        except Exception as gh_e:
+            print(f"[GitHub] 사용자 백업 오류 (무시): {gh_e}")
+
         return get_last_insert_id()
     except Exception as e:
         print(f"Error creating user: {e}")
@@ -271,6 +280,15 @@ def create_team(name: str, description: Optional[str] = None) -> Optional[int]:
             (name, description, datetime.now().isoformat()),
             commit=True
         )
+
+        # GitHub 백업 (Streamlit Cloud용)
+        try:
+            from github_storage import backup_all_teams, is_github_storage_available
+            if is_github_storage_available():
+                backup_all_teams()
+        except Exception as gh_e:
+            print(f"[GitHub] 팀 백업 오류 (무시): {gh_e}")
+
         return get_last_insert_id()
     except Exception as e:
         print(f"Error creating team: {e}")

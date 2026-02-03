@@ -92,6 +92,7 @@ def init_database():
     """
     데이터베이스를 초기화합니다.
     테이블이 없으면 생성하고, 관리자 계정을 설정합니다.
+    Streamlit Cloud에서는 GitHub에서 데이터를 복원합니다.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -103,7 +104,26 @@ def init_database():
     # 관리자 계정 생성
     _create_admin_users()
 
+    # GitHub에서 공유 데이터 복원 (Streamlit Cloud 재시작 후)
+    _restore_from_github()
+
     print("Database initialized successfully.")
+
+
+def _restore_from_github():
+    """GitHub에서 공유 데이터(블록, 팀, 사용자)를 복원합니다."""
+    try:
+        from github_storage import restore_all_shared_data, is_github_storage_available
+
+        if is_github_storage_available():
+            print("[GitHub] 공유 데이터 복원 시도...")
+            restore_all_shared_data()
+        else:
+            print("[GitHub] GitHub 저장소 사용 불가 (토큰 미설정)")
+    except ImportError:
+        print("[GitHub] github_storage 모듈 없음")
+    except Exception as e:
+        print(f"[GitHub] 복원 오류 (무시): {e}")
 
 
 def _create_admin_users():
