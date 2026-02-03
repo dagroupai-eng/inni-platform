@@ -303,6 +303,16 @@ def delete_team_admin(team_id: int) -> tuple[bool, str]:
             (team_id,),
             commit=True
         )
+
+        # GitHub 백업
+        try:
+            from github_storage import backup_all_teams, backup_all_users, is_github_storage_available
+            if is_github_storage_available():
+                backup_all_teams()
+                backup_all_users()  # 멤버들의 team_id가 변경됨
+        except Exception:
+            pass
+
         return True, "팀이 삭제되었습니다."
     except Exception as e:
         return False, f"삭제에 실패했습니다: {e}"

@@ -157,6 +157,15 @@ def update_user(user_id: int, **kwargs) -> bool:
             tuple(values),
             commit=True
         )
+
+        # GitHub 백업
+        try:
+            from github_storage import backup_all_users, is_github_storage_available
+            if is_github_storage_available():
+                backup_all_users()
+        except Exception:
+            pass
+
         return True
     except Exception as e:
         print(f"Error updating user: {e}")
@@ -201,6 +210,15 @@ def delete_user(user_id: int) -> bool:
             (user_id,),
             commit=True
         )
+
+        # GitHub 백업
+        try:
+            from github_storage import backup_all_users, is_github_storage_available
+            if is_github_storage_available():
+                backup_all_users()
+        except Exception:
+            pass
+
         return True
     except Exception as e:
         print(f"Error deleting user: {e}")
