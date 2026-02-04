@@ -796,9 +796,19 @@ class EnhancedArchAnalyzer:
                 del self._provider_lms[current_provider]
         
         self._active_provider = current_provider
-        
+
         # 기존 LM 인스턴스가 있으면 재사용 (같은 provider인 경우)
         if current_provider in self._provider_lms:
+            # LM은 있지만 dspy.configure()가 호출되지 않은 경우 호출
+            if not EnhancedArchAnalyzer._lm_initialized:
+                lm = self._provider_lms[current_provider]
+                try:
+                    dspy.configure(lm=lm, track_usage=True, cache=False)
+                    print("DSPy 전역 LM이 초기화되었습니다. (기존 LM 재사용)")
+                    EnhancedArchAnalyzer._lm_initialized = True
+                except RuntimeError as thread_error:
+                    print(f"전역 LM 설정 경고: {thread_error}. 활성 컨텍스트 방식으로 진행합니다.")
+                    EnhancedArchAnalyzer._lm_initialized = True
             return
         
         temperature = 0.2
@@ -1782,6 +1792,27 @@ class EnhancedArchAnalyzer:
             many_shot_examples: Many-shot learning 예제 리스트 (선택사항)
         """
         try:
+            # prompt가 딕셔너리나 다른 타입인 경우 문자열로 변환 (slice 에러 방지)
+            if not isinstance(prompt, str):
+                print(f"⚠️ prompt 타입 변환: {type(prompt).__name__} -> str")
+                prompt = str(prompt)
+
+            # DSPy LM이 설정되지 않았으면 다시 설정 시도
+            if hasattr(self, '_init_error') or not self._provider_lms:
+                print("🔄 DSPy LM 재설정 시도...")
+                try:
+                    # _lm_initialized를 리셋하여 dspy.configure()가 다시 호출되도록 함
+                    EnhancedArchAnalyzer._lm_initialized = False
+                    self.setup_dspy()
+                    if hasattr(self, '_init_error'):
+                        delattr(self, '_init_error')
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"DSPy 초기화 실패: {str(e)}. API 키가 올바르게 설정되었는지 확인하세요.",
+                        "model": "N/A"
+                    }
+
             # Gemini 네이티브 PDF 처리 사용 (pdf_path가 제공되고 옵션이 활성화된 경우)
             if self.use_gemini_native_pdf and pdf_path:
                 try:
@@ -1813,7 +1844,9 @@ class EnhancedArchAnalyzer:
             print(f"   사용할 Signature: {signature_class.__name__}")
             print(f"   프롬프트 길이: {len(prompt)}자")
             print(f"   PDF 텍스트 길이: {len(pdf_text) if pdf_text else 0}자")
-            print(f"   프롬프트 미리보기: {prompt[:200]}...")
+            # 안전한 프롬프트 미리보기 (타입 변환 후 슬라이싱)
+            prompt_preview = str(prompt)[:200] if prompt else ""
+            print(f"   프롬프트 미리보기: {prompt_preview}...")
             
             # 웹 검색 수행 (특정 블록에 대해서만)
             web_search_context = ""
@@ -1829,8 +1862,8 @@ class EnhancedArchAnalyzer:
             rag_context = ""
             if RAG_AVAILABLE and pdf_text and len(pdf_text) > 5000:
                 try:
-                    # 프롬프트에서 핵심 키워드 추출 (간단한 방식)
-                    query_keywords = prompt[:500] if prompt else ""
+                    # 프롬프트에서 핵심 키워드 추출 (간단한 방식) - 안전한 슬라이싱
+                    query_keywords = str(prompt)[:500] if prompt else ""
                     
                     # RAG 시스템으로 관련 문서 부분 검색
                     rag_system = build_rag_system_for_documents(
@@ -2913,10 +2946,10 @@ class EnhancedArchAnalyzer:
 
         # 프로젝트 정보를 텍스트로 포맷팅
         if isinstance(project_info, dict):
+            # 안전한 문자열 변환 및 슬라이싱
             project_goals = project_info.get('project_goals') or 'N/A'
             additional_info = project_info.get('additional_info') or 'N/A'
 
-            # 안전한 문자열 변환 및 슬라이싱
             project_goals_str = str(project_goals) if project_goals and project_goals != 'N/A' else 'N/A'
             additional_info_str = str(additional_info) if additional_info and additional_info != 'N/A' else 'N/A'
 
@@ -2927,8 +2960,8 @@ class EnhancedArchAnalyzer:
                 additional_info_str = additional_info_str[:200] + '...'
 
             project_info_text = f"""
-- 프로젝트명: {project_info.get('project_name') or 'N/A'}
-- 위치: {project_info.get('location') or 'N/A'}
+- 프로젝트명: {project_info.get('project_name', 'N/A')}
+- 위치: {project_info.get('location', 'N/A')}
 - 프로젝트 목표: {project_goals_str}
 - 추가 정보: {additional_info_str}
 """
