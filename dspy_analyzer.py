@@ -22,37 +22,11 @@ from prompt_processor import process_prompt, UNIFIED_PROMPT_TEMPLATE
 
 # Pydantic 지원 (선택적)
 try:
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel
     PYDANTIC_AVAILABLE = True
 except ImportError:
     PYDANTIC_AVAILABLE = False
     BaseModel = None
-    Field = None
-
-# 구조화된 분석 응답 스키마 정의
-if PYDANTIC_AVAILABLE:
-    class TableData(BaseModel):
-        """표 데이터 구조"""
-        headers: List[str] = Field(description="표의 열 헤더 목록")
-        rows: List[List[str]] = Field(description="표의 데이터 행 목록 (각 행은 문자열 리스트)")
-        caption: Optional[str] = Field(default=None, description="표 제목 (선택)")
-
-    class Section(BaseModel):
-        """분석 섹션 구조"""
-        title: str = Field(description="섹션 제목")
-        content: str = Field(description="섹션 본문 (서술형 텍스트, 최소 200자)")
-        table: Optional[TableData] = Field(default=None, description="섹션에 포함된 표 (선택)")
-        table_explanation: Optional[str] = Field(default=None, description="표에 대한 해설 (최소 300자)")
-
-    class AnalysisResponse(BaseModel):
-        """구조화된 분석 응답"""
-        summary: str = Field(description="분석 요약 (200-400자)")
-        sections: List[Section] = Field(description="분석 섹션 목록")
-        conclusion: Optional[str] = Field(default=None, description="결론 (선택)")
-else:
-    TableData = None
-    Section = None
-    AnalysisResponse = None
 
 # RAG 기능 (선택적 사용)
 try:
@@ -661,53 +635,7 @@ class EnhancedArchAnalyzer:
 
 5. **서술형 문장**: 불릿 포인트나 키워드 나열이 아닌 완성된 문장으로 설명하세요.
 """
-
-    def _get_json_output_format_template(self):
-        """JSON 구조화된 출력 형식 템플릿을 반환하는 함수 (Structured Output용)"""
-        return """
-## 📋 JSON 출력 형식 요구사항
-
-**⚠️ 중요**: 응답은 반드시 지정된 JSON 스키마를 따라야 합니다.
-
-### 필수 구조:
-응답은 다음 JSON 구조를 따라야 합니다:
-
-```json
-{
-  "summary": "분석 요약 (200-400자, 전체 내용을 간결하게 요약)",
-  "sections": [
-    {
-      "title": "섹션 제목",
-      "content": "섹션 본문 (서술형 텍스트, 최소 200자. 구체적인 수치와 근거 포함)",
-      "table": {
-        "headers": ["열1", "열2", "열3"],
-        "rows": [
-          ["데이터1", "데이터2", "데이터3"],
-          ["데이터4", "데이터5", "데이터6"]
-        ],
-        "caption": "표 제목 (선택)"
-      },
-      "table_explanation": "표에 대한 해설 (최소 300자, 표의 의미와 인사이트 설명)"
-    }
-  ],
-  "conclusion": "결론 (선택, 전체 분석의 핵심 결론)"
-}
-```
-
-### 주의사항:
-1. **같은 내용을 절대 반복하지 마세요** - 한 번 작성한 내용은 다시 작성하지 않습니다
-2. **표가 필요한 경우** table 필드를 사용하세요. 모든 셀에 내용을 채워야 합니다
-3. **표가 필요 없는 섹션**은 table과 table_explanation을 null로 설정하세요
-4. **구체적인 수치**와 **문서 인용**을 반드시 포함하세요
-5. **서술형 텍스트**는 완성된 문장으로 작성하세요
-
-### 품질 기준:
-- summary: 전체 분석의 핵심을 200-400자로 요약
-- content: 각 섹션당 최소 200자 이상의 서술형 분석
-- table_explanation: 표가 있는 경우 최소 300자 이상의 해설
-- 모든 수치와 사실에 문서 출처 명시
-"""
-
+    
     def _get_extended_thinking_template(self):
         """확장 사고(Extended Thinking) 지시사항 템플릿을 반환하는 시스템 레벨 함수"""
         return """
@@ -796,9 +724,19 @@ class EnhancedArchAnalyzer:
                 del self._provider_lms[current_provider]
         
         self._active_provider = current_provider
-        
+
         # 기존 LM 인스턴스가 있으면 재사용 (같은 provider인 경우)
         if current_provider in self._provider_lms:
+            # LM은 있지만 dspy.configure()가 호출되지 않은 경우 호출
+            if not EnhancedArchAnalyzer._lm_initialized:
+                lm = self._provider_lms[current_provider]
+                try:
+                    dspy.configure(lm=lm, track_usage=True, cache=False)
+                    print("DSPy 전역 LM이 초기화되었습니다. (기존 LM 재사용)")
+                    EnhancedArchAnalyzer._lm_initialized = True
+                except RuntimeError as thread_error:
+                    print(f"전역 LM 설정 경고: {thread_error}. 활성 컨텍스트 방식으로 진행합니다.")
+                    EnhancedArchAnalyzer._lm_initialized = True
             return
         
         temperature = 0.2
@@ -1782,6 +1720,27 @@ class EnhancedArchAnalyzer:
             many_shot_examples: Many-shot learning 예제 리스트 (선택사항)
         """
         try:
+            # prompt가 딕셔너리나 다른 타입인 경우 문자열로 변환 (slice 에러 방지)
+            if not isinstance(prompt, str):
+                print(f"⚠️ prompt 타입 변환: {type(prompt).__name__} -> str")
+                prompt = str(prompt)
+
+            # DSPy LM이 설정되지 않았으면 다시 설정 시도
+            if hasattr(self, '_init_error') or not self._provider_lms:
+                print("🔄 DSPy LM 재설정 시도...")
+                try:
+                    # _lm_initialized를 리셋하여 dspy.configure()가 다시 호출되도록 함
+                    EnhancedArchAnalyzer._lm_initialized = False
+                    self.setup_dspy()
+                    if hasattr(self, '_init_error'):
+                        delattr(self, '_init_error')
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"DSPy 초기화 실패: {str(e)}. API 키가 올바르게 설정되었는지 확인하세요.",
+                        "model": "N/A"
+                    }
+
             # Gemini 네이티브 PDF 처리 사용 (pdf_path가 제공되고 옵션이 활성화된 경우)
             if self.use_gemini_native_pdf and pdf_path:
                 try:
@@ -1813,7 +1772,9 @@ class EnhancedArchAnalyzer:
             print(f"   사용할 Signature: {signature_class.__name__}")
             print(f"   프롬프트 길이: {len(prompt)}자")
             print(f"   PDF 텍스트 길이: {len(pdf_text) if pdf_text else 0}자")
-            print(f"   프롬프트 미리보기: {prompt[:200]}...")
+            # 안전한 프롬프트 미리보기 (타입 변환 후 슬라이싱)
+            prompt_preview = str(prompt)[:200] if prompt else ""
+            print(f"   프롬프트 미리보기: {prompt_preview}...")
             
             # 웹 검색 수행 (특정 블록에 대해서만)
             web_search_context = ""
@@ -1829,8 +1790,8 @@ class EnhancedArchAnalyzer:
             rag_context = ""
             if RAG_AVAILABLE and pdf_text and len(pdf_text) > 5000:
                 try:
-                    # 프롬프트에서 핵심 키워드 추출 (간단한 방식)
-                    query_keywords = prompt[:500] if prompt else ""
+                    # 프롬프트에서 핵심 키워드 추출 (간단한 방식) - 안전한 슬라이싱
+                    query_keywords = str(prompt)[:500] if prompt else ""
                     
                     # RAG 시스템으로 관련 문서 부분 검색
                     rag_system = build_rag_system_for_documents(
@@ -2913,10 +2874,10 @@ class EnhancedArchAnalyzer:
 
         # 프로젝트 정보를 텍스트로 포맷팅
         if isinstance(project_info, dict):
+            # 안전한 문자열 변환 및 슬라이싱
             project_goals = project_info.get('project_goals') or 'N/A'
             additional_info = project_info.get('additional_info') or 'N/A'
 
-            # 안전한 문자열 변환 및 슬라이싱
             project_goals_str = str(project_goals) if project_goals and project_goals != 'N/A' else 'N/A'
             additional_info_str = str(additional_info) if additional_info and additional_info != 'N/A' else 'N/A'
 
@@ -2927,8 +2888,8 @@ class EnhancedArchAnalyzer:
                 additional_info_str = additional_info_str[:200] + '...'
 
             project_info_text = f"""
-- 프로젝트명: {project_info.get('project_name') or 'N/A'}
-- 위치: {project_info.get('location') or 'N/A'}
+- 프로젝트명: {project_info.get('project_name', 'N/A')}
+- 위치: {project_info.get('location', 'N/A')}
 - 프로젝트 목표: {project_goals_str}
 - 추가 정보: {additional_info_str}
 """
@@ -3841,8 +3802,7 @@ class EnhancedArchAnalyzer:
         use_google_maps: bool = False,
         enable_maps_widget: bool = False,
         location_coordinates: Optional[Dict[str, float]] = None,
-        web_search_citations: Optional[List[Dict[str, Any]]] = None,
-        use_structured_output: bool = True
+        web_search_citations: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         PDF를 직접 Gemini API에 전달하여 분석
@@ -4043,17 +4003,7 @@ class EnhancedArchAnalyzer:
             # Temperature 추가
             if temperature is not None:
                 config_dict['temperature'] = max(0.0, min(1.0, temperature))
-
-            # Structured Output 설정 (JSON 응답 강제)
-            if use_structured_output and PYDANTIC_AVAILABLE and AnalysisResponse is not None:
-                try:
-                    config_dict['response_mime_type'] = 'application/json'
-                    config_dict['response_schema'] = AnalysisResponse
-                    print(f"📋 Structured Output 활성화: AnalysisResponse 스키마 사용")
-                except Exception as e:
-                    print(f"⚠️ Structured Output 설정 오류: {e}")
-                    use_structured_output = False
-
+            
             # Thinking Config 구성
             is_thinking_model = (
                 'gemini-2.5' in clean_model or 
@@ -4231,23 +4181,11 @@ class EnhancedArchAnalyzer:
                 else:
                     analysis_text = response.text
             
-            # Structured Output인 경우 JSON 파싱
-            parsed_data = None
-            if use_structured_output and analysis_text:
-                try:
-                    parsed_data = json.loads(analysis_text)
-                    print(f"✅ Structured Output 파싱 성공: {len(parsed_data.get('sections', []))}개 섹션")
-                except json.JSONDecodeError as e:
-                    print(f"⚠️ JSON 파싱 실패 (마크다운으로 폴백): {e}")
-                    parsed_data = None
-
             result = {
                 "success": True,
-                "analysis": parsed_data if parsed_data else analysis_text,
-                "analysis_raw": analysis_text,  # 원본 텍스트 보존
-                "is_structured": parsed_data is not None,
+                "analysis": analysis_text,
                 "model": f"{provider_config.get('display_name', model_name)} (PDF Direct)",
-                "method": "Gemini API Direct + PDF Native" + (" + Structured Output" if parsed_data else ""),
+                "method": "Gemini API Direct + PDF Native",
                 "block_id": block_id,
                 "pdf_method": "files_api" if use_files_api else "inline"
             }
@@ -4874,28 +4812,8 @@ class EnhancedArchAnalyzer:
             if block_id and block_id not in blocks_with_builtin_cot:
                 extended_thinking_note = self._get_extended_thinking_template()
             
-            # Structured Output 사용 여부 결정 (Pydantic 스키마가 있는 경우)
-            use_structured_output = PYDANTIC_AVAILABLE and AnalysisResponse is not None
-
             # CoT 컨텍스트와 블록 프롬프트 결합
-            if use_structured_output:
-                # Structured Output용 JSON 형식 지시
-                json_format_instruction = self._get_json_output_format_template()
-                enhanced_prompt = f"""
-{cot_context}
-
-## 🎯 블록별 분석 지시사항 (핵심)
-
-**아래 블록의 구체적인 역할, 지시사항, 단계를 정확히 따라 분석을 수행하세요.**
-**이 블록의 내용이 이번 분석의 주요 방향과 목표를 결정합니다.**
-
-{formatted_prompt}{extended_thinking_note}
-
-{json_format_instruction}
-"""
-            else:
-                # 기존 마크다운 형식 지시
-                enhanced_prompt = f"""
+            enhanced_prompt = f"""
 {cot_context}
 
 ## 🎯 블록별 분석 지시사항 (핵심)
@@ -4931,10 +4849,9 @@ class EnhancedArchAnalyzer:
                 use_google_maps=use_google_maps,
                 enable_maps_widget=enable_maps_widget,
                 location_coordinates=location_coordinates,
-                web_search_citations=web_search_citations,
-                use_structured_output=use_structured_output
+                web_search_citations=web_search_citations
             )
-
+            
         except Exception as e:
             print(f"⚠️ PDF 직접 전달 래퍼 오류: {e}")
             # 폴백: 기존 텍스트 추출 방식으로 전환
