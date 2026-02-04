@@ -283,6 +283,8 @@ if 'reference_combined_text' not in st.session_state:
     st.session_state.reference_combined_text = ""
 if 'reference_signature' not in st.session_state:
     st.session_state.reference_signature = None
+if 'document_summary' not in st.session_state:
+    st.session_state.document_summary = None
 
 DEFAULT_FIXED_PROGRAM = {
     "phase1_program_intro": "",
@@ -600,7 +602,8 @@ def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
         st.session_state.cot_citations = {}
         st.session_state.cot_history = []
         st.session_state.cot_feedback_inputs = {}
-        
+        st.session_state.document_summary = None  # 문서 요약도 초기화
+
         # Phase 1 관련 개별 블록 결과 초기화 (제거된 블록들)
         st.session_state.pop('phase1_requirements_cot_history', None)
         st.session_state.pop('phase1_3_requirements_text', None)
@@ -2669,6 +2672,10 @@ with tab_run:
     if reference_combined_text:
         project_info_payload["reference_text"] = reference_combined_text
 
+    # 문서 요약 추가 (있는 경우)
+    if st.session_state.get('document_summary'):
+        project_info_payload["document_summary"] = st.session_state.document_summary
+
     # 위치 좌표 추가 (Google Maps용)
     if st.session_state.get('latitude') and st.session_state.get('longitude'):
         try:
@@ -2841,7 +2848,23 @@ with tab_run:
                     if analyzer is None:
                         st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
                         st.stop()
-                    
+
+                    # 문서 요약 생성 (충분한 텍스트가 있고, 아직 생성되지 않은 경우)
+                    if analysis_text and len(analysis_text) > 500 and not st.session_state.get('document_summary'):
+                        with st.spinner("📄 문서 요약 생성 중..."):
+                            summary_result = analyzer.generate_document_summary(analysis_text)
+                            if summary_result.get('success'):
+                                st.session_state.document_summary = summary_result
+                                doc_type = summary_result.get('document_type', '미확인')
+                                key_topics_count = len(summary_result.get('key_topics', []))
+                                st.info(f"✅ 문서 요약 완료: {doc_type} (핵심 키워드 {key_topics_count}개 추출)")
+                            else:
+                                st.warning(f"문서 요약 생성 실패: {summary_result.get('error', '알 수 없는 오류')}")
+
+                    # document_summary를 project_info_payload에 추가
+                    if st.session_state.get('document_summary'):
+                        project_info_payload['document_summary'] = st.session_state.document_summary
+
                     # 완전히 새로운 세션 생성 (previous_results는 빈 딕셔너리로 시작)
                     session = analyzer.initialize_cot_session(project_info_payload, analysis_text, len(selected_blocks))
                     # 세션의 previous_results가 빈 딕셔너리인지 확인
