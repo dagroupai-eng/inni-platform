@@ -149,7 +149,8 @@ with col_reset:
             'skipped_blocks', 'cot_citations', 'cot_history', 'cot_analyzer',
             'preprocessed_text', 'preprocessed_summary', 'preprocessing_meta',
             'reference_documents', 'reference_combined_text', 'reference_signature',
-            'block_spatial_data', 'block_spatial_selection'
+            'block_spatial_data', 'block_spatial_selection',
+            'document_summary'
         ]
         for key in keys_to_reset:
             if key in st.session_state:
