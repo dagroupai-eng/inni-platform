@@ -2240,7 +2240,384 @@ class EnhancedArchAnalyzer:
             return "미평가"
         except:
             return "미평가"
-    
+
+    def generate_document_summary(self, pdf_text: str, max_summary_length: int = 2000) -> Dict[str, Any]:
+        """
+        문서 전체 요약 생성 (파일 업로드 후 1회 호출)
+
+        Args:
+            pdf_text: 전체 PDF 텍스트
+            max_summary_length: 요약 최대 길이
+
+        Returns:
+            {
+                "success": True,
+                "summary": "AI 생성 문서 요약",
+                "key_topics": ["주제1", "주제2", ...],
+                "document_type": "RFP/설계지침서/..."
+            }
+        """
+        try:
+            if not pdf_text or len(pdf_text.strip()) < 100:
+                return {
+                    "success": False,
+                    "error": "문서 내용이 충분하지 않습니다.",
+                    "summary": "",
+                    "key_topics": [],
+                    "document_type": "미확인"
+                }
+
+            # 문서가 너무 길면 앞뒤 + 중간 샘플링
+            if len(pdf_text) > 30000:
+                # 앞부분 10000자 + 중간 5000자 + 뒷부분 10000자
+                middle_start = len(pdf_text) // 2 - 2500
+                sampled_text = (
+                    pdf_text[:10000] +
+                    "\n\n[... 중간 생략 ...]\n\n" +
+                    pdf_text[middle_start:middle_start + 5000] +
+                    "\n\n[... 중간 생략 ...]\n\n" +
+                    pdf_text[-10000:]
+                )
+            else:
+                sampled_text = pdf_text
+
+            summary_prompt = f"""다음 문서를 분석하여 요약해주세요.
+
+## 요청 사항
+1. **문서 유형 식별**: 이 문서가 무엇인지 (RFP, 설계지침서, 사업계획서, 기획제안서, 공고문 등)
+2. **핵심 요약** (800자 이내): 문서의 주요 내용과 목적
+3. **핵심 키워드** 10개: 문서에서 중요한 용어/개념 추출
+4. **주요 요구사항**: 문서에서 요구하는 주요 사항들
+5. **제약조건**: 명시된 제약, 제한, 규정 사항들
+
+## 문서 내용
+{sampled_text}
+
+## 응답 형식 (JSON)
+```json
+{{
+    "document_type": "문서 유형",
+    "summary": "핵심 요약 텍스트",
+    "key_topics": ["키워드1", "키워드2", ...],
+    "requirements": ["요구사항1", "요구사항2", ...],
+    "constraints": ["제약조건1", "제약조건2", ...]
+}}
+```"""
+
+            # API 호출 (낮은 thinking_budget으로)
+            current_provider = get_current_provider()
+            provider_config = PROVIDER_CONFIG.get(current_provider, {})
+            api_key = os.environ.get(provider_config.get('api_key_env', ''))
+
+            if not api_key:
+                return {
+                    "success": False,
+                    "error": "API 키가 설정되지 않았습니다.",
+                    "summary": "",
+                    "key_topics": [],
+                    "document_type": "미확인"
+                }
+
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=api_key)
+            model_name = provider_config.get('model', 'gemini-2.5-flash')
+
+            # Thinking config (낮은 budget)
+            config = types.GenerateContentConfig(
+                temperature=0.3,
+                max_output_tokens=4000
+            )
+
+            # 모델에 따라 thinking 설정
+            if 'gemini-2.5' in model_name or 'gemini-3' in model_name:
+                config.thinking_config = types.ThinkingConfig(thinking_budget=5000)
+
+            response = client.models.generate_content(
+                model=model_name,
+                contents=summary_prompt,
+                config=config
+            )
+
+            response_text = response.text.strip()
+
+            # JSON 파싱 시도
+            import re
+            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                # JSON 블록이 없으면 전체 텍스트에서 JSON 찾기
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                json_str = json_match.group(0) if json_match else None
+
+            if json_str:
+                try:
+                    parsed = json.loads(json_str)
+                    return {
+                        "success": True,
+                        "summary": parsed.get('summary', '')[:max_summary_length],
+                        "key_topics": parsed.get('key_topics', [])[:15],
+                        "document_type": parsed.get('document_type', '미확인'),
+                        "requirements": parsed.get('requirements', []),
+                        "constraints": parsed.get('constraints', [])
+                    }
+                except json.JSONDecodeError:
+                    pass
+
+            # JSON 파싱 실패 시 텍스트 그대로 반환
+            return {
+                "success": True,
+                "summary": response_text[:max_summary_length],
+                "key_topics": [],
+                "document_type": "미확인",
+                "requirements": [],
+                "constraints": []
+            }
+
+        except Exception as e:
+            print(f"[ERROR] 문서 요약 생성 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": str(e),
+                "summary": "",
+                "key_topics": [],
+                "document_type": "미확인"
+            }
+
+    def _extract_block_keywords(self, block_info: Dict[str, Any]) -> List[str]:
+        """블록 정의에서 검색용 키워드 추출
+
+        Args:
+            block_info: 블록 정보 딕셔너리
+
+        Returns:
+            추출된 키워드 리스트
+        """
+        keywords = set()
+
+        # 1. narrowing.suggested_items에서 키워드 추출
+        narrowing = block_info.get('narrowing', {})
+        if isinstance(narrowing, dict):
+            suggested_items = narrowing.get('suggested_items', [])
+            if isinstance(suggested_items, list):
+                for item in suggested_items:
+                    if isinstance(item, str) and len(item) >= 2:
+                        keywords.add(item)
+
+            # evaluation_criteria에서 추출
+            eval_criteria = narrowing.get('evaluation_criteria', [])
+            if isinstance(eval_criteria, list):
+                for item in eval_criteria:
+                    if isinstance(item, str) and len(item) >= 2:
+                        keywords.add(item)
+
+        # 2. steps에서 핵심 명사 추출
+        steps = block_info.get('steps', [])
+        if isinstance(steps, list):
+            for step in steps:
+                if isinstance(step, str):
+                    # 간단한 명사 추출 (2글자 이상 한글/영문 단어)
+                    import re
+                    words = re.findall(r'[가-힣]{2,}|[A-Za-z]{3,}', step)
+                    for word in words:
+                        # 불용어 제외
+                        stopwords = {'분석', '검토', '작성', '확인', '수행', '진행', '이를', '통해', '대해', '위해', '따라', '기반', '내용', '사항', '결과'}
+                        if word not in stopwords and len(word) >= 2:
+                            keywords.add(word)
+
+        # 3. description에서 키워드 추출
+        description = block_info.get('description', '')
+        if isinstance(description, str):
+            import re
+            words = re.findall(r'[가-힣]{2,}|[A-Za-z]{3,}', description)
+            for word in words[:10]:  # 상위 10개만
+                if len(word) >= 2:
+                    keywords.add(word)
+
+        # 4. name에서 키워드 추출
+        name = block_info.get('name', '')
+        if isinstance(name, str):
+            import re
+            words = re.findall(r'[가-힣]{2,}|[A-Za-z]{3,}', name)
+            keywords.update(words)
+
+        # 5. role에서 키워드 추출
+        role = block_info.get('role', '')
+        if isinstance(role, str):
+            import re
+            words = re.findall(r'[가-힣]{2,}|[A-Za-z]{3,}', role)
+            for word in words[:5]:
+                keywords.add(word)
+
+        return list(keywords)
+
+    def extract_block_relevant_content(
+        self,
+        pdf_text: str,
+        block_info: Dict[str, Any],
+        document_summary: Optional[Dict[str, Any]] = None,
+        max_content_length: int = 4000
+    ) -> str:
+        """블록에 관련된 문서 내용을 선택적으로 추출
+
+        Args:
+            pdf_text: 전체 PDF 텍스트
+            block_info: 블록 정보
+            document_summary: 문서 요약 정보 (generate_document_summary 결과)
+            max_content_length: 최대 컨텐츠 길이
+
+        Returns:
+            블록에 맞춤화된 문서 컨텍스트 문자열
+        """
+        try:
+            if not pdf_text:
+                return 'PDF 문서가 없습니다.'
+
+            result_parts = []
+            remaining_length = max_content_length
+
+            # 1. 문서 요약 포함 (있는 경우)
+            if document_summary and document_summary.get('success'):
+                summary_text = document_summary.get('summary', '')
+                doc_type = document_summary.get('document_type', '')
+                key_topics = document_summary.get('key_topics', [])
+
+                summary_section = f"**[문서 유형: {doc_type}]**\n"
+                summary_section += f"**핵심 요약:** {summary_text}\n"
+                if key_topics:
+                    summary_section += f"**핵심 키워드:** {', '.join(key_topics[:10])}\n"
+
+                if len(summary_section) < remaining_length * 0.25:  # 최대 25%만 요약에 할당
+                    result_parts.append(summary_section)
+                    remaining_length -= len(summary_section)
+
+            # 2. 블록 키워드 추출
+            block_keywords = self._extract_block_keywords(block_info)
+
+            # 문서 요약의 키워드도 추가
+            if document_summary and document_summary.get('key_topics'):
+                block_keywords.extend(document_summary.get('key_topics', []))
+
+            block_keywords = list(set(block_keywords))  # 중복 제거
+
+            if not block_keywords:
+                # 키워드가 없으면 기존 방식 (앞부분 사용)
+                result_parts.append(f"\n**[원본 문서 내용 (앞부분)]**\n{pdf_text[:remaining_length]}")
+                return '\n'.join(result_parts)
+
+            # 3. 문서를 청크로 분할
+            try:
+                from rag_helper import chunk_documents
+                chunks = chunk_documents(pdf_text, chunk_size=800, overlap=100)
+            except ImportError:
+                # rag_helper가 없으면 간단히 분할
+                chunks = [pdf_text[i:i+800] for i in range(0, len(pdf_text), 700)]
+
+            # 4. 각 청크에 키워드 매칭 점수 계산
+            chunk_scores = []
+            for i, chunk in enumerate(chunks):
+                score = 0
+                chunk_lower = chunk.lower()
+                for keyword in block_keywords:
+                    keyword_lower = keyword.lower()
+                    count = chunk_lower.count(keyword_lower)
+                    if count > 0:
+                        # 키워드 길이에 비례하여 가중치 부여
+                        score += count * (1 + len(keyword) * 0.1)
+
+                chunk_scores.append({
+                    'index': i,
+                    'chunk': chunk,
+                    'score': score,
+                    'position': i / len(chunks)  # 문서 내 위치 (0~1)
+                })
+
+            # 5. 점수 기준으로 정렬하여 상위 청크 선택
+            scored_chunks = sorted(chunk_scores, key=lambda x: x['score'], reverse=True)
+
+            selected_chunks = []
+            selected_length = 0
+
+            for chunk_data in scored_chunks:
+                if chunk_data['score'] > 0:  # 매칭된 청크만
+                    chunk_text = chunk_data['chunk']
+                    if selected_length + len(chunk_text) <= remaining_length:
+                        selected_chunks.append(chunk_data)
+                        selected_length += len(chunk_text)
+
+            # 6. 매칭된 청크가 없거나 너무 적으면 fallback
+            if selected_length < remaining_length * 0.3:
+                # 앞부분도 포함
+                front_text = pdf_text[:min(1500, remaining_length - selected_length)]
+                result_parts.append(f"\n**[문서 앞부분]**\n{front_text}")
+                remaining_length -= len(front_text)
+
+            # 7. 선택된 청크들을 문서 순서대로 정렬하여 추가
+            if selected_chunks:
+                selected_chunks.sort(key=lambda x: x['index'])
+
+                result_parts.append(f"\n**[블록 관련 문서 섹션 ({len(selected_chunks)}개)]**")
+
+                prev_index = -2
+                for chunk_data in selected_chunks:
+                    # 연속되지 않은 청크 사이에 구분 표시
+                    if chunk_data['index'] > prev_index + 1:
+                        result_parts.append("\n[...]\n")
+
+                    result_parts.append(chunk_data['chunk'])
+                    prev_index = chunk_data['index']
+
+            # 8. 매칭 키워드 정보 추가
+            matched_keywords = []
+            for keyword in block_keywords:
+                if keyword.lower() in pdf_text.lower():
+                    matched_keywords.append(keyword)
+
+            if matched_keywords:
+                result_parts.append(f"\n**[매칭된 키워드]:** {', '.join(matched_keywords[:15])}")
+
+            return '\n'.join(result_parts)
+
+        except Exception as e:
+            print(f"[ERROR] 블록 관련 컨텐츠 추출 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            # 실패 시 기존 방식으로 fallback
+            return pdf_text[:max_content_length] if pdf_text else 'PDF 문서가 없습니다.'
+
+    def _get_block_context_content(self, cumulative_context: Dict, block_info: Dict) -> str:
+        """블록에 맞춤화된 문서 컨텍스트 반환
+
+        Args:
+            cumulative_context: 누적 컨텍스트
+            block_info: 블록 정보
+
+        Returns:
+            맞춤화된 문서 컨텍스트 문자열
+        """
+        pdf_text = cumulative_context.get('pdf_text', '')
+
+        if not pdf_text:
+            return 'PDF 문서가 없습니다.'
+
+        # project_info에서 document_summary 가져오기
+        project_info = cumulative_context.get('project_info', {})
+        document_summary = None
+        if isinstance(project_info, dict):
+            document_summary = project_info.get('document_summary')
+
+        # 블록 관련 컨텐츠 추출
+        return self.extract_block_relevant_content(
+            pdf_text=pdf_text,
+            block_info=block_info,
+            document_summary=document_summary,
+            max_content_length=4000
+        )
+
     def initialize_cot_session(self, project_info: Dict[str, Any], pdf_text: str, total_blocks: int) -> Dict[str, Any]:
         """단계별 CoT 세션 컨텍스트를 초기화합니다."""
         return {
@@ -2509,8 +2886,8 @@ class EnhancedArchAnalyzer:
 ### 📄 원본 프로젝트 정보
 {project_info_text}
 
-### 📄 원본 문서 내용
-{cumulative_context['pdf_text'][:3000] if cumulative_context['pdf_text'] else 'PDF 문서가 없습니다.'}
+### 📄 원본 문서 내용 (블록 맞춤형)
+{self._get_block_context_content(cumulative_context, block_info)}
 
 {feedback_section}
 
