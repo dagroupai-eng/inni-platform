@@ -1301,7 +1301,13 @@ def render_markdown_with_tables(text):
                     # 파싱
                     parsed_rows = []
                     for tl in table_lines:
-                        cells = [c.strip() for c in tl.split('|')[1:-1]]
+                        parts = tl.split('|')
+                        # 시작과 끝의 빈 문자열 제거 (| 로 시작하거나 끝나는 경우)
+                        if parts and parts[0].strip() == '':
+                            parts = parts[1:]
+                        if parts and parts[-1].strip() == '':
+                            parts = parts[:-1]
+                        cells = [c.strip() for c in parts]
                         if cells:
                             parsed_rows.append(cells)
 

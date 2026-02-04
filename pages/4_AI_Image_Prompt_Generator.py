@@ -2,6 +2,8 @@ import streamlit as st
 import json
 from datetime import datetime
 import os
+import re
+import pandas as pd
 from file_analyzer import UniversalFileAnalyzer
 from dspy_analyzer import EnhancedArchAnalyzer
 
@@ -243,6 +245,89 @@ def load_analysis_data():
         st.error(f"데이터 로드 오류: {e}")
         return {}
 
+def render_markdown_with_tables(text):
+    """마크다운 텍스트를 렌더링하면서 테이블은 st.dataframe()으로 변환합니다."""
+    if not text or not isinstance(text, str):
+        return
+
+    lines = text.split('\n')
+    i = 0
+    buffer = []
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # 마크다운 테이블 시작 감지 (| 구분자 기준)
+        if '|' in stripped and stripped.count('|') >= 2:
+            # 버퍼에 있는 텍스트 먼저 출력
+            if buffer:
+                st.markdown('\n'.join(buffer))
+                buffer = []
+
+            # 테이블 라인 수집
+            table_lines = [stripped]
+            i += 1
+            while i < len(lines):
+                next_line = lines[i].strip()
+                if '|' in next_line and next_line.count('|') >= 2:
+                    table_lines.append(next_line)
+                    i += 1
+                else:
+                    break
+
+            # 테이블을 DataFrame으로 변환
+            if len(table_lines) >= 2:
+                try:
+                    parsed_rows = []
+                    for tl in table_lines:
+                        cells = [c.strip() for c in tl.split('|')[1:-1]]
+                        if cells:
+                            parsed_rows.append(cells)
+
+                    if len(parsed_rows) >= 2:
+                        # 구분선 확인 (--- 패턴)
+                        is_separator = all(
+                            re.match(r'^[-:]+$', c) or c == ''
+                            for c in parsed_rows[1]
+                        )
+
+                        if is_separator and len(parsed_rows) >= 3:
+                            headers = parsed_rows[0]
+                            data = parsed_rows[2:]
+                        else:
+                            headers = [f"열{j+1}" for j in range(len(parsed_rows[0]))]
+                            data = parsed_rows
+
+                        # DataFrame 생성
+                        if data:
+                            max_cols = len(headers)
+                            normalized_data = []
+                            for row in data:
+                                if len(row) < max_cols:
+                                    row = row + [''] * (max_cols - len(row))
+                                elif len(row) > max_cols:
+                                    row = row[:max_cols]
+                                normalized_data.append(row)
+
+                            df = pd.DataFrame(normalized_data, columns=headers)
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+                            continue
+                except Exception:
+                    pass
+
+            # 파싱 실패 시 원본 출력
+            st.code('\n'.join(table_lines), language=None)
+            continue
+
+        # 일반 라인은 버퍼에 추가
+        buffer.append(line)
+        i += 1
+
+    # 남은 버퍼 출력
+    if buffer:
+        st.markdown('\n'.join(buffer))
+
 # 웹 페이지
 def main():
     st.title("AI 이미지 프롬프트 생성기")
@@ -480,7 +565,7 @@ def main():
                         # 전체 분석 결과 표시
                         if result.get('full_analysis'):
                             with st.expander("전체 분석 결과"):
-                                st.markdown(result['full_analysis'])
+                                render_markdown_with_tables(result['full_analysis'])
                         
                         # 모델 정보
                         if result.get('model'):

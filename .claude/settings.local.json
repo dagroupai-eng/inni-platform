@@ -25,7 +25,10 @@
       "Bash(git fetch:*)",
       "Bash(git merge:*)",
       "Bash(git checkout:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "WebFetch(domain:docs.streamlit.io)",
+      "WebFetch(domain:discuss.streamlit.io)",
+      "WebFetch(domain:www.streamoku.com)"
     ]
   }
 }
