@@ -32,7 +32,8 @@
       "Bash(grep:*)",
       "Bash(git pull:*)",
       "Bash(gh pr create:*)",
-      "Bash(where gh)"
+      "Bash(where gh)",
+      "Bash(git ls-tree:*)"
     ]
   }
 }

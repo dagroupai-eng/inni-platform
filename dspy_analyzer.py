@@ -2915,11 +2915,22 @@ class EnhancedArchAnalyzer:
         if isinstance(project_info, dict):
             project_goals = project_info.get('project_goals') or 'N/A'
             additional_info = project_info.get('additional_info') or 'N/A'
+
+            # 안전한 문자열 변환 및 슬라이싱
+            project_goals_str = str(project_goals) if project_goals and project_goals != 'N/A' else 'N/A'
+            additional_info_str = str(additional_info) if additional_info and additional_info != 'N/A' else 'N/A'
+
+            # 'N/A'가 아닌 경우에만 슬라이싱
+            if project_goals_str != 'N/A' and len(project_goals_str) > 200:
+                project_goals_str = project_goals_str[:200] + '...'
+            if additional_info_str != 'N/A' and len(additional_info_str) > 200:
+                additional_info_str = additional_info_str[:200] + '...'
+
             project_info_text = f"""
 - 프로젝트명: {project_info.get('project_name') or 'N/A'}
 - 위치: {project_info.get('location') or 'N/A'}
-- 프로젝트 목표: {project_goals[:200] if isinstance(project_goals, str) else str(project_goals)[:200]}
-- 추가 정보: {additional_info[:200] if isinstance(additional_info, str) else str(additional_info)[:200]}
+- 프로젝트 목표: {project_goals_str}
+- 추가 정보: {additional_info_str}
 """
         else:
             project_info_text = str(project_info)
