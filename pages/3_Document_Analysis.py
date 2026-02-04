@@ -1313,7 +1313,7 @@ def render_markdown_with_tables(text):
             # 테이블을 DataFrame으로 변환
             if len(table_lines) >= 2 and pd is not None:
                 try:
-                    # 파싱
+                    # 파싱 - 구분선(--- 패턴) 행은 제외
                     parsed_rows = []
                     for tl in table_lines:
                         parts = tl.split('|')
@@ -1323,22 +1323,21 @@ def render_markdown_with_tables(text):
                         if parts and parts[-1].strip() == '':
                             parts = parts[:-1]
                         cells = [c.strip() for c in parts]
+
+                        # 구분선 행인지 확인 (모든 셀이 ---, :---, ---:, :---: 패턴이거나 빈 경우)
                         if cells:
-                            parsed_rows.append(cells)
+                            is_separator_row = all(
+                                re.match(r'^[-:]+$', c) or c == ''
+                                for c in cells
+                            )
+                            # 구분선 행은 건너뛰기
+                            if not is_separator_row:
+                                parsed_rows.append(cells)
 
-                    if len(parsed_rows) >= 2:
-                        # 구분선 확인 (--- 패턴)
-                        is_separator = all(
-                            re.match(r'^[-:]+$', c) or c == ''
-                            for c in parsed_rows[1]
-                        )
-
-                        if is_separator and len(parsed_rows) >= 3:
-                            headers = parsed_rows[0]
-                            data = parsed_rows[2:]
-                        else:
-                            headers = [f"열{j+1}" for j in range(len(parsed_rows[0]))]
-                            data = parsed_rows
+                    if len(parsed_rows) >= 1:
+                        # 첫 번째 행을 헤더로, 나머지를 데이터로 사용
+                        headers = parsed_rows[0]
+                        data = parsed_rows[1:] if len(parsed_rows) > 1 else []
 
                         # DataFrame 생성
                         if data:
@@ -1352,6 +1351,11 @@ def render_markdown_with_tables(text):
                                 normalized_data.append(row)
 
                             df = pd.DataFrame(normalized_data, columns=headers)
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+                            continue
+                        elif headers:
+                            # 데이터가 없고 헤더만 있는 경우
+                            df = pd.DataFrame(columns=headers)
                             st.dataframe(df, use_container_width=True, hide_index=True)
                             continue
                 except Exception as e:

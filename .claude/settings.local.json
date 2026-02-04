@@ -28,7 +28,11 @@
       "Bash(git commit:*)",
       "WebFetch(domain:docs.streamlit.io)",
       "WebFetch(domain:discuss.streamlit.io)",
-      "WebFetch(domain:www.streamoku.com)"
+      "WebFetch(domain:www.streamoku.com)",
+      "Bash(grep:*)",
+      "Bash(git pull:*)",
+      "Bash(gh pr create:*)",
+      "Bash(where gh)"
     ]
   }
 }
