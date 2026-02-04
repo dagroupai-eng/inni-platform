@@ -141,8 +141,12 @@ def restore_work_session():
             try:
                 from github_storage import load_from_github, is_github_storage_available
                 if is_github_storage_available():
-                    github_user_id = str(user_id) if isinstance(user_id, int) else user_id
-                    session_data = load_from_github(github_user_id, "session")
+                    # personal_number를 폴더 이름으로 사용
+                    personal_number = st.session_state.pms_current_user.get('personal_number')
+                    if not personal_number:
+                        print("[GitHub] personal_number 없음, 복원 스킵")
+                        return
+                    session_data = load_from_github(personal_number, "session")
 
                     if session_data:
                         print(f"[GitHub] 세션 복원 성공: {len(session_data)}개 키")
@@ -244,9 +248,13 @@ def save_work_session():
             try:
                 from github_storage import save_to_github, is_github_storage_available
                 if is_github_storage_available():
-                    github_user_id = str(user_id) if isinstance(user_id, int) else user_id
-                    save_to_github(github_user_id, "session", session_data)
-                    print(f"[GitHub] 세션 백업 완료: {len(session_data)}개 키")
+                    # personal_number를 폴더 이름으로 사용
+                    personal_number = st.session_state.pms_current_user.get('personal_number')
+                    if not personal_number:
+                        print("[GitHub] personal_number 없음, 백업 스킵")
+                        return
+                    save_to_github(personal_number, "session", session_data)
+                    print(f"[GitHub] 세션 백업 완료 (user: {personal_number}): {len(session_data)}개 키")
             except Exception as gh_e:
                 print(f"[GitHub] 세션 백업 오류 (무시): {gh_e}")
 

@@ -185,9 +185,11 @@ with col_reset:
                     try:
                         from github_storage import delete_from_github, is_github_storage_available
                         if is_github_storage_available():
-                            github_user_id = str(user_id) if isinstance(user_id, int) else user_id
-                            delete_from_github(github_user_id, "session")
-                            print(f"[초기화] GitHub 백업 삭제 완료")
+                            # personal_number를 폴더 이름으로 사용
+                            personal_number = user.get('personal_number')
+                            if personal_number:
+                                delete_from_github(personal_number, "session")
+                                print(f"[초기화] GitHub 백업 삭제 완료 (user: {personal_number})")
                     except Exception as gh_e:
                         print(f"[초기화] GitHub 백업 삭제 오류 (무시): {gh_e}")
         except Exception as e:
