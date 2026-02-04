@@ -2850,6 +2850,14 @@ class EnhancedArchAnalyzer:
         else:
             project_info_text = str(project_info)
 
+        # 공간 데이터 컨텍스트 섹션 구성
+        spatial_section = ""
+        if isinstance(project_info, dict) and project_info.get('spatial_data_context'):
+            spatial_section = f"""
+### 📍 공간 데이터 분석 정보
+{project_info.get('spatial_data_context')}
+"""
+
         # 사용자 피드백 섹션 구성 (피드백 고도화 적용)
         feedback_section = ""
         if feedback_notes:
@@ -2885,7 +2893,7 @@ class EnhancedArchAnalyzer:
 
 ### 📄 원본 프로젝트 정보
 {project_info_text}
-
+{spatial_section}
 ### 📄 원본 문서 내용 (블록 맞춤형)
 {self._get_block_context_content(cumulative_context, block_info)}
 

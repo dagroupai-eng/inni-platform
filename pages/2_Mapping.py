@@ -2292,20 +2292,16 @@ with col_reset:
 
         # 동적 키 삭제 (show_block_selector_* 등)
         dynamic_keys_to_delete = [
-            key for key in st.session_state.keys()
+            key for key in list(st.session_state.keys())
             if key.startswith('show_block_selector_')
         ]
         for key in dynamic_keys_to_delete:
             del st.session_state[key]
 
-        # DB에서도 삭제 (선택사항)
-        try:
-            from auth.session_init import save_work_session
-            save_work_session()  # 빈 상태로 저장
-        except Exception as e:
-            print(f"초기화 저장 오류: {e}")
+        # 복원 방지 플래그 설정
+        st.session_state['work_session_restored_global'] = True
 
-        st.success("페이지가 초기화되었습니다.")
+        st.success("✅ 페이지가 초기화되었습니다.")
         st.rerun()
 
 st.markdown("---")

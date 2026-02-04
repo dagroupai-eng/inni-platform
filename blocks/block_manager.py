@@ -335,9 +335,15 @@ def get_accessible_blocks(user_id: int, team_id: Optional[int] = None) -> List[D
     # 팀 공유 블록
     team_blocks = []
     if team_id:
-        # visibility가 'team'이고 shared_with_teams에 현재 팀이 포함된 블록
+        # 방법 1: shared_with_teams에 현재 팀이 포함된 블록
+        # 방법 2: 소유자가 같은 팀에 속한 블록 (visibility='team')
         team_result = execute_query(
-            "SELECT * FROM blocks WHERE visibility = 'team' AND owner_id != ?",
+            """
+            SELECT b.*, u.team_id as owner_team_id
+            FROM blocks b
+            LEFT JOIN users u ON b.owner_id = u.id
+            WHERE b.visibility = 'team' AND b.owner_id != ?
+            """,
             (user_id,)
         )
         for row in team_result:
@@ -346,7 +352,11 @@ def get_accessible_blocks(user_id: int, team_id: Optional[int] = None) -> List[D
                 block["block_data"] = json.loads(block["block_data"])
                 shared_teams = json.loads(block.get("shared_with_teams") or "[]")
                 block["shared_with_teams"] = shared_teams
-                if team_id in shared_teams:
+                owner_team_id = block.get("owner_team_id")
+
+                # 조건 1: shared_with_teams에 현재 팀이 포함
+                # 조건 2: 블록 소유자가 같은 팀에 속함
+                if team_id in shared_teams or owner_team_id == team_id:
                     team_blocks.append(block)
             except json.JSONDecodeError:
                 pass
