@@ -61,6 +61,13 @@ def restore_work_session():
         print(f"[복원] 복원 진행 중, 대기: {page_name}")
         return
 
+    # 페이지 초기화 직후에는 복원하지 않음
+    if st.session_state.get('page_just_reset'):
+        print(f"[복원] 페이지 초기화 직후, 복원 스킵: {page_name}")
+        # 플래그 제거 (다음 rerun에서는 정상 동작)
+        del st.session_state['page_just_reset']
+        return
+
     # 복원 키가 있어도, 실제 데이터가 없으면 다시 복원
     if restore_key in st.session_state:
         # 프로젝트 정보 키 중 하나라도 있는지 확인

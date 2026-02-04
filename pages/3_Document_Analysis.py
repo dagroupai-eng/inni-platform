@@ -156,7 +156,8 @@ with col_reset:
             if key in st.session_state:
                 del st.session_state[key]
 
-        # 복원 키는 True로 설정 (rerun 후 복원 방지)
+        # 초기화 플래그 설정 (rerun 후 자동 복원 방지)
+        st.session_state['page_just_reset'] = True
         st.session_state['work_session_restored_global'] = True
         if 'work_session_restoring' in st.session_state:
             del st.session_state['work_session_restoring']
