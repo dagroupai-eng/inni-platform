@@ -2913,11 +2913,13 @@ class EnhancedArchAnalyzer:
 
         # 프로젝트 정보를 텍스트로 포맷팅
         if isinstance(project_info, dict):
+            project_goals = project_info.get('project_goals') or 'N/A'
+            additional_info = project_info.get('additional_info') or 'N/A'
             project_info_text = f"""
-- 프로젝트명: {project_info.get('project_name', 'N/A')}
-- 위치: {project_info.get('location', 'N/A')}
-- 프로젝트 목표: {project_info.get('project_goals', 'N/A')[:200]}
-- 추가 정보: {project_info.get('additional_info', 'N/A')[:200]}
+- 프로젝트명: {project_info.get('project_name') or 'N/A'}
+- 위치: {project_info.get('location') or 'N/A'}
+- 프로젝트 목표: {project_goals[:200] if isinstance(project_goals, str) else str(project_goals)[:200]}
+- 추가 정보: {additional_info[:200] if isinstance(additional_info, str) else str(additional_info)[:200]}
 """
         else:
             project_info_text = str(project_info)
