@@ -156,13 +156,12 @@ with col_reset:
             if key in st.session_state:
                 del st.session_state[key]
 
-        # 복원 키도 삭제
-        if 'work_session_restored_global' in st.session_state:
-            del st.session_state['work_session_restored_global']
+        # 복원 키는 True로 설정 (rerun 후 복원 방지)
+        st.session_state['work_session_restored_global'] = True
         if 'work_session_restoring' in st.session_state:
             del st.session_state['work_session_restoring']
 
-        # DB도 완전 삭제
+        # DB 및 GitHub 백업 완전 삭제
         try:
             from database.db_manager import execute_query
             if 'pms_current_user' in st.session_state:
@@ -171,18 +170,30 @@ with col_reset:
                     # DB에서 세션 데이터 삭제
                     execute_query(
                         "DELETE FROM analysis_sessions WHERE user_id = ?",
-                        (user_id,)
+                        (user_id,),
+                        commit=True
                     )
                     # analysis_progress도 삭제
                     execute_query(
                         "DELETE FROM analysis_progress WHERE user_id = ?",
-                        (user_id,)
+                        (user_id,),
+                        commit=True
                     )
                     print(f"[초기화] DB에서 사용자({user_id}) 데이터 완전 삭제 완료")
+
+                    # GitHub 백업도 삭제
+                    try:
+                        from github_storage import delete_from_github, is_github_storage_available
+                        if is_github_storage_available():
+                            github_user_id = str(user_id) if isinstance(user_id, int) else user_id
+                            delete_from_github(github_user_id, "session")
+                            print(f"[초기화] GitHub 백업 삭제 완료")
+                    except Exception as gh_e:
+                        print(f"[초기화] GitHub 백업 삭제 오류 (무시): {gh_e}")
         except Exception as e:
             print(f"[초기화] DB 삭제 오류: {e}")
 
-        print(f"[초기화] {len(keys_to_reset)}개 키 삭제 완료 (DB 포함)")
+        print(f"[초기화] {len(keys_to_reset)}개 키 삭제 완료 (DB + GitHub 포함)")
 
         st.success("✅ 페이지가 완전히 초기화되었습니다.")
         st.rerun()
