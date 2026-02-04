@@ -1279,6 +1279,109 @@ def is_table_line(line):
 
     return False
 
+def render_structured_response(response: dict):
+    """JSON 구조화된 응답을 Streamlit으로 렌더링합니다.
+
+    Args:
+        response: AnalysisResponse 스키마를 따르는 딕셔너리
+            - summary: 요약 텍스트
+            - sections: 섹션 리스트
+            - conclusion: 결론 (선택)
+    """
+    if not response or not isinstance(response, dict):
+        st.warning("응답 데이터가 올바르지 않습니다.")
+        return
+
+    # 요약 렌더링
+    summary = response.get('summary', '')
+    if summary:
+        st.markdown("### 📋 분석 요약")
+        st.markdown(summary)
+        st.markdown("---")
+
+    # 섹션별 렌더링
+    sections = response.get('sections', [])
+    for idx, section in enumerate(sections):
+        if not isinstance(section, dict):
+            continue
+
+        title = section.get('title', f'섹션 {idx + 1}')
+        content = section.get('content', '')
+        table_data = section.get('table')
+        table_explanation = section.get('table_explanation', '')
+
+        # 섹션 제목
+        st.markdown(f"### {title}")
+
+        # 섹션 본문
+        if content:
+            st.markdown(content)
+
+        # 표 렌더링
+        if table_data and isinstance(table_data, dict):
+            headers = table_data.get('headers', [])
+            rows = table_data.get('rows', [])
+            caption = table_data.get('caption', '')
+
+            if headers and rows:
+                try:
+                    # 행의 열 개수를 헤더에 맞춤
+                    max_cols = len(headers)
+                    normalized_rows = []
+                    for row in rows:
+                        if len(row) < max_cols:
+                            row = list(row) + [''] * (max_cols - len(row))
+                        elif len(row) > max_cols:
+                            row = row[:max_cols]
+                        normalized_rows.append(row)
+
+                    df = pd.DataFrame(normalized_rows, columns=headers)
+
+                    if caption:
+                        st.caption(caption)
+
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                except Exception as e:
+                    st.error(f"표 렌더링 오류: {e}")
+                    # 폴백: 원본 데이터 표시
+                    st.json(table_data)
+
+        # 표 해설
+        if table_explanation:
+            st.markdown(f"**[표 해설]** {table_explanation}")
+
+        st.markdown("")  # 섹션 간 여백
+
+    # 결론 렌더링
+    conclusion = response.get('conclusion', '')
+    if conclusion:
+        st.markdown("---")
+        st.markdown("### 🎯 결론")
+        st.markdown(conclusion)
+
+
+def render_analysis_result(result):
+    """분석 결과를 자동으로 감지하여 적절한 방식으로 렌더링합니다.
+
+    - dict이고 'sections' 키가 있으면: render_structured_response 사용
+    - 그 외: render_markdown_with_tables 사용
+    """
+    if isinstance(result, dict) and 'sections' in result:
+        render_structured_response(result)
+    elif isinstance(result, str):
+        render_markdown_with_tables(result)
+    elif isinstance(result, dict) and 'analysis' in result:
+        # 분석 결과가 래핑된 경우
+        analysis = result.get('analysis')
+        if isinstance(analysis, dict) and 'sections' in analysis:
+            render_structured_response(analysis)
+        else:
+            render_markdown_with_tables(str(analysis) if analysis else "")
+    else:
+        st.warning("알 수 없는 결과 형식입니다.")
+        st.json(result) if isinstance(result, dict) else st.text(str(result))
+
+
 def render_markdown_with_tables(text):
     """마크다운 텍스트를 렌더링하면서 테이블은 st.dataframe()으로 변환합니다."""
     if not text or not isinstance(text, str):
@@ -3433,7 +3536,7 @@ with tab_run:
                 with tab:
                     block = block_lookup.get(block_id)
                     st.markdown("**분석 결과**")
-                    render_markdown_with_tables(ordered_results[block_id])
+                    render_analysis_result(ordered_results[block_id])
 
     all_blocks_completed = (
         st.session_state.cot_plan
