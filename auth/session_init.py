@@ -35,10 +35,14 @@ def restore_login_session():
 
 def restore_work_session():
     """작업 데이터를 DB에서 복원합니다."""
+    print("[복원] restore_work_session() 호출됨")
+
     # 로그인 확인
     if 'pms_current_user' not in st.session_state:
         print("[복원] 로그인 정보 없음, 복원 스킵")
         return
+
+    print(f"[복원] 로그인 확인됨: {st.session_state.pms_current_user.get('personal_number', 'unknown')}")
 
     # 현재 페이지에서 이미 복원했는지 확인
     import inspect

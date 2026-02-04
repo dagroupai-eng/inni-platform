@@ -12,10 +12,18 @@ st.set_page_config(
 
 # 데이터베이스 및 인증 모듈 초기화
 try:
-    from database.init_db import init_database
-    from database.db_manager import table_exists
+    from database.init_db import init_database, _restore_from_github
+    from database.db_manager import table_exists, execute_query
+
     if not table_exists("users"):
+        # 테이블이 없으면 전체 초기화
         init_database()
+    else:
+        # 테이블은 있지만 사용자 데이터가 비어있으면 GitHub에서 복원
+        user_count = execute_query("SELECT COUNT(*) as cnt FROM users")
+        if user_count and user_count[0]['cnt'] <= 1:  # ADMIN만 있거나 비어있음
+            print("[DB] 사용자 데이터 없음, GitHub에서 복원 시도...")
+            _restore_from_github()
 except Exception as e:
     print(f"데이터베이스 초기화 경고: {e}")
 
