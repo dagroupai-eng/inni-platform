@@ -145,12 +145,16 @@ def save_to_github(user_id: str, data_type: str, data: Dict) -> bool:
     데이터를 GitHub에 저장
 
     Args:
-        user_id: 사용자 ID
+        user_id: 사용자 식별자 (personal_number 권장, 예: 'ADMIN001', 'JUEUN')
         data_type: 데이터 타입 (예: 'session', 'analysis', 'project')
         data: 저장할 데이터
 
     Returns:
         성공 여부
+
+    Note:
+        폴더 구조: user_data/{user_id}/{data_type}.json.gz
+        예: user_data/ADMIN001/session.json.gz
     """
     if not REQUESTS_AVAILABLE:
         print("[GitHub] requests 라이브러리가 필요합니다")
@@ -216,11 +220,14 @@ def load_from_github(user_id: str, data_type: str) -> Optional[Dict]:
     GitHub에서 데이터 불러오기
 
     Args:
-        user_id: 사용자 ID
+        user_id: 사용자 식별자 (personal_number 권장, 예: 'ADMIN001', 'JUEUN')
         data_type: 데이터 타입
 
     Returns:
         저장된 데이터 또는 None
+
+    Note:
+        폴더 구조: user_data/{user_id}/{data_type}.json.gz
     """
     if not REQUESTS_AVAILABLE:
         return None
@@ -261,7 +268,16 @@ def load_from_github(user_id: str, data_type: str) -> Optional[Dict]:
 
 
 def delete_from_github(user_id: str, data_type: str) -> bool:
-    """GitHub에서 데이터 삭제"""
+    """
+    GitHub에서 데이터 삭제
+
+    Args:
+        user_id: 사용자 식별자 (personal_number 권장, 예: 'ADMIN001', 'JUEUN')
+        data_type: 데이터 타입
+
+    Returns:
+        성공 여부
+    """
     if not REQUESTS_AVAILABLE:
         return False
 
