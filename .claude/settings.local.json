@@ -39,7 +39,18 @@
       "Bash(sqlite3:*)",
       "Bash(git log:*)",
       "Bash(gunzip:*)",
-      "Bash(python -m json.tool:*)"
+      "Bash(python -m json.tool:*)",
+      "Bash(git stash:*)",
+      "Bash(pip install:*)",
+      "Bash(pip show:*)",
+      "Bash(pip list:*)",
+      "Bash(conda run:*)",
+      "Bash(conda activate:*)",
+      "Bash(C:/Users/dA/miniconda3/envs/test_analyzer/python.exe:*)",
+      "Bash(timeout /t 5:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(C:/Users/dA/miniconda3/envs/test_analyzer/Scripts/streamlit.exe run app.py --server.port 8502)"
     ]
   }
 }

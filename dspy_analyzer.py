@@ -1,4 +1,14 @@
 import os
+import sys
+
+# Windows cp949 인코딩 문제 해결 (이모지 출력 시 UnicodeEncodeError 방지)
+if sys.platform == 'win32' and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 # DSPy 캐시 비활성화 (import 전에 설정해야 함)
 os.environ['DSP_CACHEBOOL'] = 'false'
 os.environ['DSPY_CACHEBOOL'] = 'false'
@@ -365,6 +375,17 @@ def build_contextual_feedback_prompt(
 
     # 이전 결과 요약 (너무 길면 자르기)
     if previous_result:
+        # dict인 경우 (Structured Output) 문자열로 변환
+        if isinstance(previous_result, dict):
+            parts = []
+            if 'summary' in previous_result:
+                parts.append(str(previous_result['summary']))
+            for section in previous_result.get('sections', []):
+                if isinstance(section, dict) and 'content' in section:
+                    parts.append(str(section['content']))
+            previous_result = ' '.join(parts) if parts else str(previous_result)
+        elif not isinstance(previous_result, str):
+            previous_result = str(previous_result)
         summary_length = min(len(previous_result), 1500)
         prompt_parts.append(f"\n**이전 분석 결과 요약**:\n{previous_result[:summary_length]}")
         if len(previous_result) > summary_length:
@@ -2122,8 +2143,10 @@ class EnhancedArchAnalyzer:
                         # 폴백: 기존 DSPy 방식 사용
             
             # DSPy Predict 사용 (블록별 특화 signature 포함)
-            result = dspy.Predict(signature_class)(input=enhanced_prompt)
-            
+            # _lm_context()로 LM을 명시적으로 전달 (Streamlit 스레드 환경에서 dspy.configure() 실패 대비)
+            with self._lm_context():
+                result = dspy.Predict(signature_class)(input=enhanced_prompt)
+
             return {
                 "success": True,
                 "analysis": result.output,
@@ -2829,8 +2852,11 @@ class EnhancedArchAnalyzer:
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
-            print(f"[ERROR] run_cot_step 예외 발생:")
-            print(error_details)
+            try:
+                print(f"[ERROR] run_cot_step 예외 발생:")
+                print(error_details)
+            except UnicodeEncodeError:
+                print(f"[ERROR] run_cot_step exception: {type(e).__name__}: {e!r}")
             return {
                 "success": False,
                 "error": str(e),
@@ -2917,9 +2943,14 @@ class EnhancedArchAnalyzer:
             previous_insights_summary = "\n### 🔗 이전 블록들의 핵심 인사이트:\n"
 
             for i, history_item in enumerate(cumulative_context["cot_history"]):
+                # key_insights가 리스트인 경우 문자열로 변환 (하위 호환성)
+                insights = history_item['key_insights']
+                if isinstance(insights, list):
+                    insights = ' | '.join(str(item) for item in insights)
+                insights_str = str(insights)[:300] if insights else ''
                 previous_insights_summary += f"""
 **{i+1}단계 - {history_item['block_name']}:**
-{history_item['key_insights'][:300]}...
+{insights_str}...
 
 """
 
@@ -3076,13 +3107,18 @@ class EnhancedArchAnalyzer:
                 pdf_bytes, pdf_path, file_size = self._extract_pdf_data(project_info)
                 if pdf_bytes is not None:
                     print(f"📄 PDF 직접 전달 모드 사용: {file_size} bytes")
-                    # PDF 직접 전달 방식 사용
-                    return self._analyze_block_with_pdf_direct_wrapper(
+                    result = self._analyze_block_with_pdf_direct_wrapper(
                         cot_context, block_info, block_id, project_info,
                         pdf_bytes, pdf_path, thinking_budget, temperature,
                         enable_streaming, progress_callback
                     )
-            
+                    # PDF 크기 초과 등으로 실패 시 텍스트 추출 방식으로 폴백
+                    if result.get('success') or 'PDF_TOO_LARGE' not in str(result.get('error', '')):
+                        return result
+                    print(f"📝 PDF 직접 전달 실패, 텍스트 추출 방식으로 폴백합니다.")
+                    if progress_callback:
+                        progress_callback("📝 PDF가 50MB를 초과하여 텍스트 추출 방식으로 분석합니다...")
+
             # 기존 방식: PDF 텍스트 추출
             pdf_text = ""
             if isinstance(project_info, dict):
@@ -3347,8 +3383,11 @@ class EnhancedArchAnalyzer:
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
-            print(f"[ERROR] _analyze_block_with_cot_context 예외 발생:")
-            print(error_details)
+            try:
+                print(f"[ERROR] _analyze_block_with_cot_context 예외 발생:")
+                print(error_details)
+            except UnicodeEncodeError:
+                print(f"[ERROR] _analyze_block_with_cot_context: {type(e).__name__}: {e!r}")
             return {
                 "success": False,
                 "error": str(e),
@@ -3917,9 +3956,19 @@ class EnhancedArchAnalyzer:
             
             client = genai.Client(api_key=api_key)
             
-            # 파일 크기에 따른 처리 방식 선택 (10MB 기준)
+            # Gemini API PDF 제한: 50MB / 1,000페이지
+            MAX_PDF_SIZE = 50 * 1024 * 1024  # 50MB
             FILE_SIZE_THRESHOLD = 10 * 1024 * 1024  # 10MB
             file_size = len(pdf_bytes)
+
+            if file_size > MAX_PDF_SIZE:
+                print(f"⚠️ PDF 크기({file_size/1024/1024:.1f}MB)가 Gemini API 제한(50MB)을 초과합니다. 텍스트 추출 방식으로 전환합니다.")
+                return {
+                    "success": False,
+                    "error": f"PDF_TOO_LARGE:{file_size}",
+                    "method": "PDF Direct (Size Exceeded)"
+                }
+
             use_files_api = file_size >= FILE_SIZE_THRESHOLD
             
             # PDF Part 준비
@@ -3943,27 +3992,36 @@ class EnhancedArchAnalyzer:
                 max_wait_time = 300  # 최대 5분 대기
                 start_time = time.time()
                 
-                while uploaded_file.state == 'PROCESSING':
+                while str(uploaded_file.state) in ('PROCESSING', 'State.PROCESSING'):
                     if time.time() - start_time > max_wait_time:
                         return {
                             "success": False,
                             "error": "파일 처리 시간이 초과되었습니다."
                         }
-                    
+
                     uploaded_file = client.files.get(name=uploaded_file.name)
                     if progress_callback:
                         progress_callback(f"📤 PDF 파일 처리 중... ({uploaded_file.state})")
                     time.sleep(2)
-                
-                if uploaded_file.state == 'FAILED':
+
+                if str(uploaded_file.state) in ('FAILED', 'State.FAILED'):
                     return {
                         "success": False,
                         "error": "파일 처리에 실패했습니다."
                     }
                 
                 # Files API로 업로드된 파일은 URI로 참조
-                pdf_part = uploaded_file
-                print(f"📄 Files API 사용: {uploaded_file.uri}")
+                # google-genai SDK에서 File 객체 대신 Part.from_uri 사용
+                try:
+                    pdf_part = types.Part.from_uri(
+                        file_uri=uploaded_file.uri,
+                        mime_type='application/pdf'
+                    )
+                    print(f"📄 Files API 사용 (Part.from_uri): {uploaded_file.uri}")
+                except Exception:
+                    # 폴백: File 객체 직접 사용
+                    pdf_part = uploaded_file
+                    print(f"📄 Files API 사용 (File 직접): {uploaded_file.uri}")
             else:
                 # 인라인 처리 (작은 파일)
                 pdf_part = types.Part.from_bytes(
@@ -4078,14 +4136,20 @@ class EnhancedArchAnalyzer:
                 config_dict['temperature'] = max(0.0, min(1.0, temperature))
 
             # Structured Output 설정 (JSON 응답 강제)
+            # 주의: Thinking 모델(Gemini 2.5+)에서는 response_schema와 호환 문제 발생 가능
             if use_structured_output and PYDANTIC_AVAILABLE and AnalysisResponse is not None:
-                try:
-                    config_dict['response_mime_type'] = 'application/json'
-                    config_dict['response_schema'] = AnalysisResponse
-                    print(f"📋 Structured Output 활성화: AnalysisResponse 스키마 사용")
-                except Exception as e:
-                    print(f"⚠️ Structured Output 설정 오류: {e}")
+                is_thinking = ('gemini-2.5' in clean_model or 'gemini-3' in clean_model or 'gemini-2.0' in clean_model)
+                if is_thinking:
+                    print(f"⚠️ Thinking 모델({clean_model})에서 Structured Output 비활성화 (호환성 문제)")
                     use_structured_output = False
+                else:
+                    try:
+                        config_dict['response_mime_type'] = 'application/json'
+                        config_dict['response_schema'] = AnalysisResponse
+                        print(f"📋 Structured Output 활성화: AnalysisResponse 스키마 사용")
+                    except Exception as e:
+                        print(f"⚠️ Structured Output 설정 오류: {e}")
+                        use_structured_output = False
 
             # Thinking Config 구성
             is_thinking_model = (
@@ -4208,10 +4272,10 @@ class EnhancedArchAnalyzer:
             # 분석 요청
             if progress_callback:
                 progress_callback("📊 PDF 직접 분석 시작...")
-            
+
             thought_summary = ""
             analysis_text = ""
-            
+
             if enable_streaming and progress_callback:
                 # 스트리밍 모드
                 response_stream = client.models.generate_content_stream(
@@ -5089,12 +5153,27 @@ class EnhancedArchAnalyzer:
         return 0.3
     
     def _extract_key_insights(self, analysis_text, max_length=200):
-        """분석 결과에서 핵심 인사이트 추출"""
+        """분석 결과에서 핵심 인사이트 추출 (문자열 반환)"""
         try:
-            # 간단한 핵심 인사이트 추출 로직
-            # "핵심", "주요", "중요", "결론" 등의 키워드가 포함된 문장들 추출
+            # analysis_text가 dict인 경우 (Structured Output) 문자열로 변환
+            if isinstance(analysis_text, dict):
+                # structured output에서 텍스트 추출
+                parts = []
+                if 'summary' in analysis_text:
+                    parts.append(str(analysis_text['summary']))
+                for section in analysis_text.get('sections', []):
+                    if isinstance(section, dict) and 'content' in section:
+                        parts.append(str(section['content']))
+                if 'conclusion' in analysis_text and analysis_text['conclusion']:
+                    parts.append(str(analysis_text['conclusion']))
+                analysis_text = ' '.join(parts) if parts else str(analysis_text)
+
+            # analysis_text가 문자열이 아닌 경우 변환
+            if not isinstance(analysis_text, str):
+                analysis_text = str(analysis_text)
+
             import re
-            
+
             # 핵심 키워드가 포함된 문장들 찾기
             key_patterns = [
                 r'핵심[^.]*[.]',
@@ -5104,24 +5183,29 @@ class EnhancedArchAnalyzer:
                 r'발견[^.]*[.]',
                 r'인사이트[^.]*[.]'
             ]
-            
+
             insights = []
             for pattern in key_patterns:
                 matches = re.findall(pattern, analysis_text)
                 insights.extend(matches[:2])  # 패턴당 최대 2개
-            
+
             # 중복 제거 및 길이 제한
             unique_insights = []
             for insight in insights:
                 if insight not in unique_insights and len(insight) <= max_length:
                     unique_insights.append(insight)
-            
-            # 최대 3개까지만 반환
-            return unique_insights[:3]
-            
-        except:
+
+            # 문자열로 결합하여 반환 (리스트가 아닌 문자열)
+            if unique_insights:
+                return ' | '.join(unique_insights[:3])
+
+            # 인사이트를 찾지 못한 경우 앞부분 반환
+            return analysis_text[:max_length] + "..." if len(analysis_text) > max_length else analysis_text
+
+        except Exception:
             # 오류 시 간단히 앞부분 반환
-            return [analysis_text[:max_length] + "..."] if analysis_text else []
+            text = str(analysis_text) if analysis_text else ""
+            return text[:max_length] + "..." if len(text) > max_length else text
     
     def batch_analyze_blocks(self, projects: List[Dict[str, Any]], block_ids: List[str], 
                            block_infos: Dict[str, Dict], progress_callback=None):

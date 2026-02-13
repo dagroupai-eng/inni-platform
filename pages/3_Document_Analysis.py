@@ -1104,7 +1104,24 @@ def create_word_document(project_name, analysis_results):
 def add_content_with_tables(doc, text):
     """텍스트를 분석하여 표는 Word 표로, 일반 텍스트는 문단으로 추가합니다."""
     import re
-    
+
+    # dict인 경우 (Structured Output) 문자열로 변환
+    if isinstance(text, dict):
+        parts = []
+        if 'summary' in text:
+            parts.append(str(text['summary']))
+        for section in text.get('sections', []):
+            if isinstance(section, dict):
+                if section.get('title'):
+                    parts.append(f"## {section['title']}")
+                if section.get('content'):
+                    parts.append(str(section['content']))
+        if text.get('conclusion'):
+            parts.append(str(text['conclusion']))
+        text = '\n\n'.join(parts) if parts else str(text)
+    elif not isinstance(text, str):
+        text = str(text)
+
     lines = text.split('\n')
     i = 0
     
