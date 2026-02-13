@@ -32,7 +32,25 @@
       "Bash(grep:*)",
       "Bash(git pull:*)",
       "Bash(gh pr create:*)",
-      "Bash(where gh)"
+      "Bash(where gh)",
+      "Bash(gh pr create --title \"Fix GitHub data restoration on warm restart\" --body \"$\\(cat <<''EOF''\n## Summary\n- Streamlit Cloud warm restart 시 GitHub에서 사용자 데이터 복원 안 되는 문제 수정\n- users 테이블 존재 여부가 아닌 데이터 존재 여부로 복원 조건 변경\n\n## Changes\n- `app.py`: 사용자 수가 1명 이하면 GitHub에서 복원 시도\n- `auth/session_init.py`: 디버그 로그 추가\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\nEOF\n\\)\" --base master)",
+      "Bash(ls:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(sqlite3:*)",
+      "Bash(git log:*)",
+      "Bash(gunzip:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(git stash:*)",
+      "Bash(pip install:*)",
+      "Bash(pip show:*)",
+      "Bash(pip list:*)",
+      "Bash(conda run:*)",
+      "Bash(conda activate:*)",
+      "Bash(C:/Users/dA/miniconda3/envs/test_analyzer/python.exe:*)",
+      "Bash(timeout /t 5:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(C:/Users/dA/miniconda3/envs/test_analyzer/Scripts/streamlit.exe run app.py --server.port 8502)"
     ]
   }
 }
