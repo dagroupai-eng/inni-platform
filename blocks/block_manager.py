@@ -82,13 +82,6 @@ def create_user_block(
             commit=True
         )
 
-        # GitHub 백업 (Streamlit Cloud용)
-        try:
-            from github_storage import backup_all_blocks, is_github_storage_available
-            if is_github_storage_available():
-                backup_all_blocks()
-        except Exception as gh_e:
-            print(f"[GitHub] 블록 백업 오류 (무시): {gh_e}")
 
         return get_last_insert_id()
     except Exception as e:
@@ -132,7 +125,7 @@ def get_user_blocks(
         block = dict(row)
         # JSON 문자열을 파싱
         try:
-            block["block_data"] = json.loads(block["block_data"])
+            block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
             block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
         except json.JSONDecodeError:
             pass
@@ -159,7 +152,7 @@ def get_block_by_id(block_db_id: int) -> Optional[Dict[str, Any]]:
     if result:
         block = dict(result[0])
         try:
-            block["block_data"] = json.loads(block["block_data"])
+            block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
             block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
         except json.JSONDecodeError:
             pass
@@ -193,7 +186,7 @@ def get_block_by_block_id(block_id: str, owner_id: Optional[int] = None) -> Opti
     if result:
         block = dict(result[0])
         try:
-            block["block_data"] = json.loads(block["block_data"])
+            block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
             block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
         except json.JSONDecodeError:
             pass
@@ -251,13 +244,6 @@ def update_user_block(
             commit=True
         )
 
-        # GitHub 백업
-        try:
-            from github_storage import backup_all_blocks, is_github_storage_available
-            if is_github_storage_available():
-                backup_all_blocks()
-        except Exception:
-            pass
 
         return True
     except Exception as e:
@@ -288,13 +274,6 @@ def delete_user_block(block_db_id: int, owner_id: int) -> bool:
             commit=True
         )
 
-        # GitHub 백업
-        try:
-            from github_storage import backup_all_blocks, is_github_storage_available
-            if is_github_storage_available():
-                backup_all_blocks()
-        except Exception:
-            pass
 
         return True
     except Exception as e:
@@ -326,7 +305,7 @@ def get_accessible_blocks(user_id: int, team_id: Optional[int] = None) -> List[D
     for row in public_result:
         block = dict(row)
         try:
-            block["block_data"] = json.loads(block["block_data"])
+            block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
             block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
         except json.JSONDecodeError:
             pass
@@ -349,7 +328,7 @@ def get_accessible_blocks(user_id: int, team_id: Optional[int] = None) -> List[D
         for row in team_result:
             block = dict(row)
             try:
-                block["block_data"] = json.loads(block["block_data"])
+                block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
                 shared_teams = json.loads(block.get("shared_with_teams") or "[]")
                 block["shared_with_teams"] = shared_teams
                 owner_team_id = block.get("owner_team_id")
