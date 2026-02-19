@@ -98,20 +98,29 @@ def get_all_users_admin(
     Returns:
         사용자 목록
     """
-    query = "SELECT u.*, t.name as team_name FROM users u LEFT JOIN teams t ON u.team_id = t.id WHERE 1=1"
-    params = []
+    # Supabase: JOIN 대신 foreign key 관계로 조회
+    from database.supabase_client import get_supabase_client
+    client = get_supabase_client()
+
+    qb = client.table('users').select('*, teams(name)')
 
     if not include_inactive:
-        query += " AND u.status = 'active'"
+        qb = qb.eq('status', 'active')
 
     if search_query:
-        query += " AND (u.personal_number LIKE ? OR u.display_name LIKE ?)"
-        params.extend([f"%{search_query}%", f"%{search_query}%"])
+        qb = qb.or_(f"personal_number.ilike.%{search_query}%,display_name.ilike.%{search_query}%")
 
-    query += " ORDER BY u.created_at DESC"
+    qb = qb.order('created_at', desc=True)
 
-    result = execute_query(query, tuple(params) if params else None)
-    return [dict(row) for row in result]
+    result = qb.execute()
+    users = []
+    for row in (result.data or []):
+        user = dict(row)
+        # teams(name) 결과를 team_name으로 변환
+        team_info = user.pop('teams', None)
+        user['team_name'] = team_info['name'] if team_info and isinstance(team_info, dict) else None
+        users.append(user)
+    return users
 
 
 def create_user_admin(
