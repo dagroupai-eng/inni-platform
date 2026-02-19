@@ -1116,6 +1116,19 @@ def add_content_with_tables(doc, text):
                     parts.append(f"## {section['title']}")
                 if section.get('content'):
                     parts.append(str(section['content']))
+                # Structured Output의 table 필드를 마크다운 파이프 테이블로 변환
+                table_data = section.get('table')
+                if table_data and isinstance(table_data, dict):
+                    headers = table_data.get('headers', [])
+                    rows = table_data.get('rows', [])
+                    if headers and rows:
+                        md_lines = ['| ' + ' | '.join(str(h) for h in headers) + ' |']
+                        md_lines.append('| ' + ' | '.join('---' for _ in headers) + ' |')
+                        for row in rows:
+                            md_lines.append('| ' + ' | '.join(str(c) for c in row) + ' |')
+                        parts.append('\n'.join(md_lines))
+                if section.get('table_explanation'):
+                    parts.append(str(section['table_explanation']))
         if text.get('conclusion'):
             parts.append(str(text['conclusion']))
         text = '\n\n'.join(parts) if parts else str(text)
@@ -1348,15 +1361,41 @@ def render_structured_response(response: dict):
         st.markdown(conclusion)
 
 
+def _try_parse_structured_json(text: str):
+    """문자열에서 마크다운 코드블록을 제거한 뒤 JSON 파싱을 시도하고, summary/sections를 가진 dict면 반환."""
+    if not text or not isinstance(text, str):
+        return None
+    s = text.strip()
+    # 앞뒤 마크다운 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
+    s = re.sub(r'^\s*```(?:json)?\s*\n?', '', s)
+    s = re.sub(r'\n?\s*```\s*$', '', s)
+    s = s.strip()
+    if not s:
+        return None
+    try:
+        import json
+        parsed = json.loads(s)
+        if isinstance(parsed, dict) and 'summary' in parsed and 'sections' in parsed:
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
+
+
 def render_analysis_result(result):
     """분석 결과를 자동으로 감지하여 적절한 방식으로 렌더링합니다.
 
     - dict이고 'sections' 키가 있으면: render_structured_response 사용
+    - 문자열이 JSON(summary/sections) 형태면 파싱 후 구조화 렌더링 (코드블록 포함)
     - 그 외: render_markdown_with_tables 사용
     """
     if isinstance(result, dict) and 'sections' in result:
         render_structured_response(result)
     elif isinstance(result, str):
+        parsed = _try_parse_structured_json(result)
+        if parsed is not None:
+            render_structured_response(parsed)
+            return
         render_markdown_with_tables(result)
     elif isinstance(result, dict) and 'analysis' in result:
         # 분석 결과가 래핑된 경우
@@ -3622,7 +3661,7 @@ with tab_download:
             with col2:
                 st.download_button(
                     label="📥 다운로드",
-                    data=result,
+                    data=str(result) if not isinstance(result, (str, bytes)) else result,
                     file_name=f"{block_name}.txt",
                     mime="text/plain",
                     key=f"download_{block_id}"

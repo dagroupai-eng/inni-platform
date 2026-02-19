@@ -2104,7 +2104,7 @@ class EnhancedArchAnalyzer:
                         if pdf_text and len(pdf_text) > 50000:  # 50,000자 이상일 때 캐싱 고려
                             try:
                                 import hashlib
-                                cache_key = hashlib.md5(pdf_text.encode()).hexdigest()
+                                cache_key = hashlib.md5(pdf_text.encode('utf-8')).hexdigest()
                                 use_context_caching = True
                                 print(f"💾 Context Caching 활성화: 긴 문서 ({len(pdf_text):,}자)")
                             except Exception:
@@ -3974,19 +3974,25 @@ class EnhancedArchAnalyzer:
             # PDF Part 준비
             pdf_part = None
             if use_files_api:
-                # Files API 사용 (대용량 파일)
-                if pdf_path:
-                    uploaded_file = client.files.upload(
-                        file=pdf_path,
-                        config=dict(mime_type='application/pdf')
-                    )
-                else:
-                    # 바이트 데이터는 BytesIO로 업로드
+                # Files API 사용 (대용량 파일). pdf_bytes 우선 사용 (한글 경로 ASCII 인코딩 오류 방지)
+                if pdf_bytes is not None:
                     pdf_io = io.BytesIO(pdf_bytes)
                     uploaded_file = client.files.upload(
                         file=pdf_io,
                         config=dict(mime_type='application/pdf')
                     )
+                elif pdf_path:
+                    uploaded_file = client.files.upload(
+                        file=pdf_path,
+                        config=dict(mime_type='application/pdf')
+                    )
+                else:
+                    return {
+                        "success": False,
+                        "error": "PDF 데이터가 없습니다.",
+                        "model": self._get_current_model_info(" (PDF Direct)"),
+                        "method": "PDF Direct (No Data)"
+                    }
                 
                 # 파일 처리 대기
                 max_wait_time = 300  # 최대 5분 대기
@@ -4289,7 +4295,10 @@ class EnhancedArchAnalyzer:
                 
                 for chunk in response_stream:
                     if hasattr(chunk, 'candidates') and chunk.candidates:
-                        for part in chunk.candidates[0].content.parts:
+                        content = chunk.candidates[0].content
+                        if not content or not content.parts:
+                            continue
+                        for part in content.parts:
                             if not part.text:
                                 continue
                             
@@ -4316,7 +4325,7 @@ class EnhancedArchAnalyzer:
                 )
                 
                 # Thought summaries와 일반 응답 분리
-                if include_thoughts and hasattr(response, 'candidates') and response.candidates:
+                if include_thoughts and hasattr(response, 'candidates') and response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
                     for part in response.candidates[0].content.parts:
                         if not part.text:
                             continue
@@ -4326,7 +4335,7 @@ class EnhancedArchAnalyzer:
                         else:
                             analysis_text += part.text
                 else:
-                    analysis_text = response.text
+                    analysis_text = response.text or ""
             
             # Structured Output인 경우 JSON 파싱
             parsed_data = None
@@ -4337,6 +4346,32 @@ class EnhancedArchAnalyzer:
                 except json.JSONDecodeError as e:
                     print(f"⚠️ JSON 파싱 실패 (마크다운으로 폴백): {e}")
                     parsed_data = None
+
+            # Thinking 모델 등에서 Structured Output 비활성화 시에도, 응답이 JSON(summary/sections) 형태면 파싱하여 구조화 표시
+            if parsed_data is None and isinstance(analysis_text, str) and analysis_text.strip().startswith('{'):
+                try:
+                    candidate = json.loads(analysis_text)
+                    if isinstance(candidate, dict) and 'sections' in candidate and 'summary' in candidate:
+                        parsed_data = candidate
+                        print(f"✅ 응답 JSON 폴백 파싱 성공: {len(parsed_data.get('sections', []))}개 섹션")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # 마크다운 코드블록(```json ... ```)으로 감싼 응답인 경우 제거 후 파싱
+            if parsed_data is None and isinstance(analysis_text, str) and analysis_text.strip():
+                import re
+                s = analysis_text.strip()
+                s = re.sub(r'^\s*```(?:json)?\s*\n?', '', s)
+                s = re.sub(r'\n?\s*```\s*$', '', s)
+                s = s.strip()
+                if s:
+                    try:
+                        candidate = json.loads(s)
+                        if isinstance(candidate, dict) and 'sections' in candidate and 'summary' in candidate:
+                            parsed_data = candidate
+                            print(f"✅ 응답 JSON 코드블록 제거 후 파싱 성공: {len(parsed_data.get('sections', []))}개 섹션")
+                    except (json.JSONDecodeError, TypeError):
+                        pass
 
             result = {
                 "success": True,
@@ -4686,9 +4721,35 @@ class EnhancedArchAnalyzer:
                 
                 # Function calls가 없으면 최종 응답
                 if not function_calls:
+                    analysis_for_result = analysis_text
+                    if isinstance(analysis_text, str) and analysis_text.strip():
+                        # 1) 그냥 JSON 문자열이면 파싱
+                        if analysis_text.strip().startswith('{'):
+                            try:
+                                candidate = json.loads(analysis_text)
+                                if isinstance(candidate, dict) and 'sections' in candidate and 'summary' in candidate:
+                                    analysis_for_result = candidate
+                                    print(f"✅ Function Calling 응답 JSON 폴백 파싱 성공: {len(analysis_for_result.get('sections', []))}개 섹션")
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                        # 2) 코드블록으로 감싼 경우 제거 후 파싱
+                        if analysis_for_result is analysis_text:
+                            import re
+                            s = analysis_text.strip()
+                            s = re.sub(r'^\s*```(?:json)?\s*\n?', '', s)
+                            s = re.sub(r'\n?\s*```\s*$', '', s)
+                            s = s.strip()
+                            if s:
+                                try:
+                                    candidate = json.loads(s)
+                                    if isinstance(candidate, dict) and 'sections' in candidate and 'summary' in candidate:
+                                        analysis_for_result = candidate
+                                        print(f"✅ Function Calling 응답 JSON 코드블록 제거 후 파싱 성공: {len(analysis_for_result.get('sections', []))}개 섹션")
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
                     result = {
                         "success": True,
-                        "analysis": analysis_text,
+                        "analysis": analysis_for_result,
                         "model": f"{provider_config.get('display_name', model_name)} (PDF Direct + Function Calling)",
                         "method": "Gemini API Direct + PDF Native + Function Calling",
                         "block_id": block_id,
