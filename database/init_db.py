@@ -1,137 +1,27 @@
 """
-데이터베이스 초기화 스크립트
-테이블 생성 및 초기 데이터 설정
+데이터베이스 초기화 스크립트 (Supabase 버전)
+테이블 존재 확인 및 관리자 계정 설정
 """
 
-from database.db_manager import get_db_connection, execute_query, table_exists
+from database.db_manager import execute_query, table_exists
 from config.settings import get_admin_personal_numbers
 from datetime import datetime
-
-
-# 테이블 생성 SQL
-CREATE_TABLES_SQL = """
--- 팀 테이블
-CREATE TABLE IF NOT EXISTS teams (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-
--- 사용자 테이블
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    personal_number TEXT UNIQUE NOT NULL,
-    display_name TEXT,
-    role TEXT DEFAULT 'user',
-    team_id INTEGER REFERENCES teams(id),
-    status TEXT DEFAULT 'active',
-    last_login TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-
--- API 키 저장 (암호화)
-CREATE TABLE IF NOT EXISTS api_keys (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    key_name TEXT NOT NULL,
-    encrypted_value TEXT NOT NULL,
-    encryption_iv TEXT NOT NULL,
-    UNIQUE(user_id, key_name)
-);
-
--- 사용자 블록
-CREATE TABLE IF NOT EXISTS blocks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    block_id TEXT NOT NULL,
-    owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    category TEXT,
-    block_data TEXT NOT NULL,
-    visibility TEXT DEFAULT 'personal',
-    shared_with_teams TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-
--- 분석 세션
-CREATE TABLE IF NOT EXISTS analysis_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    session_name TEXT,
-    project_name TEXT,
-    session_data TEXT NOT NULL,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-
--- 사용자 설정
-CREATE TABLE IF NOT EXISTS user_settings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    settings_data TEXT NOT NULL DEFAULT '{}'
-);
-
--- 분석 진행 상태 (실시간 저장용)
-CREATE TABLE IF NOT EXISTS analysis_progress (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    progress_data TEXT NOT NULL,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-
--- 인덱스 생성
-CREATE INDEX IF NOT EXISTS idx_users_personal_number ON users(personal_number);
-CREATE INDEX IF NOT EXISTS idx_blocks_owner ON blocks(owner_id);
-CREATE INDEX IF NOT EXISTS idx_blocks_visibility ON blocks(visibility);
-CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
-CREATE INDEX IF NOT EXISTS idx_analysis_sessions_user ON analysis_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_analysis_progress_user ON analysis_progress(user_id);
-"""
 
 
 def init_database():
     """
     데이터베이스를 초기화합니다.
-    테이블이 없으면 생성하고, 관리자 계정을 설정합니다.
-    Streamlit Cloud에서는 GitHub에서 데이터를 복원합니다.
+    Supabase 테이블이 존재하는지 확인하고, 관리자 계정을 설정합니다.
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # 테이블 생성
-    cursor.executescript(CREATE_TABLES_SQL)
-    conn.commit()
+    # Supabase 연결 확인
+    if not table_exists("users"):
+        print("⚠️ Supabase 테이블이 없습니다. supabase_schema.sql을 먼저 실행하세요.")
+        return
 
     # 관리자 계정 생성
     _create_admin_users()
 
-    # GitHub에서 공유 데이터 복원 (Streamlit Cloud 재시작 후)
-    _restore_from_github()
-
-    print("Database initialized successfully.")
-
-
-def _restore_from_github():
-    """GitHub에서 공유 데이터(블록, 팀, 사용자)를 복원합니다."""
-    print("[GitHub] _restore_from_github 함수 시작")
-    try:
-        from github_storage import restore_all_shared_data, is_github_storage_available, get_github_token
-
-        token = get_github_token()
-        print(f"[GitHub] 토큰 존재: {token is not None}")
-        print(f"[GitHub] 토큰 앞 10자: {token[:10] if token else 'None'}...")
-
-        if is_github_storage_available():
-            print("[GitHub] 공유 데이터 복원 시도...")
-            result = restore_all_shared_data()
-            print(f"[GitHub] 복원 결과: {result}")
-        else:
-            print("[GitHub] GitHub 저장소 사용 불가 (토큰 미설정)")
-    except ImportError as e:
-        print(f"[GitHub] github_storage 모듈 없음: {e}")
-    except Exception as e:
-        import traceback
-        print(f"[GitHub] 복원 오류: {e}")
-        print(traceback.format_exc())
+    print("Database initialized successfully (Supabase).")
 
 
 def _create_admin_users():
@@ -169,21 +59,32 @@ def reset_database():
     """
     데이터베이스를 초기화합니다 (모든 데이터 삭제).
     주의: 이 작업은 되돌릴 수 없습니다.
+    Supabase에서는 테이블의 데이터만 삭제합니다.
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    from database.supabase_client import get_supabase_client
+    client = get_supabase_client()
 
-    # 모든 테이블 삭제
     tables = ["user_settings", "analysis_progress", "analysis_sessions", "blocks", "api_keys", "users", "teams"]
     for table in tables:
-        cursor.execute(f"DROP TABLE IF EXISTS {table}")
+        try:
+            # 모든 행 삭제 (id > 0 조건으로 전체 삭제)
+            client.table(table).delete().gte("id", 0).execute()
+            print(f"  Cleared: {table}")
+        except Exception as e:
+            print(f"  ⚠️ {table} 삭제 오류: {e}")
 
-    conn.commit()
-
-    # 다시 초기화
+    # 다시 초기화 (관리자 계정 생성)
     init_database()
 
 
 # 모듈 로드 시 자동 초기화
-if not table_exists("users"):
-    init_database()
+try:
+    if table_exists("users"):
+        # 관리자 계정이 없으면 생성
+        admin_count = execute_query("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'")
+        if admin_count and admin_count[0]['cnt'] == 0:
+            init_database()
+    else:
+        print("⚠️ Supabase 연결 실패 또는 테이블 미생성")
+except Exception as e:
+    print(f"⚠️ DB 초기화 확인 오류: {e}")

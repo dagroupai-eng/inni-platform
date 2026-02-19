@@ -59,5 +59,8 @@ tomli>=2.0.0; python_version < "3.11"
 # Security/Encryption (PMS 사용자 관리 시스템)
 cryptography>=41.0.0
 
+# Database (Supabase)
+supabase>=2.0.0
+
 # Build Tools
 pyinstaller>=6.10.0

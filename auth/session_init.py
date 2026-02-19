@@ -109,7 +109,8 @@ def restore_work_session():
         )
 
         if result and result[0]:
-            session_data = json.loads(result[0]['session_data'])
+            raw = result[0]['session_data']
+            session_data = json.loads(raw) if isinstance(raw, str) else raw
             print(f"[복원] DB에서 데이터 로드 완료: {len(session_data)}개 키")
 
             # 프로젝트 정보는 빈 값이어도 덮어쓰기 (복원 우선)
@@ -142,48 +143,7 @@ def restore_work_session():
 
             print(f"[복원] 총 {restored_count}개 키 복원 완료")
         else:
-            print("[복원] DB에 저장된 세션 없음, GitHub에서 시도...")
-
-            # GitHub에서 복원 시도 (Streamlit Cloud 재시작 후)
-            try:
-                from github_storage import load_from_github, is_github_storage_available
-                if is_github_storage_available():
-                    # personal_number를 폴더 이름으로 사용
-                    personal_number = st.session_state.pms_current_user.get('personal_number')
-                    if not personal_number:
-                        print("[GitHub] personal_number 없음, 복원 스킵")
-                        return
-                    session_data = load_from_github(personal_number, "session")
-
-                    if session_data:
-                        print(f"[GitHub] 세션 복원 성공: {len(session_data)}개 키")
-
-                        # 프로젝트 정보 키
-                        project_info_keys = ['project_name', 'location', 'latitude', 'longitude',
-                                            'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded']
-                        # 분석 결과 키
-                        analysis_keys = ['analysis_results', 'cot_results', 'cot_session', 'cot_plan',
-                                       'cot_current_index', 'selected_blocks', 'cot_history', 'cot_citations']
-
-                        restored_count = 0
-                        for key, value in session_data.items():
-                            if key in project_info_keys:
-                                if value is not None:
-                                    st.session_state[key] = value
-                                    restored_count += 1
-                            elif key in analysis_keys:
-                                if value is not None and value not in [[], {}, ""]:
-                                    st.session_state[key] = value
-                                    restored_count += 1
-                            elif key not in st.session_state:
-                                st.session_state[key] = value
-                                restored_count += 1
-
-                        print(f"[GitHub] 총 {restored_count}개 키 복원 완료")
-                    else:
-                        print("[GitHub] 저장된 세션 없음")
-            except Exception as gh_e:
-                print(f"[GitHub] 복원 오류 (무시): {gh_e}")
+            print("[복원] DB에 저장된 세션 없음")
 
         # 복원 완료 플래그 설정
         st.session_state[restore_key] = True
@@ -251,20 +211,6 @@ def save_work_session():
                 commit=True
             )
 
-            # GitHub 백업 (Streamlit Cloud용)
-            try:
-                from github_storage import save_to_github, is_github_storage_available
-                if is_github_storage_available():
-                    # personal_number를 폴더 이름으로 사용
-                    personal_number = st.session_state.pms_current_user.get('personal_number')
-                    if not personal_number:
-                        print("[GitHub] personal_number 없음, 백업 스킵")
-                        return
-                    save_to_github(personal_number, "session", session_data)
-                    print(f"[GitHub] 세션 백업 완료 (user: {personal_number}): {len(session_data)}개 키")
-            except Exception as gh_e:
-                print(f"[GitHub] 세션 백업 오류 (무시): {gh_e}")
-
     except Exception as e:
         print(f"작업 세션 저장 오류: {e}")
 
@@ -306,24 +252,9 @@ def save_analysis_progress(force: bool = False):
         return
 
     try:
-        from database.db_manager import execute_query, table_exists
+        from database.db_manager import execute_query
         from datetime import datetime
         import json
-
-        # 테이블 존재 확인 및 생성
-        if not table_exists('analysis_progress'):
-            print("[저장] analysis_progress 테이블 생성")
-            execute_query(
-                """
-                CREATE TABLE IF NOT EXISTS analysis_progress (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-                    progress_data TEXT NOT NULL,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-                """,
-                commit=True
-            )
 
         user_id = st.session_state.pms_current_user.get('id')
         if not user_id:
@@ -402,7 +333,8 @@ def restore_analysis_progress() -> Optional[dict]:
         )
 
         if result and result[0]:
-            progress_data = json.loads(result[0]['progress_data'])
+            raw = result[0]['progress_data']
+            progress_data = json.loads(raw) if isinstance(raw, str) else raw
             updated_at = result[0]['updated_at']
 
             # 분석 결과가 있는지 확인

@@ -86,7 +86,8 @@ if st.session_state.get('_force_load_session'):
                 )
 
                 if result and result[0]:
-                    session_data = json.loads(result[0]['session_data'])
+                    raw = result[0]['session_data']
+                    session_data = json.loads(raw) if isinstance(raw, str) else raw
                     saved_time = result[0]['created_at']
 
                     print(f"[강제 불러오기] DB에서 데이터 로드: {len(session_data)}개 키")
@@ -335,17 +336,6 @@ def save_analysis_result(block_id, analysis_result, project_info=None):
         st.error(f"분석 결과 저장 실패 ({block_id}): {e}")
         return None
 
-    # 2. GitHub 백업 (Streamlit Cloud용)
-    try:
-        from github_storage import save_analysis_to_github, is_github_storage_available
-        if is_github_storage_available():
-            user_id = st.session_state.get('pms_current_user', {}).get('id', 'anonymous')
-            if isinstance(user_id, int):
-                user_id = str(user_id)
-            save_analysis_to_github(user_id, block_id, analysis_result, block_record.get('project_info'))
-    except Exception as e:
-        print(f"[GitHub 백업] 오류 (무시): {e}")
-
     return filepath
 
 def load_saved_analysis_results():
@@ -381,21 +371,6 @@ def load_saved_analysis_results():
                 continue
 
         results = {block_id: info['result'] for block_id, info in block_latest.items()}
-
-    # 2. 로컬에 없으면 GitHub에서 불러오기 (Streamlit Cloud 재시작 후)
-    if not results:
-        try:
-            from github_storage import load_all_analysis_from_github, is_github_storage_available
-            if is_github_storage_available():
-                user_id = st.session_state.get('pms_current_user', {}).get('id', 'anonymous')
-                if isinstance(user_id, int):
-                    user_id = str(user_id)
-                github_results = load_all_analysis_from_github(user_id)
-                if github_results:
-                    results = github_results
-                    print(f"[GitHub] {len(results)}개 분석 결과 복원됨")
-        except Exception as e:
-            print(f"[GitHub 불러오기] 오류 (무시): {e}")
 
     return results
 
@@ -2284,7 +2259,8 @@ with tab_project:
                 (user_id,)
             )
             if check_result:
-                saved_data = json.loads(check_result[0]['session_data'])
+                _raw = check_result[0]['session_data']
+                saved_data = json.loads(_raw) if isinstance(_raw, str) else _raw
                 print(f"[저장 확인] DB에 저장된 project_name: '{saved_data.get('project_name')}'")
                 print(f"[저장 확인] DB에 저장된 location: '{saved_data.get('location')}'")
 

@@ -143,8 +143,9 @@ def get_shared_blocks_for_user(
     for row in public_result:
         block = dict(row)
         try:
-            block["block_data"] = json.loads(block["block_data"])
-            block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
+            block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
+            _swt = block.get("shared_with_teams") or "[]"
+            block["shared_with_teams"] = json.loads(_swt) if isinstance(_swt, str) else _swt
         except json.JSONDecodeError:
             pass
         block["share_type"] = "public"
@@ -160,8 +161,9 @@ def get_shared_blocks_for_user(
         for row in team_result:
             block = dict(row)
             try:
-                block["block_data"] = json.loads(block["block_data"])
-                teams = json.loads(block.get("shared_with_teams") or "[]")
+                block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
+                _swt2 = block.get("shared_with_teams") or "[]"
+                teams = json.loads(_swt2) if isinstance(_swt2, str) else _swt2
                 block["shared_with_teams"] = teams
                 if team_id in teams:
                     block["share_type"] = "team"
