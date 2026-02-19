@@ -36,13 +36,27 @@ def get_db_connection() -> sqlite3.Connection:
     """
     if not hasattr(_thread_local, 'connection') or _thread_local.connection is None:
         db_path = _get_db_path()
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        _thread_local.connection = sqlite3.connect(
-            str(db_path),
-            timeout=30.0,  # 30초 타임아웃
-            check_same_thread=False
-        )
+        parent = db_path.parent
+        try:
+            parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise OSError(
+                f"데이터 디렉토리를 생성할 수 없습니다: {parent}. "
+                f"경로에 쓰기 권한이 있는지 확인하세요. ({e})"
+            ) from e
+        try:
+            _thread_local.connection = sqlite3.connect(
+                str(db_path),
+                timeout=30.0,  # 30초 타임아웃
+                check_same_thread=False
+            )
+        except sqlite3.OperationalError as e:
+            if "unable to open database file" in str(e).lower():
+                raise sqlite3.OperationalError(
+                    f"데이터베이스 파일을 열 수 없습니다: {db_path}. "
+                    "data/ 디렉토리 존재 및 쓰기 권한을 확인하세요."
+                ) from e
+            raise
         _thread_local.connection.row_factory = sqlite3.Row
         # WAL 모드 활성화 (동시성 향상)
         _thread_local.connection.execute("PRAGMA journal_mode=WAL")

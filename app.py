@@ -10,6 +10,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# data 디렉터리 먼저 생성 (DB 열기 전, "unable to open database file" 방지)
+try:
+    from config.settings import ensure_directories
+    ensure_directories()
+except Exception as e:
+    print(f"데이터 디렉터리 생성 경고: {e}")
+
 # 데이터베이스 및 인증 모듈 초기화
 try:
     from database.init_db import init_database, _restore_from_github

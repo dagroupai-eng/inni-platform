@@ -7,12 +7,12 @@ import os
 from pathlib import Path
 from typing import Optional
 
-# 프로젝트 루트 디렉토리
-PROJECT_ROOT = Path(__file__).parent.parent
+# 프로젝트 루트 디렉토리 (절대 경로로 고정, cwd 무관)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 데이터 디렉토리
-DATA_DIR = PROJECT_ROOT / "data"
-DB_PATH = DATA_DIR / "inni_platform.db"
+DATA_DIR = (PROJECT_ROOT / "data").resolve()
+DB_PATH = (DATA_DIR / "inni_platform.db").resolve()
 SESSIONS_DIR = DATA_DIR / "sessions"
 CACHE_DIR = DATA_DIR / "cache"
 USERS_DIR = DATA_DIR / "users"
