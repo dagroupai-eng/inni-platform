@@ -50,7 +50,21 @@
       "Bash(timeout /t 5:*)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "Bash(C:/Users/dA/miniconda3/envs/test_analyzer/Scripts/streamlit.exe run app.py --server.port 8502)"
+      "Bash(C:/Users/dA/miniconda3/envs/test_analyzer/Scripts/streamlit.exe run app.py --server.port 8502)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" status)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" diff --cached --stat)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" log --oneline -5)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" commit -m \"$\\(cat <<''EOF''\nFix Word doc table export, PDF direct analysis null safety, download button type error\n\n- Add structured output table field \\(headers/rows\\) to Word document generation\n- Fix NoneType iteration error in PDF direct analysis streaming/non-streaming paths\n- Fix download button invalid binary data format for non-string results\n- Update dspy_analyzer and other module changes\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" config user.name \"dagroupai-eng\")",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" config user.email \"dagroupai-eng@users.noreply.github.com\")",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" push origin 0119)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" add .env.example .streamlit/secrets.toml.example app.py auth/session_init.py blocks/block_manager.py blocks/block_sharing.py database/db_manager.py database/init_db.py database/supabase_client.py database/supabase_schema.sql pages/3_Document_Analysis.py requirements.txt)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" commit -m \"$\\(cat <<''EOF''\nMigrate from SQLite + GitHub to Supabase PostgreSQL\n\n- Replace SQLite db_manager with SQL-to-Supabase REST API translator\n- Add supabase_client.py singleton module\n- Add supabase_schema.sql for table creation\n- Remove GitHub storage backup/restore from session_init, block_manager, app.py\n- Add JSONB auto-parsing for session_data, progress_data, block_data columns\n- Update requirements.txt with supabase package\n- Update secrets.toml.example and .env.example with Supabase config\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" add admin/admin_manager.py blocks/block_manager.py)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" commit -m \"$\\(cat <<''EOF''\nFix JOIN queries for Supabase compatibility\n\n- Replace LEFT JOIN in admin_manager with Supabase foreign key select\n- Replace LEFT JOIN in block_manager with Supabase foreign key select\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" pull --rebase origin 0119)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" stash)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" stash pop)"
     ]
   }
 }

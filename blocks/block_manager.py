@@ -217,33 +217,26 @@ def update_user_block(
         return False
 
     allowed_fields = ["name", "category", "block_data", "visibility", "shared_with_teams"]
-    update_fields = []
-    values = []
+    set_values = {}
 
     for field, value in kwargs.items():
         if field in allowed_fields:
-            update_fields.append(f"{field} = ?")
-            if field == "block_data":
-                values.append(json.dumps(value, ensure_ascii=False))
-            elif field == "shared_with_teams":
-                values.append(json.dumps(value))
-            elif field == "visibility" and isinstance(value, BlockVisibility):
-                values.append(value.value)
+            if field == "visibility" and isinstance(value, BlockVisibility):
+                set_values[field] = value.value
             else:
-                values.append(value)
+                set_values[field] = value
 
-    if not update_fields:
+    if not set_values:
         return False
 
-    values.append(block_db_id)
-
     try:
-        execute_query(
-            f"UPDATE blocks SET {', '.join(update_fields)} WHERE id = ?",
-            tuple(values),
-            commit=True
-        )
+        from database.supabase_client import get_supabase_client
+        client = get_supabase_client()
+        result = client.table('blocks').update(set_values).eq('id', block_db_id).execute()
 
+        if not result.data:
+            print(f"[update_user_block] 업데이트된 행 없음: block_db_id={block_db_id}, data={set_values}")
+            return False
 
         return True
     except Exception as e:

@@ -299,28 +299,14 @@ def delete_team_admin(team_id: int) -> tuple[bool, str]:
         (성공 여부, 메시지)
     """
     try:
+        from database.supabase_client import get_supabase_client
+        client = get_supabase_client()
+
         # 멤버들의 team_id를 NULL로 설정
-        execute_query(
-            "UPDATE users SET team_id = NULL WHERE team_id = ?",
-            (team_id,),
-            commit=True
-        )
+        client.table('users').update({'team_id': None}).eq('team_id', team_id).execute()
 
         # 팀 삭제
-        execute_query(
-            "DELETE FROM teams WHERE id = ?",
-            (team_id,),
-            commit=True
-        )
-
-        # GitHub 백업
-        try:
-            from github_storage import backup_all_teams, backup_all_users, is_github_storage_available
-            if is_github_storage_available():
-                backup_all_teams()
-                backup_all_users()  # 멤버들의 team_id가 변경됨
-        except Exception:
-            pass
+        client.table('teams').delete().eq('id', team_id).execute()
 
         return True, "팀이 삭제되었습니다."
     except Exception as e:

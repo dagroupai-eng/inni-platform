@@ -135,36 +135,26 @@ def update_user(user_id: int, **kwargs) -> bool:
         성공 여부
     """
     allowed_fields = ["display_name", "role", "team_id", "status"]
-    update_fields = []
-    values = []
+    update_data = {}
 
     for field, value in kwargs.items():
         if field in allowed_fields:
-            update_fields.append(f"{field} = ?")
             if isinstance(value, (UserRole, UserStatus)):
-                values.append(value.value)
+                update_data[field] = value.value
             else:
-                values.append(value)
+                update_data[field] = value
 
-    if not update_fields:
+    if not update_data:
         return False
 
-    values.append(user_id)
-
     try:
-        execute_query(
-            f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?",
-            tuple(values),
-            commit=True
-        )
+        from database.supabase_client import get_supabase_client
+        client = get_supabase_client()
+        result = client.table('users').update(update_data).eq('id', user_id).execute()
 
-        # GitHub 백업
-        try:
-            from github_storage import backup_all_users, is_github_storage_available
-            if is_github_storage_available():
-                backup_all_users()
-        except Exception:
-            pass
+        if not result.data:
+            print(f"[update_user] 업데이트된 행 없음: user_id={user_id}, data={update_data}")
+            return False
 
         return True
     except Exception as e:
@@ -183,11 +173,9 @@ def update_last_login(user_id: int) -> bool:
         성공 여부
     """
     try:
-        execute_query(
-            "UPDATE users SET last_login = ? WHERE id = ?",
-            (datetime.now().isoformat(), user_id),
-            commit=True
-        )
+        from database.supabase_client import get_supabase_client
+        client = get_supabase_client()
+        client.table('users').update({'last_login': datetime.now().isoformat()}).eq('id', user_id).execute()
         return True
     except Exception as e:
         print(f"Error updating last login: {e}")
