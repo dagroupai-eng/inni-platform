@@ -1914,6 +1914,7 @@ def render_land_map_page():
                 if st.button("➕ 추가", type="primary", use_container_width=True, key="lm_add_btn"):
                     st.session_state.lm_parcels.append(preview)
                     st.session_state.lm_preview = None
+                    st.session_state.lm_last_click = ""  # 동일 좌표 재클릭 허용
                     st.rerun()
     elif preview and preview.get("error"):
         st.error(preview["error"])
@@ -1971,30 +1972,31 @@ def render_land_map_page():
         m,
         use_container_width=True,
         height=700,
-        returned_objects=["last_clicked", "zoom", "center"],
+        returned_objects=["last_clicked", "last_object_clicked", "zoom", "center"],
         key="lm_map",
     )
 
     st.caption("💡 지도 클릭 → 필지 경계 표시 + 정보 조회  |  지적도 레이어가 기본으로 켜져 있습니다")
 
     # ── 클릭 이벤트 처리 ──────────────────────────────────────────────
-    clicked = map_data.get("last_clicked") if map_data else None
-    if clicked:
-        c_lat = clicked.get("lat")
-        c_lon = clicked.get("lng")
-        if c_lat and c_lon:
-            click_key = f"{c_lat:.6f},{c_lon:.6f}"
-            if click_key != st.session_state.lm_last_click:
-                st.session_state.lm_last_click = click_key
-                if map_data.get("zoom"):
-                    st.session_state.lm_zoom = map_data["zoom"]
-                if map_data.get("center"):
-                    c = map_data["center"]
+    # last_clicked: 빈 지도 클릭, last_object_clicked: GeoJson 필지 위 클릭
+    _raw_click = (map_data or {}).get("last_clicked") or (map_data or {}).get("last_object_clicked")
+    c_lat = (_raw_click or {}).get("lat")
+    c_lon = (_raw_click or {}).get("lng")
+    if c_lat and c_lon:
+        click_key = f"{c_lat:.6f},{c_lon:.6f}"
+        if click_key != st.session_state.lm_last_click:
+            st.session_state.lm_last_click = click_key
+            if (map_data or {}).get("zoom"):
+                st.session_state.lm_zoom = map_data["zoom"]
+            if (map_data or {}).get("center"):
+                c = map_data["center"]
+                if isinstance(c, dict):
                     st.session_state.lm_center = [c.get("lat", c_lat), c.get("lng", c_lon)]
-                with st.spinner("필지 정보 조회 중..."):
-                    new_info = _fetch_parcel_info(c_lon, c_lat, nearby_radius=st.session_state.lm_nearby_radius)
-                st.session_state.lm_preview = new_info
-                st.rerun()
+            with st.spinner("필지 정보 조회 중..."):
+                new_info = _fetch_parcel_info(c_lon, c_lat, nearby_radius=st.session_state.lm_nearby_radius)
+            st.session_state.lm_preview = new_info
+            st.rerun()
 
 
 # Streamlit pages 진입 시 자동 렌더
