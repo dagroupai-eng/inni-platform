@@ -114,6 +114,18 @@ def _api_key() -> str:
 def _domain() -> Optional[str]:
     return os.getenv("VWORLD_API_DOMAIN") or None
 
+def _vworld_get(url: str, params: dict, timeout: int = 10):
+    """VWorld API GET 요청 — CLOUDFLARE_WORKER_URL 설정 시 프록시 경유"""
+    import requests
+    worker_url = os.getenv("CLOUDFLARE_WORKER_URL", "").rstrip("/")
+    if worker_url:
+        return requests.post(
+            f"{worker_url}/proxy",
+            json={"url": url, "params": {k: str(v) for k, v in params.items()}, "method": "GET"},
+            timeout=timeout,
+        )
+    return requests.get(url, params=params, timeout=timeout)
+
 
 def _geocode(address: str) -> Optional[tuple]:
     """주소 → (lon, lat)"""
@@ -121,9 +133,9 @@ def _geocode(address: str) -> Optional[tuple]:
     key = _api_key()
     for addr_type in ("PARCEL", "ROAD"):
         try:
-            r = requests.get(
+            r = _vworld_get(
                 "https://api.vworld.kr/req/address",
-                params={
+                {
                     "service": "address", "request": "GetCoord", "version": "2.0",
                     "key": key, "crs": "epsg:4326", "address": address,
                     "type": addr_type, "refine": "true", "simple": "false",
@@ -158,9 +170,9 @@ def _get_land_characteristics(pnu: str) -> dict:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/data/getLandCharacteristics",
-            params=params, timeout=10,
+            params, timeout=10,
         )
         r.raise_for_status()
         raw = r.content.decode("utf-8")
@@ -221,9 +233,9 @@ def _get_indvd_land_price(pnu: str) -> list:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/data/getIndvdLandPrice",
-            params=params, timeout=10,
+            params, timeout=10,
         )
         r.raise_for_status()
         data = _json.loads(r.content.decode("utf-8"))
@@ -266,9 +278,9 @@ def _get_price_change_rate(sigungu_code: str) -> Optional[dict]:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/data/getChangeRateByRegion",
-            params=params, timeout=10,
+            params, timeout=10,
         )
         r.raise_for_status()
         data = _json.loads(r.content.decode("utf-8"))
@@ -312,9 +324,9 @@ def _get_parcel_building_wfs(lon: float, lat: float, pnu: str) -> dict:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/wfs/getBuildingUseWFS",
-            params=params, timeout=10,
+            params, timeout=10,
         )
         r.raise_for_status()
         feats = _json.loads(r.content.decode("utf-8")).get("features", [])
@@ -379,9 +391,9 @@ def _get_land_ownership(pnu: str) -> dict:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/data/getLandOwnership",
-            params=params, timeout=10,
+            params, timeout=10,
         )
         r.raise_for_status()
         data = _json.loads(r.content.decode("utf-8"))
@@ -437,9 +449,9 @@ def _get_gis_building(lon: float, lat: float, pnu: str) -> dict:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/wfs/getGISBuildingWFS",
-            params=params, timeout=10,
+            params, timeout=10,
         )
         r.raise_for_status()
         feats = _json.loads(r.content.decode("utf-8")).get("features", [])
@@ -512,9 +524,9 @@ def _get_std_land_price(pnu: str) -> dict:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/data/getStanddLandPrice",
-            params=params, timeout=10,
+            params, timeout=10,
         )
         r.raise_for_status()
         data = _json.loads(r.content.decode("utf-8"))
@@ -574,9 +586,9 @@ def _get_land_use_plan(pnu: str) -> dict:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/data/getLandUsePlan",
-            params=params, timeout=10,
+            params, timeout=10,
         )
         r.raise_for_status()
         data = _json.loads(r.content.decode("utf-8"))
@@ -629,9 +641,9 @@ def _fetch_nearby_buildings(lon: float, lat: float, radius_m: int = 500) -> list
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get(
+        r = _vworld_get(
             "https://api.vworld.kr/ned/wfs/getBuildingUseWFS",
-            params=params, timeout=15,
+            params, timeout=15,
         )
         r.raise_for_status()
         feats = _json.loads(r.content.decode("utf-8")).get("features", [])
@@ -668,7 +680,7 @@ def _get_feature(layer: str, lon: float, lat: float) -> list:
     if dom:
         params["domain"] = dom
     try:
-        r = requests.get("https://api.vworld.kr/req/data", params=params, timeout=10)
+        r = _vworld_get("https://api.vworld.kr/req/data", params, timeout=10)
         r.raise_for_status()
         data = r.json()
         if data.get("response", {}).get("status") != "OK":
@@ -733,7 +745,7 @@ def _fetch_parcel_info(lon: float, lat: float, nearby_radius: int = 500) -> dict
         wfs_params["domain"] = dom
 
     try:
-        r = requests.get("https://api.vworld.kr/req/wfs", params=wfs_params, timeout=12)
+        r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
         r.raise_for_status()
         feats = _json.loads(r.content.decode("utf-8")).get("features", [])
         if feats:
