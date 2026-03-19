@@ -14,6 +14,13 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# .env 로드 (pages/* 직접 실행 시에도 환경변수 확보)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 # ─── VWorld 레이어 ────────────────────────────────────────────────────────────
 LAYER_PARCEL   = "LT_C_LANDINFOBASEMAP"  # 토지정보기본도
 LAYER_ZONING   = "LT_C_UQ111"           # 용도지역
@@ -1763,7 +1770,7 @@ def render_land_map_page():
 
     key = _api_key()
     if not key:
-        st.error("VWORLD_API_KEY가 설정되지 않았습니다.")
+        st.error("VWORLD_API_KEY가 설정되지 않았습니다. (.env 로드/환경변수 설정을 확인하세요)")
         return
 
     try:
@@ -1988,3 +1995,10 @@ def render_land_map_page():
                     new_info = _fetch_parcel_info(c_lon, c_lat, nearby_radius=st.session_state.lm_nearby_radius)
                 st.session_state.lm_preview = new_info
                 st.rerun()
+
+
+# Streamlit pages 진입 시 자동 렌더
+try:
+    render_land_map_page()
+except Exception as _render_err:
+    st.error(f"지도 페이지 렌더링 오류: {_render_err}")
