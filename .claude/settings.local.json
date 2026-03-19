@@ -66,7 +66,8 @@
       "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" stash)",
       "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" stash pop)",
       "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" add .env.example)",
-      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" rebase --continue)"
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" rebase --continue)",
+      "Bash(참고사항 \")"
     ]
   }
 }
