@@ -64,13 +64,11 @@ def restore_work_session():
     # 페이지 초기화 직후에는 복원하지 않음
     if st.session_state.get('page_just_reset'):
         print(f"[복원] 페이지 초기화 직후, 복원 스킵: {page_name}")
-        # 플래그 제거 (다음 rerun에서는 정상 동작)
         del st.session_state['page_just_reset']
         return
 
     # 복원 키가 있어도, 실제 데이터가 없으면 다시 복원
     if restore_key in st.session_state:
-        # 프로젝트 정보 키 중 하나라도 있는지 확인
         has_data = any([
             st.session_state.get('project_name'),
             st.session_state.get('location'),
@@ -82,7 +80,6 @@ def restore_work_session():
             return
         else:
             print(f"[복원] 복원 키 존재하지만 데이터 없음, 재복원: {page_name}")
-            # restore_key 삭제하고 다시 복원
             del st.session_state[restore_key]
 
     # 복원 시작 - 플래그 설정
@@ -97,16 +94,39 @@ def restore_work_session():
         if not user_id:
             return
 
-        # 가장 최근 작업 세션 조회
-        result = execute_query(
-            """
-            SELECT session_data FROM analysis_sessions
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (user_id,)
-        )
+        # project_id 기반 조회 우선, 없으면 최신 세션
+        project_id = st.session_state.get('current_project_id')
+        if project_id:
+            result = execute_query(
+                """
+                SELECT session_data FROM analysis_sessions
+                WHERE user_id = ? AND project_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (user_id, project_id)
+            )
+            # project_id 세션 없으면 전체 최신으로 폴백
+            if not result:
+                result = execute_query(
+                    """
+                    SELECT session_data FROM analysis_sessions
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id,)
+                )
+        else:
+            result = execute_query(
+                """
+                SELECT session_data FROM analysis_sessions
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (user_id,)
+            )
 
         if result and result[0]:
             raw = result[0]['session_data']
@@ -114,46 +134,48 @@ def restore_work_session():
             print(f"[복원] DB에서 데이터 로드 완료: {len(session_data)}개 키")
 
             # 프로젝트 정보는 빈 값이어도 덮어쓰기 (복원 우선)
-            project_info_keys = ['project_name', 'location', 'latitude', 'longitude',
-                                'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded']
+            project_info_keys = [
+                'project_name', 'location', 'latitude', 'longitude',
+                'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded',
+                'file_analysis', 'file_storage_path', 'document_summary',
+                'site_fields', 'downloaded_geo_data',
+            ]
 
             # 분석 결과는 항상 복원 (중요!)
-            analysis_keys = ['analysis_results', 'cot_results', 'cot_session', 'cot_plan',
-                           'cot_current_index', 'selected_blocks', 'cot_history', 'cot_citations']
+            analysis_keys = [
+                'analysis_results', 'cot_results', 'cot_session', 'cot_plan',
+                'cot_current_index', 'selected_blocks', 'cot_history', 'cot_citations',
+                'cot_feedback_inputs', 'skipped_blocks',
+                'cot_verifications', 'urban_indicator_results', 'block_spatial_data',
+            ]
 
             restored_count = 0
-            # 세션 상태로 복원
             for key, value in session_data.items():
-                # 프로젝트 정보는 값이 None이 아니면 무조건 복원 (빈 문자열도 복원)
                 if key in project_info_keys:
                     if value is not None:
                         st.session_state[key] = value
                         restored_count += 1
-                        print(f"[복원] 프로젝트 정보 복원: {key} = {value if isinstance(value, (str, int, float, bool)) and len(str(value)) < 50 else f'{type(value).__name__}...'}")
-                # 분석 결과는 값이 있으면 무조건 복원 (빈 딕셔너리/리스트는 제외)
+                        print(f"[복원] 프로젝트 정보 복원: {key}")
                 elif key in analysis_keys:
                     if value is not None and value not in [[], {}, ""]:
                         st.session_state[key] = value
                         restored_count += 1
                         print(f"[복원] 분석 데이터 복원: {key}")
-                # 그 외 키는 세션에 없을 때만 복원
                 elif key not in st.session_state:
                     st.session_state[key] = value
                     restored_count += 1
 
             print(f"[복원] 총 {restored_count}개 키 복원 완료")
+            st.session_state['_save_status'] = 'saved'
         else:
             print("[복원] DB에 저장된 세션 없음")
 
-        # 복원 완료 플래그 설정
         st.session_state[restore_key] = True
-        # 복원 진행 중 플래그 해제
         if restoring_key in st.session_state:
             del st.session_state[restoring_key]
         print(f"[복원] 복원 프로세스 완료")
     except Exception as e:
         print(f"작업 세션 복원 오류: {e}")
-        # 에러 발생 시에도 복원 진행 중 플래그 해제
         restoring_key = 'work_session_restoring'
         if restoring_key in st.session_state:
             del st.session_state[restoring_key]
@@ -161,10 +183,10 @@ def restore_work_session():
 
 def save_work_session():
     """현재 작업 데이터를 DB에 저장합니다."""
-    # 로그인 확인
     if 'pms_current_user' not in st.session_state:
         return
 
+    st.session_state['_save_status'] = 'saving'
     try:
         from database.db_manager import execute_query
         from datetime import datetime
@@ -174,60 +196,100 @@ def save_work_session():
         if not user_id:
             return
 
-        # 저장할 세션 데이터 수집
+        project_id = st.session_state.get('current_project_id')
+
         session_data = {}
 
-        # Document Analysis 관련 데이터
+        # 일반 직렬화 키
         save_keys = [
             'project_name', 'location', 'latitude', 'longitude',
-            'project_goals', 'additional_info', 'pdf_text',
+            'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded',
             'analysis_results', 'selected_blocks', 'cot_results',
             'cot_history', 'preprocessed_text', 'preprocessing_meta',
             'reference_documents', 'reference_combined_text',
-            # CoT 분석 세션 관련
             'cot_session', 'cot_plan', 'cot_current_index',
             'cot_running_block', 'cot_progress_messages',
-            'cot_feedback_inputs', 'skipped_blocks', 'cot_citations'
+            'cot_feedback_inputs', 'skipped_blocks', 'cot_citations',
+            # 새 키 (7-C)
+            'file_analysis', 'file_storage_path', 'document_summary',
+            'site_fields', 'cot_verifications', 'urban_indicator_results',
         ]
+
+        # 크기 제한이 있는 키 (500KB 이하만 저장)
+        large_keys = ['downloaded_geo_data', 'block_spatial_data']
+        _SIZE_LIMIT = 500 * 1024  # 500 KB
 
         for key in save_keys:
             if key in st.session_state:
                 value = st.session_state[key]
-                # JSON 직렬화 가능한지 확인
                 try:
                     json.dumps(value)
                     session_data[key] = value
                 except (TypeError, ValueError):
                     pass
 
-        # DB에 저장
-        if session_data:  # 저장할 데이터가 있을 때만
+        for key in large_keys:
+            if key in st.session_state:
+                value = st.session_state[key]
+                try:
+                    serialized = json.dumps(value, ensure_ascii=False)
+                    if len(serialized.encode('utf-8')) <= _SIZE_LIMIT:
+                        session_data[key] = value
+                    else:
+                        print(f"[저장] {key} 크기 초과, 저장 스킵 ({len(serialized)//1024}KB)")
+                except (TypeError, ValueError):
+                    pass
+
+        if session_data:
             execute_query(
                 """
-                INSERT INTO analysis_sessions (user_id, session_data, created_at)
-                VALUES (?, ?, ?)
+                INSERT INTO analysis_sessions (user_id, project_id, session_data, created_at)
+                VALUES (?, ?, ?, ?)
                 """,
-                (user_id, json.dumps(session_data, ensure_ascii=False), datetime.now().isoformat()),
-                commit=True
+                (
+                    user_id,
+                    project_id,
+                    json.dumps(session_data, ensure_ascii=False),
+                    datetime.now().isoformat(),
+                ),
+                commit=True,
             )
+            # projects.updated_at 갱신
+            if project_id:
+                execute_query(
+                    "UPDATE projects SET updated_at = ? WHERE id = ? AND user_id = ?",
+                    (datetime.now().isoformat(), project_id, user_id),
+                    commit=True,
+                )
+            st.session_state['_save_status'] = 'saved'
+            st.session_state['_last_saved_at'] = datetime.now().isoformat()
+        else:
+            st.session_state['_save_status'] = 'saved'
 
     except Exception as e:
         print(f"작업 세션 저장 오류: {e}")
+        st.session_state['_save_status'] = 'error'
 
 
-def auto_save_trigger():
-    """자동 저장 트리거 (중요한 상태 변경 시 호출)"""
-    # 너무 자주 저장하지 않도록 제한
+def auto_save_debounced(throttle_seconds: float = 3.0):
+    """
+    자동 저장 (3초 스로틀).
+    입력 필드 변경 콜백이나 분석 완료 후 호출한다.
+    """
     import time
     current_time = time.time()
 
     if 'last_save_time' not in st.session_state:
         st.session_state.last_save_time = 0
 
-    # 마지막 저장 후 5초 이상 경과한 경우에만 저장
-    if current_time - st.session_state.last_save_time > 5:
+    if current_time - st.session_state.last_save_time >= throttle_seconds:
         save_work_session()
         st.session_state.last_save_time = current_time
+
+
+def auto_save_trigger():
+    """하위 호환: auto_save_debounced() 별칭."""
+    auto_save_debounced(throttle_seconds=5.0)
 
 
 def save_analysis_progress(force: bool = False):
@@ -451,6 +513,32 @@ def reset_analysis_state_selective(
         st.session_state[key] = value
 
     return preserved
+
+
+def reset_full_work_state():
+    """
+    작업 관련 모든 세션 상태를 초기화한다.
+    프로젝트 전환 / 새 프로젝트 생성 시 호출.
+    로그인 정보·API 키·current_project_id 는 유지한다.
+    """
+    preserve_keys = {
+        'pms_current_user', 'pms_session_token',
+        'work_session_restored_global',
+        'current_project_id',
+        # API 키
+        'user_api_key_GEMINI_API_KEY',
+        'user_api_key_OPENAI_API_KEY',
+        'user_api_key_ANTHROPIC_API_KEY',
+        'llm_provider', 'api_keys_loaded',
+    }
+    drop_keys = [k for k in list(st.session_state.keys()) if k not in preserve_keys]
+    for k in drop_keys:
+        del st.session_state[k]
+
+    # 저장 상태 초기화
+    st.session_state['_save_status'] = 'saved'
+    # 복원 플래그 리셋 (다음 페이지 로드에서 새 프로젝트 세션 복원)
+    st.session_state.pop('work_session_restored_global', None)
 
 
 def render_session_manager_sidebar():

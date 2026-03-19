@@ -64,7 +64,9 @@
       "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" commit -m \"$\\(cat <<''EOF''\nFix JOIN queries for Supabase compatibility\n\n- Replace LEFT JOIN in admin_manager with Supabase foreign key select\n- Replace LEFT JOIN in block_manager with Supabase foreign key select\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" pull --rebase origin 0119)",
       "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" stash)",
-      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" stash pop)"
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" stash pop)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" add .env.example)",
+      "Bash(git -C \"C:\\\\Users\\\\dA\\\\inni-platform\" rebase --continue)"
     ]
   }
 }

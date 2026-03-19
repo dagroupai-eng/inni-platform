@@ -6,6 +6,25 @@ import re
 import pandas as pd
 from file_analyzer import UniversalFileAnalyzer
 from dspy_analyzer import EnhancedArchAnalyzer
+from utils.integrations.nanobanana_client import NanoBananaClient
+
+
+def _get_nanobanana_token() -> str:
+    """
+    사용자별 저장된 NANOBANANA_TOKEN(또는 환경변수)을 가져옵니다.
+    """
+    try:
+        from auth.authentication import get_current_user_id
+        from security.api_key_manager import get_user_api_key
+        uid = get_current_user_id()
+        if uid:
+            token = get_user_api_key(uid, "NANOBANANA_TOKEN")
+            if token:
+                return token
+    except Exception:
+        pass
+    import os
+    return os.environ.get("NANOBANANA_TOKEN", "") or ""
 
 # 인증 모듈 import
 try:
@@ -552,6 +571,7 @@ def main():
                         if result.get('english_prompt'):
                             st.markdown("**English Prompt:**")
                             st.code(result['english_prompt'], language="text")
+                            st.session_state["last_generated_image_prompt"] = result["english_prompt"]
 
                         # 네거티브 프롬프트
                         if result.get('negative_prompt'):
@@ -577,6 +597,42 @@ def main():
                         
                 except Exception as e:
                     st.error(f"오류가 발생했습니다: {str(e)}")
+
+        # ── NanoBanana 이미지 생성 ─────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("NanoBanana로 이미지 생성")
+        token = _get_nanobanana_token()
+        if not token:
+            st.info("먼저 API 키 관리에서 `NANOBANANA_TOKEN`을 저장하거나 환경변수 `NANOBANANA_TOKEN`을 설정하세요.")
+        else:
+            nb_model = st.selectbox("모델", options=["nano-banana", "nano-banana-2", "nano-banana-pro"], index=0)
+            nb_aspect = st.selectbox("비율(aspect_ratio)", options=["", "1:1", "16:9", "9:16", "4:3", "3:4"], index=1)
+            nb_res = st.selectbox("해상도(resolution)", options=["", "1K", "2K", "4K"], index=1)
+            prompt_seed = st.session_state.get("last_generated_image_prompt", "")
+            nb_prompt = st.text_area("프롬프트(English)", value=prompt_seed, height=140)
+            if st.button("🖼️ NanoBanana 생성", type="primary", use_container_width=True, disabled=not nb_prompt.strip()):
+                try:
+                    client = NanoBananaClient(token=token)
+                    with st.spinner("NanoBanana 이미지 생성 중..."):
+                        resp = client.generate(
+                            prompt=nb_prompt.strip(),
+                            count=1,
+                            model=nb_model,
+                            aspect_ratio=nb_aspect or None,
+                            resolution=nb_res or None,
+                        )
+                    if resp.get("success") and resp.get("data"):
+                        img_url = resp["data"][0].get("image_url")
+                        if img_url:
+                            st.success("생성 완료!")
+                            st.image(img_url, use_container_width=True)
+                            st.caption(f"task_id={resp.get('task_id')}, trace_id={resp.get('trace_id')}")
+                        else:
+                            st.warning("응답에 image_url이 없습니다.")
+                    else:
+                        st.error(f"생성 실패: {resp.get('error') or resp}")
+                except Exception as e:
+                    st.error(f"NanoBanana 호출 오류: {e}")
     
     # 하단 정보
     st.markdown("---")
