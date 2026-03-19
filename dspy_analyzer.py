@@ -527,9 +527,64 @@ class 건축요구사항분석22Signature(dspy.Signature):
     input = dspy.InputField(desc="건축 요구사항 분석22을 위한 입력 데이터")
     output = dspy.OutputField(desc="Chain of Thought로 건축 관련 요구사항을 분석하고 정리한 결과")
 
+class UrbanSituationAnalysis(dspy.Signature):
+    """도시 현황 데이터에서 현상과 문제를 서술한다."""
+    input = dspy.InputField(desc="프로젝트 문서 및 블록 분석 컨텍스트")
+    output = dspy.OutputField(desc="도시 현황 분석: 인구·토지이용·인프라 현황, 주요 현상과 문제 서술")
+
+
+class UrbanCausalReasoning(dspy.Signature):
+    """현황 분석을 바탕으로 원인과 논리적 맥락을 추론한다."""
+    input = dspy.InputField(desc="프로젝트 문서 및 블록 분석 컨텍스트")
+    situation_analysis = dspy.InputField(desc="1단계 현황 분석 결과")
+    output = dspy.OutputField(desc="원인 분석: 문제의 근본 원인, 인과관계, 도시 구조적 맥락")
+
+
+class UrbanStrategyDerivation(dspy.Signature):
+    """원인 분석에서 공간·정책 전략을 도출한다."""
+    input = dspy.InputField(desc="프로젝트 문서 및 블록 분석 컨텍스트")
+    causal_analysis = dspy.InputField(desc="2단계 원인 분석 결과")
+    output = dspy.OutputField(desc="전략 도출: 공간 계획 전략, 정책 방향, 실행 방안")
+
+
+class UrbanReasoningChain:
+    """[현황 파악] → [원인 추론] → [전략 도출] 3단계 심층 추론 체인."""
+
+    def __init__(self):
+        self.step1 = dspy.Predict(UrbanSituationAnalysis)
+        self.step2 = dspy.Predict(UrbanCausalReasoning)
+        self.step3 = dspy.Predict(UrbanStrategyDerivation)
+
+    def run(self, input_text: str) -> dict:
+        try:
+            r1 = self.step1(input=input_text)
+            situation = r1.output
+
+            r2 = self.step2(input=input_text, situation_analysis=situation)
+            causal = r2.output
+
+            r3 = self.step3(input=input_text, causal_analysis=causal)
+            strategy = r3.output
+
+            combined = (
+                f"## 현황 분석\n{situation}\n\n"
+                f"## 원인 분석\n{causal}\n\n"
+                f"## 전략 도출\n{strategy}"
+            )
+            return {
+                "success": True,
+                "situation": situation,
+                "causal": causal,
+                "strategy": strategy,
+                "combined": combined,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+
 class EnhancedArchAnalyzer:
     """dA_AI와 동일한 방식으로 DSPy를 사용하는 건축 분석기"""
-    
+
     _lm_initialized = False
     _last_provider = None
     
@@ -1879,25 +1934,55 @@ class EnhancedArchAnalyzer:
                 except Exception as e:
                     print(f"⚠️ 웹 검색 오류 (계속 진행): {e}")
             
+            # 블록 메타데이터 기반 RAG 파라미터 최적화
+            all_blocks = []
+            try:
+                from prompt_processor import load_blocks
+                all_blocks = load_blocks()
+            except:
+                pass
+            current_block = next((b for b in all_blocks if b.get('id') == block_id), None)
+            
+            # 기본 파라미터
+            rag_params = {
+                "chunk_size": 1000,
+                "overlap": 200,
+                "top_k": 3
+            }
+            
+            # 카테고리별 최적화
+            if current_block:
+                category = current_block.get('category', '').lower()
+                if any(kw in category for kw in ['법규', 'legal', '수치', 'quantitative']):
+                    # 정밀 분석이 필요한 경우: 더 작은 청크, 더 많은 컨텍스트
+                    rag_params["chunk_size"] = 800
+                    rag_params["top_k"] = 5
+                    print(f"🎯 정밀 분석 모드 (RAG): {category}")
+                elif any(kw in category for kw in ['디자인', 'design', '컨셉']):
+                    # 전체적인 맥락이 중요한 경우: 더 큰 청크
+                    rag_params["chunk_size"] = 1500
+                    rag_params["top_k"] = 2
+                    print(f"🎨 맥락 중심 모드 (RAG): {category}")
+
             # RAG 기반 문서 검색 (PDF 텍스트가 길거나 참고 문서가 있을 때)
             rag_context = ""
             if RAG_AVAILABLE and pdf_text and len(pdf_text) > 5000:
                 try:
-                    # 프롬프트에서 핵심 키워드 추출 (간단한 방식) - 안전한 슬라이싱
+                    # 프롬프트에서 핵심 키워드 추출
                     query_keywords = str(prompt)[:500] if prompt else ""
                     
                     # RAG 시스템으로 관련 문서 부분 검색
                     rag_system = build_rag_system_for_documents(
                         documents=[pdf_text],
-                        chunk_size=1000,
-                        overlap=200
+                        chunk_size=rag_params["chunk_size"],
+                        overlap=rag_params["overlap"]
                     )
                     
                     # 프롬프트 기반 쿼리로 관련 컨텍스트 검색
                     relevant_contexts = query_rag_system(
                         rag_system=rag_system,
                         query=query_keywords,
-                        top_k=3,
+                        top_k=rag_params["top_k"],
                         build_prompt=False
                     )
                     
@@ -2147,6 +2232,47 @@ class EnhancedArchAnalyzer:
             with self._lm_context():
                 result = dspy.Predict(signature_class)(input=enhanced_prompt)
 
+            # [고도화] 블록 메타데이터 기반 자가 비판(Self-Critique) 루프
+            try:
+                # 블록 정보 가져오기
+                all_blocks = []
+                try:
+                    from prompt_processor import load_blocks
+                    all_blocks = load_blocks()
+                except:
+                    pass
+                
+                current_block = next((b for b in all_blocks if b.get('id') == block_id), None)
+                
+                # 품질 검증 수행
+                validation = self.validate_analysis_quality(result.output, block_info=current_block)
+                
+                if validation.get('success') and not validation.get('is_satisfactory'):
+                    print(f"🔄 품질 미달 감지 (자가 비판 루프 실행): {block_id}")
+                    # 개선 요청 프롬프트 생성
+                    refinement_prompt = f"""
+이전 분석 결과에 대해 다음과 같은 품질 개선 피드백이 있었습니다:
+
+{validation['validation_report']}
+
+위 피드백과 개선 제안을 반영하여, 원래의 분석을 더욱 고도화하고 보완한 최종 결과를 다시 작성해 주세요.
+모든 품질 기준을 충족해야 하며, 특히 지적된 미흡한 부분을 완벽히 보완하세요.
+"""
+                    # 재분석 수행 (최대 1회 제한 - 무한 루프 방지)
+                    with self._lm_context():
+                        refined_result = dspy.Predict(signature_class)(input=enhanced_prompt + refinement_prompt)
+                    
+                    return {
+                        "success": True,
+                        "analysis": refined_result.output,
+                        "model": self._get_current_model_info(" (DSPy + Critique)"),
+                        "method": f"DSPy + Self-Critique ({signature_class.__name__})",
+                        "block_id": block_id,
+                        "validation_report": validation['validation_report']
+                    }
+            except Exception as critique_error:
+                print(f"⚠️ 자가 비판 루프 오류 (기본 결과 반환): {critique_error}")
+
             return {
                 "success": True,
                 "analysis": result.output,
@@ -2164,10 +2290,22 @@ class EnhancedArchAnalyzer:
                 "block_id": block_id
             }
     
-    def validate_analysis_quality(self, analysis_result, block_type="general"):
-        """분석 결과 품질 검증 - 개선된 버전"""
+    def validate_analysis_quality(self, analysis_result, block_info=None):
+        """분석 결과 품질 검증 - 블록 메타데이터 기반 동적 검증"""
         try:
-            # 블록별 특화 검증 기준
+            # 블록 정보에서 검증 기준 추출
+            quality_standards = []
+            constraints = []
+            block_id = "general"
+            
+            if block_info:
+                block_id = block_info.get('id', 'general')
+                narrowing = block_info.get('narrowing', {})
+                quality_standards = narrowing.get('quality_standards', [])
+                constraints = narrowing.get('constraints', [])
+                print(f"🧐 블록 메타데이터 기반 검증 시작: {block_id}")
+
+            # 기본 검증 기준 (메타데이터에 없을 경우 예비용)
             validation_criteria = {
                 "basic_info": {
                     "name": "기본 정보 추출",
@@ -2261,8 +2399,20 @@ class EnhancedArchAnalyzer:
                 "weights": [0.2, 0.2, 0.2, 0.2, 0.2]
             }
             
+            # 동적 검증 기준 생성
+            dynamic_criteria = []
+            if quality_standards:
+                dynamic_criteria.extend(quality_standards)
+            if constraints:
+                dynamic_criteria.extend([f"제약조건 준수: {c}" for c in constraints])
+            
             # 블록별 검증 기준 선택
-            criteria_info = validation_criteria.get(block_type, general_criteria)
+            criteria_info = validation_criteria.get(block_id, general_criteria)
+            
+            # 동적 기준이 있다면 추가
+            if dynamic_criteria:
+                criteria_info['criteria'] = dynamic_criteria
+                criteria_info['name'] = f"{block_id} (Custom)"
             
             validation_prompt = f"""
 다음 {criteria_info['name']} 분석 결과의 품질을 검증해주세요:
@@ -2280,7 +2430,7 @@ class EnhancedArchAnalyzer:
 ### 📋 항목별 점수 평가 (각 항목 1-5점)
 {chr(10).join([f"- **항목 {i+1}**: [점수]/5 - [간단한 평가 근거]" for i in range(len(criteria_info['criteria']))])}
 
-### 📈 종합 점수: [총점]/25점
+### 📈 종합 점수: [총점]/{len(criteria_info['criteria']) * 5}점
 ### 🏆 품질 등급: [우수/양호/보통/미흡/부족]
 
 ### ✅ 우수한 부분
@@ -2299,22 +2449,28 @@ class EnhancedArchAnalyzer:
                     validation_criteria=str(criteria_info['criteria'])
                 )
             
+            # 만족도 판단 (80% 이상 점수일 때만 만족)
+            validation_text = result.output
+            score = self._extract_quality_score(validation_text)
+            max_score = len(criteria_info['criteria']) * 5
+            is_satisfactory = (score / max_score >= 0.8) if score and max_score else True
+
             return {
                 "success": True,
-                "validation": result.output,
-                "block_type": block_type,
-                "criteria_info": criteria_info,
-                "model": self._get_current_model_info(" (DSPy)"),
-                "method": "DSPy + Enhanced AnalysisQualityValidator"
+                "validation_report": validation_text,
+                "is_satisfactory": is_satisfactory,
+                "score": score,
+                "block_id": block_id,
+                "model": self._get_current_model_info(" (Critique)"),
+                "method": "DSPy + Metadata-Driven Validator"
             }
             
         except Exception as e:
             return {
                 "success": False,
                 "error": str(e),
-                "block_type": block_type,
-                "model": self._get_current_model_info(" (DSPy)"),
-                "method": "DSPy + AnalysisQualityValidator"
+                "is_satisfactory": True, # 오류 시에는 무한 루프 방지를 위해 일단 통과
+                "block_id": block_id if 'block_id' in locals() else "unknown"
             }
     
     def enhanced_analyze_with_validation(self, project_info, pdf_text, block_type="general"):
@@ -2799,7 +2955,27 @@ class EnhancedArchAnalyzer:
             
             # 최적화된 temperature 계산
             optimal_temperature = self._get_optimal_temperature(block_id, block_info)
-            
+
+            # Phase 5: 전략 수립 카테고리 블록의 경우 3단계 심층 추론 체인 실행
+            block_category = (block_info.get('category', '') if block_info else '').lower()
+            if any(kw in block_category for kw in ['전략', 'strategy']):
+                try:
+                    chain_pdf = ''
+                    if isinstance(project_info, dict):
+                        chain_pdf = project_info.get('file_text', '') or project_info.get('pdf_text', '')
+                    chain_input = f"{context_for_current_block}\n\n[문서 내용]\n{chain_pdf[:3000]}"
+                    chain = UrbanReasoningChain()
+                    chain_result = chain.run(chain_input)
+                    if chain_result.get('success'):
+                        context_for_current_block = (
+                            f"{context_for_current_block}\n\n"
+                            f"## 🔗 심층 추론 결과 (현황→원인→전략)\n{chain_result['combined']}"
+                        )
+                        if progress_callback:
+                            progress_callback("🔗 심층 추론 체인 완료 (현황→원인→전략)")
+                except Exception as _chain_err:
+                    print(f"[UrbanReasoningChain] 체인 실패, 단일 분석으로 폴백: {_chain_err}")
+
             print(f"[DEBUG] _analyze_block_with_cot_context 호출 시작...")
             import time
             start_time = time.time()
@@ -3007,6 +3183,14 @@ class EnhancedArchAnalyzer:
 {project_info.get('spatial_data_context')}
 """
 
+        # Mapping 페이지 필지 정보 섹션
+        site_section = ""
+        if isinstance(project_info, dict) and project_info.get('site_context'):
+            site_section = f"""
+### 📍 대상지 필지 현황 (VWorld API)
+{project_info.get('site_context')}
+"""
+
         # 사용자 피드백 섹션 구성 (피드백 고도화 적용)
         feedback_section = ""
         if feedback_notes:
@@ -3042,6 +3226,7 @@ class EnhancedArchAnalyzer:
 
 ### 📄 원본 프로젝트 정보
 {project_info_text}
+{site_section}
 {spatial_section}
 ### 📄 원본 문서 내용 (블록 맞춤형)
 {self._get_block_context_content(cumulative_context, block_info)}

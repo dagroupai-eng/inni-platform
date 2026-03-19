@@ -1581,42 +1581,7 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
                 st.session_state.site_fields["nearby_building_uses"] = top
             st.session_state.site_fields["nearby_buildings_summary"] = _build_nearby_md(nearby)
 
-    # 필지 polygon → GeoJSON → downloaded_geo_data (3_Document_Analysis의 공간 데이터 연동용)
-    parcel_features = []
-    for p in parcels:
-        geom = p.get("geometry")
-        if geom:
-            parcel_features.append({
-                "type": "Feature",
-                "geometry": geom,
-                "properties": {
-                    "address":               p.get("address", ""),
-                    "pnu":                   p.get("pnu", ""),
-                    "area_m2":               p.get("area_m2"),
-                    "zoning":                p.get("zoning", ""),
-                    "land_category":         p.get("land_category_name", ""),
-                    "official_price_per_m2": p.get("official_price_per_m2"),
-                    "land_restrictions":     ", ".join(
-                        e.get("name", "") for e in (p.get("jiguinfo_entries") or []) if e.get("name")
-                    ),
-                },
-            })
-    if parcel_features:
-        existing = st.session_state.get("downloaded_geo_data") or {}
-        existing["선택 필지 (연속지적도)"] = {
-            "geojson": {"type": "FeatureCollection", "features": parcel_features},
-            "feature_count": len(parcel_features),
-        }
-        st.session_state["downloaded_geo_data"] = existing
-
-    st.success(f"✅ {len(parcels)}개 필지 정보를 분석에 적용했습니다. '문서 분석' 페이지에서 분석을 시작하세요.")
-
-    # 지도 데이터 즉시 자동 저장
-    try:
-        from auth.session_init import auto_save_debounced
-        auto_save_debounced(throttle_seconds=0)  # 즉시 저장
-    except Exception as _as_err:
-        print(f"[Mapping] 자동 저장 오류: {_as_err}")
+    st.success(f"✅ {len(parcels)}개 필지 정보를 분석에 적용했습니다. 메인 페이지에서 분석을 시작하세요.")
 
 
 def _build_nearby_md(buildings: list) -> str:

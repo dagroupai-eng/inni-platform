@@ -58,6 +58,90 @@ try:
 except Exception as e:
     print(f"세션 초기화 오류: {e}")
 
+# ── 단계별 저장/복원 (analysis_runs / analysis_steps) ───────────────────────────
+def _load_latest_steps_into_session(user_id: int, project_id: int) -> None:
+    """
+    현재 프로젝트의 최신 run/steps를 읽어서 session_state에 최소 결과를 복원한다.
+    - 목적: 단계별 결과 표시 + 특정 단계 재실행 가능
+    - 제한: cot_session 전체를 재구성하진 않음(필요 시 실행 시 새로 초기화)
+    """
+    try:
+        from database.analysis_steps_manager import get_latest_run, list_steps
+
+        latest = get_latest_run(project_id)
+        if not latest:
+            return
+
+        run_id = latest.get("id")
+        if not run_id:
+            return
+
+        steps = list_steps(run_id)
+        if not steps:
+            return
+
+        # 복원된 프로젝트가 바뀔 때만 반영
+        last_loaded_key = "_analysis_steps_loaded_for_project"
+        if st.session_state.get(last_loaded_key) == project_id:
+            return
+
+        st.session_state[last_loaded_key] = project_id
+        st.session_state["current_analysis_run_id"] = run_id
+
+        # plan/selected_blocks 복원
+        ordered_block_ids = [s.get("block_id") for s in steps if s.get("block_id")]
+        if ordered_block_ids:
+            st.session_state["selected_blocks"] = ordered_block_ids
+            st.session_state["cot_plan"] = ordered_block_ids
+
+        # outputs에서 결과 복원
+        restored_results = {}
+        restored_citations = {}
+        restored_verif = {}
+        skipped = []
+        for s in steps:
+            bid = s.get("block_id")
+            status = s.get("status")
+            if status == "skipped" and bid:
+                skipped.append(bid)
+            outp = s.get("outputs") or {}
+            if bid and isinstance(outp, dict) and outp.get("analysis"):
+                restored_results[bid] = outp.get("analysis")
+                if outp.get("citations"):
+                    restored_citations[bid] = outp.get("citations")
+                if outp.get("verifications"):
+                    restored_verif[bid] = outp.get("verifications")
+
+        if restored_results:
+            st.session_state.setdefault("analysis_results", {})
+            st.session_state.setdefault("cot_results", {})
+            st.session_state["analysis_results"].update(restored_results)
+            st.session_state["cot_results"].update(restored_results)
+
+        if restored_citations:
+            st.session_state.setdefault("cot_citations", {})
+            st.session_state["cot_citations"].update(restored_citations)
+
+        if restored_verif:
+            st.session_state.setdefault("cot_verifications", {})
+            st.session_state["cot_verifications"].update(restored_verif)
+
+        if skipped:
+            st.session_state["skipped_blocks"] = list(dict.fromkeys(skipped))
+
+        # 다음 실행 인덱스 계산(완료/스킵된 prefix를 건너뜀)
+        completed = set(st.session_state.get("analysis_results", {}).keys())
+        skipped_set = set(st.session_state.get("skipped_blocks", []))
+        next_idx = 0
+        for bid in ordered_block_ids:
+            if bid in completed or bid in skipped_set:
+                next_idx += 1
+                continue
+            break
+        st.session_state["cot_current_index"] = min(next_idx, len(ordered_block_ids))
+    except Exception as e:
+        print(f"[AnalysisSteps] 복원 실패: {e}")
+
 # 강제 불러오기 처리 (불러오기 버튼 클릭 시)
 if st.session_state.get('_force_load_session'):
     try:
@@ -133,7 +217,31 @@ if AUTH_AVAILABLE:
 
 # 제목
 st.title("도시 프로젝트 분석")
-st.markdown("**도시 프로젝트 문서 분석 (PDF, Excel, CSV, 텍스트, JSON 지원)**")
+st.markdown("**도시 프로젝트 문서 분석 (PDF, Word, Excel, CSV, 텍스트, JSON 지원)**")
+
+# ── 프로젝트 선택 바 ──────────────────────────────────────────────────────────
+try:
+    from auth.project_manager import render_project_selector
+    render_project_selector()
+except Exception as _pm_err:
+    print(f"[ProjectManager] 렌더링 오류: {_pm_err}")
+
+# 프로젝트 선택 후 단계별 결과 자동 복원
+try:
+    _u = st.session_state.get("pms_current_user") or {}
+    _uid = _u.get("id")
+    _pid = st.session_state.get("current_project_id")
+    if _uid and _pid:
+        _load_latest_steps_into_session(_uid, _pid)
+except Exception as _steps_err:
+    print(f"[AnalysisSteps] 자동 복원 오류: {_steps_err}")
+
+# ── 복원 알림 ─────────────────────────────────────────────────────────────────
+_restore_notice = st.session_state.pop("_restore_notice", None)
+if _restore_notice:
+    _pn = _restore_notice.get("project_name") or "이전 프로젝트"
+    _cnt = _restore_notice.get("count", 0)
+    st.success(f"✅ **{_pn}** 작업 내용을 불러왔습니다. ({_cnt}개 항목 복원)", icon="📂")
 
 # 페이지 상단 컨트롤 (리셋 버튼)
 col_title, col_reset = st.columns([5, 1])
@@ -151,7 +259,7 @@ with col_reset:
             'preprocessed_text', 'preprocessed_summary', 'preprocessing_meta',
             'reference_documents', 'reference_combined_text', 'reference_signature',
             'block_spatial_data', 'block_spatial_selection',
-            'document_summary'
+            'document_summary', 'doc_rag_system'
         ]
         for key in keys_to_reset:
             if key in st.session_state:
@@ -269,6 +377,12 @@ if 'reference_signature' not in st.session_state:
     st.session_state.reference_signature = None
 if 'document_summary' not in st.session_state:
     st.session_state.document_summary = None
+if 'doc_rag_system' not in st.session_state:
+    st.session_state.doc_rag_system = None
+if 'cot_verifications' not in st.session_state:
+    st.session_state.cot_verifications = {}
+if 'urban_indicator_results' not in st.session_state:
+    st.session_state.urban_indicator_results = None
 
 DEFAULT_FIXED_PROGRAM = {
     "phase1_program_intro": "",
@@ -561,6 +675,9 @@ def reset_step_analysis_state(preserve_existing_results: bool = False) -> None:
         st.session_state.cot_history = []
         st.session_state.cot_feedback_inputs = {}
         st.session_state.document_summary = None  # 문서 요약도 초기화
+        st.session_state.cot_verifications = {}
+        st.session_state.doc_rag_system = None
+        st.session_state.urban_indicator_results = None
 
         # Phase 1 관련 개별 블록 결과 초기화 (제거된 블록들)
         st.session_state.pop('phase1_requirements_cot_history', None)
@@ -2283,11 +2400,54 @@ with tab_project:
 
     st.markdown("---")
     st.header("파일 업로드")
+
+    # ── Supabase에 저장된 파일 목록/다운로드 ────────────────────────────────
+    try:
+        from auth.file_storage import get_project_files, download_project_file
+        _pid_files = st.session_state.get("current_project_id")
+        if _pid_files:
+            saved_files = get_project_files(_pid_files)
+            if saved_files:
+                with st.expander("☁️ 저장된 업로드 파일", expanded=False):
+                    st.caption("이 프로젝트에 저장된 파일 목록입니다. 필요 시 다시 다운로드할 수 있습니다.")
+                    for f in saved_files[:20]:
+                        fname = f.get("filename", "file")
+                        spath = f.get("storage_path")
+                        fsize = f.get("file_size_bytes") or 0
+                        cols = st.columns([3, 1, 1])
+                        with cols[0]:
+                            st.write(f"**{fname}**")
+                            st.caption(f"type={f.get('file_type')}, size={(fsize/1024/1024):.2f}MB")
+                        with cols[1]:
+                            if st.button("⬇️ 가져오기", key=f"pull_file_{f.get('id')}"):
+                                if spath:
+                                    data = download_project_file(spath)
+                                    if data:
+                                        st.session_state["pdf_uploaded"] = True
+                                        st.session_state["file_storage_path"] = spath
+                                        st.info("파일 바이너리를 내려받았습니다. 아래에서 다시 분석하거나 다운로드하세요.")
+                                else:
+                                    st.warning("storage_path가 없습니다.")
+                        with cols[2]:
+                            if spath:
+                                data = None
+                                try:
+                                    data = download_project_file(spath)
+                                except Exception:
+                                    data = None
+                                st.download_button(
+                                    "다운로드",
+                                    data=data,
+                                    file_name=fname,
+                                    key=f"dl_file_{f.get('id')}",
+                                )
+    except Exception as _files_err:
+        print(f"[FileStorage] 저장 파일 목록 UI 오류: {_files_err}")
     
     uploaded_file = st.file_uploader(
         "파일을 업로드하세요",
-        type=['pdf', 'xlsx', 'xls', 'csv', 'txt', 'json'],
-        help="도시 프로젝트 관련 문서를 업로드하세요 (PDF, Excel, CSV, 텍스트, JSON 지원)"
+        type=['pdf', 'docx', 'xlsx', 'xls', 'csv', 'txt', 'json', 'png', 'jpg', 'jpeg', 'webp'],
+        help="도시 프로젝트 관련 문서를 업로드하세요 (PDF, Word, Excel, CSV, 텍스트, JSON 지원)"
     )
     
     if uploaded_file is not None:
@@ -2295,6 +2455,67 @@ with tab_project:
         
         # 파일 확장자 확인
         file_extension = uploaded_file.name.split('.')[-1].lower()
+        file_bytes = uploaded_file.getvalue()
+
+        # 이미지 파일: Gemini Vision으로 내용 읽기 → 텍스트 컨텍스트로 저장
+        if file_extension in ["png", "jpg", "jpeg", "webp"]:
+            try:
+                from google import genai
+                from google.genai import types
+                from pdf_analyzer import _get_gemini_api_key
+
+                api_key = _get_gemini_api_key()
+                if not api_key:
+                    st.error("이미지 읽기를 위해 `GEMINI_API_KEY`가 필요합니다. (설정/환경변수 또는 UI 키)")
+                else:
+                    client = genai.Client(api_key=api_key)
+                    prompt = (
+                        "이 이미지를 '도시/건축 프로젝트 분석' 관점에서 읽고, "
+                        "보이는 핵심 요소(텍스트/도면/표/지도/다이어그램)를 구조화해 한국어로 요약해줘.\n\n"
+                        "출력 형식:\n"
+                        "1) 한줄 요약\n"
+                        "2) 관찰된 요소(불릿)\n"
+                        "3) 이미지 내 텍스트(OCR 느낌으로 최대한)\n"
+                        "4) 분석에 유용한 키워드(10개)\n"
+                    )
+                    with st.spinner("🖼️ 이미지 내용 읽는 중(Gemini Vision)..."):
+                        resp = client.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=[
+                                types.Content(
+                                    role="user",
+                                    parts=[
+                                        types.Part.from_text(prompt),
+                                        types.Part.from_bytes(data=file_bytes, mime_type=uploaded_file.type or "image/png"),
+                                    ],
+                                )
+                            ],
+                        )
+                    text = (getattr(resp, "text", None) or "").strip()
+                    if text:
+                        # 기존 변수명을 유지: pdf_text에 이미지 설명을 넣어 이후 블록 분석에 바로 사용 가능
+                        st.session_state["pdf_text"] = text
+                        st.session_state["pdf_uploaded"] = True
+                        st.session_state["file_type"] = "image"
+                        st.session_state["file_analysis"] = {
+                            "success": True,
+                            "file_type": "image",
+                            "text": text,
+                            "char_count": len(text),
+                            "word_count": len(text.split()),
+                            "preview": text[:500] + "..." if len(text) > 500 else text,
+                        }
+                        st.session_state["uploaded_file"] = uploaded_file
+                        st.success("이미지 읽기 완료! 추출된 텍스트를 분석에 사용합니다.")
+                        with st.expander("이미지 읽기 결과(미리보기)"):
+                            st.text(st.session_state["file_analysis"]["preview"])
+
+                        # Storage 업로드는 기존 로직 그대로 수행하도록 아래로 계속 진행
+                    else:
+                        st.error("이미지 읽기 결과가 비어 있습니다.")
+            except Exception as _img_err:
+                st.error(f"이미지 읽기 실패: {_img_err}")
+            # 이미지인 경우도 Storage 업로드/메타 저장을 위해 아래 로직은 계속 진행
         
         # 메모리에서 직접 파일 분석 (임시 파일 생성 없음)
         file_analyzer = UniversalFileAnalyzer()
@@ -2302,7 +2523,7 @@ with tab_project:
         # 파일 분석 (메모리 기반)
         with st.spinner(f"{file_extension.upper()} 파일 분석 중..."):
             analysis_result = file_analyzer.analyze_file_from_bytes(
-                uploaded_file.getvalue(), 
+                file_bytes, 
                 file_extension, 
                 uploaded_file.name
             )
@@ -2313,12 +2534,29 @@ with tab_project:
             # 파일 정보 표시 (파일 크기는 업로드된 파일에서 직접 계산)
             file_size_mb = len(uploaded_file.getvalue()) / (1024 * 1024)
             st.info(f"파일 정보: {file_size_mb:.2f}MB, {analysis_result['word_count']}단어, {analysis_result['char_count']}문자")
+            if analysis_result.get('truncated'):
+                orig = analysis_result.get('original_char_count', 0)
+                st.warning(f"파일이 너무 커서 앞부분 {analysis_result['char_count']:,}자만 분석에 사용됩니다. (원본: {orig:,}자)")
             
             # 파일 형식별 특별 정보 표시
             if analysis_result['file_type'] == 'excel':
                 st.info(f"Excel 시트: {', '.join(analysis_result['sheet_names'])} ({analysis_result['sheet_count']}개 시트)")
             elif analysis_result['file_type'] == 'csv':
-                st.info(f"CSV 데이터: {analysis_result['shape'][0]}행 × {analysis_result['shape'][1]}열")
+                enc = analysis_result.get('encoding', 'utf-8')
+                st.info(f"CSV 데이터: {analysis_result['shape'][0]}행 × {analysis_result['shape'][1]}열 | 인코딩: {enc}")
+            elif analysis_result['file_type'] == 'pdf':
+                method = analysis_result.get('method', 'pymupdf')
+                quality = analysis_result.get('quality_score', '-')
+                st.info(f"PDF 추출 방법: {method} | 품질 점수: {quality}/100")
+                if analysis_result.get('is_scanned'):
+                    st.warning("스캔된 PDF로 감지되었습니다. Gemini API 키가 있으면 자동으로 OCR 처리됩니다.")
+            elif analysis_result['file_type'] == 'docx':
+                h = analysis_result.get('heading_count', 0)
+                t = analysis_result.get('table_count', 0)
+                st.info(f"Word 문서: 헤딩 {h}개, 표 {t}개")
+            elif analysis_result['file_type'] == 'json':
+                if analysis_result.get('summarized'):
+                    st.info("JSON 파일이 크기가 커서 구조 요약 모드로 변환되었습니다. (키 목록 + 샘플 항목)")
             
             # 세션에 저장
             st.session_state['pdf_text'] = analysis_result['text']  # 기존 변수명 유지
@@ -2326,7 +2564,39 @@ with tab_project:
             st.session_state['file_type'] = analysis_result['file_type']
             st.session_state['file_analysis'] = analysis_result
             st.session_state['uploaded_file'] = uploaded_file  # 파일 객체 저장
-            
+
+            # ── Supabase Storage 업로드 ────────────────────────────────────────
+            try:
+                from auth.file_storage import upload_project_file, save_file_meta
+                from auth.project_manager import get_or_create_current_project
+                _uid_fs = st.session_state.pms_current_user.get('id') if st.session_state.get('pms_current_user') else None
+                if _uid_fs:
+                    _pid_fs = get_or_create_current_project(_uid_fs)
+                    _storage_path = upload_project_file(
+                        user_id=_uid_fs,
+                        project_id=_pid_fs,
+                        filename=uploaded_file.name,
+                        file_bytes=file_bytes,
+                    )
+                    if _storage_path:
+                        st.session_state['file_storage_path'] = _storage_path
+                        save_file_meta(
+                            project_id=_pid_fs,
+                            user_id=_uid_fs,
+                            filename=uploaded_file.name,
+                            file_type=analysis_result['file_type'],
+                            storage_path=_storage_path,
+                            char_count=analysis_result.get('char_count', 0),
+                            file_size_bytes=len(file_bytes),
+                            file_meta={
+                                'quality_score': analysis_result.get('quality_score'),
+                                'method': analysis_result.get('method'),
+                            },
+                        )
+                        st.caption(f"☁️ 파일이 저장소에 업로드되었습니다.")
+            except Exception as _fs_err:
+                print(f"[FileStorage] 업로드 오류: {_fs_err}")
+
             # 텍스트 미리보기
             with st.expander(f"{file_extension.upper()} 내용 미리보기"):
                 st.text(analysis_result['preview'])
@@ -2754,6 +3024,35 @@ with tab_run:
             total_chars = sum(doc.get('char_count', 0) for doc in reference_docs)
             st.write(f"• 참고 자료: {len(reference_docs)}건 ({total_chars:,}자)")
 
+    # Mapping 필지 정보 연동 상태 표시
+    _sf = st.session_state.get('site_fields')
+    _geo = st.session_state.get('downloaded_geo_data')
+    if _sf or _geo:
+        st.markdown("---")
+        st.markdown("**🗺️ Mapping 연동 현황**")
+        if _sf:
+            _addr = _sf.get('site_address', '')
+            _area = _sf.get('site_area', '')
+            _zoning = _sf.get('zoning', '')
+            st.success(f"✓ 필지 정보: {_addr}  {_area}  {_zoning}")
+            with st.expander("상세 필지 정보", expanded=False):
+                for _key, _label in [
+                    ('land_category','지목'), ('parcel_count','필지 수'),
+                    ('official_price_per_m2','공시지가'), ('land_restrictions','용도계획 제한'),
+                    ('land_ownership','소유정보'), ('building_height','건물 높이'),
+                    ('existing_building_purpose','기존 건물 용도'),
+                    ('existing_building_area','기존 건물 연면적'),
+                    ('existing_bcr','기존 건폐율'), ('existing_vlr','기존 용적률'),
+                    ('nearby_buildings_count','주변 건물 수'),
+                    ('nearby_building_uses','주변 건물 주요 용도'),
+                ]:
+                    _v = _sf.get(_key)
+                    if _v and str(_v) not in ('True','False',''):
+                        st.write(f"• {_label}: {_v}")
+        if _geo:
+            for _lname, _ldata in _geo.items():
+                st.info(f"✓ 공간 레이어: {_lname} ({_ldata.get('feature_count', 0)}개 필지)")
+
     # 공간 데이터 연동 상태 표시
     if st.session_state.get('block_spatial_data'):
         st.markdown("---")
@@ -2805,6 +3104,38 @@ with tab_run:
             project_info_payload["longitude"] = float(st.session_state.longitude)
         except (ValueError, TypeError):
             pass
+
+    # Mapping 페이지에서 선택한 필지 정보 (site_fields) → site_context로 변환
+    _site_fields = st.session_state.get('site_fields')
+    if _site_fields:
+        _field_labels = [
+            ('site_address',              '주소'),
+            ('site_area',                 '면적'),
+            ('zoning',                    '용도지역/지구'),
+            ('land_category',             '지목'),
+            ('parcel_count',              '필지 수'),
+            ('official_price_per_m2',     '공시지가'),
+            ('land_restrictions',         '용도계획 제한'),
+            ('land_ownership',            '소유정보'),
+            ('building_height',           '건물 높이'),
+            ('existing_building_purpose', '기존 건물 용도'),
+            ('existing_building_area',    '기존 건물 연면적'),
+            ('existing_bcr',              '기존 건폐율'),
+            ('existing_vlr',              '기존 용적률'),
+            ('existing_floors',           '기존 층수'),
+            ('nearby_buildings_count',    '주변 건물 수'),
+            ('nearby_building_uses',      '주변 건물 주요 용도'),
+        ]
+        _lines = ["### 📍 대상지 필지 현황 (VWorld API 확인 데이터)"]
+        for _key, _label in _field_labels:
+            _val = _site_fields.get(_key)
+            if _val and str(_val) not in ('True', 'False', ''):
+                _lines.append(f"- {_label}: {_val}")
+        if _site_fields.get('nearby_buildings_summary'):
+            _lines.append("")
+            _lines.append(_site_fields['nearby_buildings_summary'])
+        if len(_lines) > 1:
+            project_info_payload['site_context'] = '\n'.join(_lines)
 
     spatial_notice = None
     try:
@@ -2949,6 +3280,36 @@ with tab_run:
                 st.warning("분석에 사용할 텍스트가 없습니다.")
             else:
                 try:
+                    # analysis_runs/analysis_steps: 새 run 및 step row 생성
+                    try:
+                        from auth.project_manager import get_or_create_current_project
+                        from database.analysis_steps_manager import create_run, create_steps
+                        _u = st.session_state.get("pms_current_user") or {}
+                        _uid = _u.get("id")
+                        if _uid:
+                            _pid = get_or_create_current_project(_uid)
+                            input_snapshot = {
+                                "project_name": st.session_state.get("project_name", ""),
+                                "location": st.session_state.get("location", ""),
+                                "project_goals": st.session_state.get("project_goals", ""),
+                                "additional_info": st.session_state.get("additional_info", ""),
+                                "file_type": st.session_state.get("file_type", ""),
+                                "file_storage_path": st.session_state.get("file_storage_path", ""),
+                                "selected_blocks": selected_blocks,
+                            }
+                            run_id = create_run(_uid, _pid, input_snapshot=input_snapshot)
+                            if run_id:
+                                st.session_state["current_analysis_run_id"] = run_id
+                                # blocks payload는 id/name만 필요
+                                _blocks_payload = []
+                                for bid in selected_blocks:
+                                    b = block_lookup.get(bid, {"id": bid, "name": bid})
+                                    _blocks_payload.append({"id": bid, "name": b.get("name", bid)})
+                                _step_map = create_steps(run_id, _pid, _uid, _blocks_payload)
+                                st.session_state["analysis_step_id_map"] = _step_map
+                    except Exception as _init_steps_err:
+                        print(f"[AnalysisSteps] run/steps 생성 실패: {_init_steps_err}")
+
                     # 세션 준비 시 모든 이전 상태를 완전히 초기화
                     EnhancedArchAnalyzer.reset_lm()
                     st.session_state.pop('cot_analyzer', None)
@@ -2983,6 +3344,37 @@ with tab_run:
                             else:
                                 st.warning(f"문서 요약 생성 실패: {summary_result.get('error', '알 수 없는 오류')}")
 
+                    # RAG 시스템 구축 (블록별 컨텍스트 분리를 위해)
+                    if analysis_text and len(analysis_text) > 200 and not st.session_state.get('doc_rag_system'):
+                        try:
+                            from rag_helper import build_rag_system_for_documents
+                            with st.spinner("🔍 문서 인덱싱 중 (블록별 최적 컨텍스트 준비)..."):
+                                rag_system = build_rag_system_for_documents(
+                                    documents=[analysis_text],
+                                    chunk_size=800,
+                                    overlap=150
+                                )
+                                if rag_system.get("num_chunks", 0) > 0:
+                                    st.session_state.doc_rag_system = rag_system
+                                    st.info(f"✅ 문서 인덱싱 완료: {rag_system['num_chunks']}개 청크")
+                        except Exception as _rag_err:
+                            print(f"[RAG] 인덱싱 실패 (전체 문서로 폴백): {_rag_err}")
+
+                    # Phase 4: 도시 지표 추출 및 정합성 검증
+                    if analysis_text and not st.session_state.get('urban_indicator_results'):
+                        try:
+                            from utils.urban_indicators import UrbanIndicatorExtractor
+                            _extractor = UrbanIndicatorExtractor()
+                            _indicators = _extractor.extract(analysis_text)
+                            if _indicators:
+                                _validation = _extractor.validate(_indicators)
+                                st.session_state.urban_indicator_results = {
+                                    'indicators': _indicators,
+                                    'validation': _validation,
+                                }
+                        except Exception as _ind_err:
+                            print(f"[UrbanIndicators] 추출 실패: {_ind_err}")
+
                     # document_summary를 project_info_payload에 추가
                     if st.session_state.get('document_summary'):
                         project_info_payload['document_summary'] = st.session_state.document_summary
@@ -3008,6 +3400,17 @@ with tab_run:
                     st.rerun()
                 except Exception as e:
                     st.error(f"분석기 초기화 실패: {e}")
+
+    # Phase 4: 도시 지표 검증 결과 표시
+    _ind_data = st.session_state.get('urban_indicator_results')
+    if _ind_data and _ind_data.get('validation'):
+        with st.expander("🏙️ 도시 지표 검증 결과", expanded=False):
+            for v in _ind_data['validation']:
+                icon = "✅" if v['ok'] else "⚠️"
+                stated_str = f" (기재: {v['stated']})" if v.get('stated') is not None else ""
+                st.markdown(
+                    f"{icon} **{v['item']}**: {v['calculated']} {v['unit']}{stated_str} — {v['note']}"
+                )
 
     active_plan = st.session_state.cot_plan if st.session_state.cot_session else selected_blocks
 
@@ -3237,6 +3640,21 @@ with tab_run:
                         # 피드백 유형 전달 (auto이면 None)
                         actual_feedback_type = None if selected_feedback_type == 'auto' else selected_feedback_type
 
+                        # analysis_steps 상태 업데이트(있으면)
+                        try:
+                            from database.analysis_steps_manager import set_step_status, save_step_payloads
+                            step_map = st.session_state.get("analysis_step_id_map", {}) or {}
+                            sid = step_map.get(block_id)
+                            if sid:
+                                set_step_status(sid, "running")
+                                _inputs = {
+                                    "feedback": feedback_text.strip(),
+                                    "feedback_type": actual_feedback_type,
+                                }
+                                save_step_payloads(sid, inputs=_inputs, outputs=None)
+                        except Exception as _rerun_db_err:
+                            print(f"[AnalysisSteps] rerun running 업데이트 실패: {_rerun_db_err}")
+
                         try:
                             with st.spinner("피드백 기반 재분석 중..."):
                                 step_result = analyzer.run_cot_step(
@@ -3261,6 +3679,22 @@ with tab_run:
                             # Citations 저장
                             if step_result.get('all_citations'):
                                 st.session_state.cot_citations[block_id] = step_result['all_citations']
+
+                            # analysis_steps 출력 저장(있으면)
+                            try:
+                                from database.analysis_steps_manager import set_step_status, save_step_payloads
+                                step_map = st.session_state.get("analysis_step_id_map", {}) or {}
+                                sid = step_map.get(block_id)
+                                if sid:
+                                    outp = {
+                                        "analysis": analysis_result,
+                                        "citations": st.session_state.get("cot_citations", {}).get(block_id),
+                                        "verifications": st.session_state.get("cot_verifications", {}).get(block_id),
+                                    }
+                                    save_step_payloads(sid, inputs=None, outputs=outp)
+                                    set_step_status(sid, "completed")
+                            except Exception as _rerun_save_err:
+                                print(f"[AnalysisSteps] rerun step 저장 실패: {_rerun_save_err}")
                             
                             # 자동 저장
                             project_info = {
@@ -3280,6 +3714,14 @@ with tab_run:
                             st.success(f"{block_name} 블록을 피드백에 맞춰 재분석했습니다.")
                             st.rerun()
                         else:
+                            try:
+                                from database.analysis_steps_manager import set_step_status
+                                step_map = st.session_state.get("analysis_step_id_map", {}) or {}
+                                sid = step_map.get(block_id)
+                                if sid:
+                                    set_step_status(sid, "failed", error=str(step_result.get("error", ""))[:800])
+                            except Exception as _rerun_fail_err:
+                                print(f"[AnalysisSteps] rerun failed 업데이트 실패: {_rerun_fail_err}")
                             st.error(f"재분석 실패: {step_result.get('error', '알 수 없는 오류')}")
                 elif status_badge == "🟡 대기":
                     st.info("다음 실행 대상 블록입니다. 아래 버튼을 눌러 분석을 진행하세요.")
@@ -3385,6 +3827,17 @@ with tab_run:
             if 'skipped_blocks' not in st.session_state:
                 st.session_state.skipped_blocks = []
             st.session_state.skipped_blocks.append(next_block_id)
+
+            # analysis_steps 상태 업데이트(있으면)
+            try:
+                from database.analysis_steps_manager import set_step_status
+                step_map = st.session_state.get("analysis_step_id_map", {}) or {}
+                sid = step_map.get(next_block_id)
+                if sid:
+                    set_step_status(sid, "skipped")
+            except Exception as _skip_db_err:
+                print(f"[AnalysisSteps] skip 업데이트 실패: {_skip_db_err}")
+
             st.session_state.cot_current_index += 1
             
             # 세션 저장 후 재시작
@@ -3404,6 +3857,20 @@ with tab_run:
                 st.stop()
             progress_placeholder = st.empty()
             st.session_state.cot_running_block = next_block_id
+            # analysis_steps 상태 업데이트(있으면)
+            try:
+                from database.analysis_steps_manager import set_step_status, save_step_payloads
+                step_map = st.session_state.get("analysis_step_id_map", {}) or {}
+                sid = step_map.get(next_block_id)
+                if sid:
+                    set_step_status(sid, "running")
+                    _inputs = {
+                        "feedback": st.session_state.get("cot_feedback_inputs", {}).get(next_block_id, ""),
+                        "spatial_layers": st.session_state.get("block_spatial_selection", {}).get(next_block_id, []),
+                    }
+                    save_step_payloads(sid, inputs=_inputs, outputs=None)
+            except Exception as _run_db_err:
+                print(f"[AnalysisSteps] running 업데이트 실패: {_run_db_err}")
 
             def step_progress(message: str) -> None:
                 st.session_state.cot_progress_messages.append(message)
@@ -3456,6 +3923,21 @@ with tab_run:
                     parts.append(block_spatial_context)
                 combined_feedback = "\n\n".join(parts) if parts else None
 
+            # 블록별 RAG 컨텍스트 주입
+            doc_rag_system = st.session_state.get('doc_rag_system')
+            if doc_rag_system and next_block:
+                try:
+                    from rag_helper import get_block_relevant_context
+                    block_context = get_block_relevant_context(next_block, doc_rag_system, top_k=8)
+                    if block_context:
+                        # 원본 전체 텍스트는 보존하고 블록 전용 컨텍스트를 주입
+                        original_file_text = st.session_state.cot_session["project_info"].get("file_text", "")
+                        st.session_state.cot_session["project_info"]["_original_file_text"] = original_file_text
+                        st.session_state.cot_session["project_info"]["file_text"] = block_context
+                        print(f"[RAG] {next_block_id}: 블록 컨텍스트 주입 ({len(block_context)}자 / 전체 {len(original_file_text)}자)")
+                except Exception as _rag_inject_err:
+                    print(f"[RAG] 컨텍스트 주입 실패 (전체 문서로 폴백): {_rag_inject_err}")
+
             try:
                 with st.spinner("분석 실행 중..."):
                     step_result = analyzer.run_cot_step(
@@ -3468,6 +3950,11 @@ with tab_run:
                     )
             finally:
                 st.session_state.cot_running_block = None
+                # 블록별 컨텍스트 주입 후 원본 텍스트 복원
+                if st.session_state.cot_session and "project_info" in st.session_state.cot_session:
+                    original = st.session_state.cot_session["project_info"].pop("_original_file_text", None)
+                    if original is not None:
+                        st.session_state.cot_session["project_info"]["file_text"] = original
 
             if step_result.get('success'):
                 st.session_state.cot_session = step_result['cot_session']
@@ -3478,14 +3965,41 @@ with tab_run:
                 # Citations 저장
                 if step_result.get('all_citations'):
                     st.session_state.cot_citations[next_block_id] = step_result['all_citations']
-                
+
+                # Phase 3: 출처 검증
+                _run_rag = st.session_state.get('doc_rag_system')
+                if _run_rag and analysis_result:
+                    try:
+                        from rag_helper import verify_analysis
+                        _verifications = verify_analysis(analysis_result, _run_rag, max_claims=6)
+                        if _verifications:
+                            st.session_state.cot_verifications[next_block_id] = _verifications
+                    except Exception as _ver_err:
+                        print(f"[Verify] 출처 검증 실패: {_ver_err}")
+
+                # analysis_steps 출력 저장(있으면)
+                try:
+                    from database.analysis_steps_manager import set_step_status, save_step_payloads
+                    step_map = st.session_state.get("analysis_step_id_map", {}) or {}
+                    sid = step_map.get(next_block_id)
+                    if sid:
+                        outp = {
+                            "analysis": analysis_result,
+                            "citations": st.session_state.get("cot_citations", {}).get(next_block_id),
+                            "verifications": st.session_state.get("cot_verifications", {}).get(next_block_id),
+                        }
+                        save_step_payloads(sid, inputs=None, outputs=outp)
+                        set_step_status(sid, "completed")
+                except Exception as _save_step_err:
+                    print(f"[AnalysisSteps] step 저장 실패: {_save_step_err}")
+
                 # 자동 저장
                 project_info = {
                     "project_name": st.session_state.get('project_name', ''),
                     "location": st.session_state.get('location', '')
                 }
                 save_analysis_result(next_block_id, analysis_result, project_info)
-                
+
                 st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
                 st.session_state.cot_current_index += 1
 
@@ -3500,6 +4014,15 @@ with tab_run:
                 st.success(f"{next_block_name} 블록 분석이 완료되었습니다.")
                 st.rerun()
             else:
+                # 실패 상태 저장(있으면)
+                try:
+                    from database.analysis_steps_manager import set_step_status
+                    step_map = st.session_state.get("analysis_step_id_map", {}) or {}
+                    sid = step_map.get(next_block_id)
+                    if sid:
+                        set_step_status(sid, "failed", error=str(step_result.get("error", ""))[:800])
+                except Exception as _fail_step_err:
+                    print(f"[AnalysisSteps] failed 업데이트 실패: {_fail_step_err}")
                 st.error(f"{next_block_name} 블록 분석 실패: {step_result.get('error', '알 수 없는 오류')}")
 
     if st.session_state.cot_progress_messages:
@@ -3540,6 +4063,23 @@ with tab_run:
                     block = block_lookup.get(block_id)
                     st.markdown("**분석 결과**")
                     render_analysis_result(ordered_results[block_id])
+
+                    # Phase 3: 출처 검증 결과
+                    _verif = st.session_state.get('cot_verifications', {}).get(block_id, [])
+                    if _verif:
+                        with st.expander("🔍 출처 검증", expanded=False):
+                            for _v in _verif:
+                                _conf = _v.get('confidence', 0.0)
+                                if _conf >= 0.15:
+                                    _label = "🟢 근거 있음"
+                                elif _conf >= 0.05:
+                                    _label = "🟡 부분 근거"
+                                else:
+                                    _label = "🔴 근거 부족"
+                                st.markdown(f"**{_label}** (신뢰도: {_conf:.3f})")
+                                st.caption(f"주장: {_v.get('claim', '')[:120]}")
+                                if _v.get('evidence'):
+                                    st.caption(f"근거: {_v['evidence'][:150]}")
 
     all_blocks_completed = (
         st.session_state.cot_plan
@@ -3645,9 +4185,9 @@ with tab_download:
     else:
         st.info("분석 결과가 없습니다.")
 
-# 페이지 렌더링 완료 후 작업 세션 자동 저장
+# 페이지 렌더링 완료 후 작업 세션 자동 저장 (3초 스로틀)
 try:
-    from auth.session_init import auto_save_trigger
-    auto_save_trigger()
+    from auth.session_init import auto_save_debounced
+    auto_save_debounced(throttle_seconds=3.0)
 except Exception as e:
     pass

@@ -9,6 +9,7 @@ requests>=2.32.3
 
 # PDF
 PyMuPDF>=1.24.14
+pymupdf4llm>=0.0.17
 
 # Docs
 python-docx>=1.1.2
@@ -52,6 +53,9 @@ networkx>=3.3
 
 # Web Search
 duckduckgo-search>=8.1.1
+
+# Hybrid Search (BM25)
+rank-bm25>=0.2.2
 
 # TOML parsing (Python 3.11 미만 지원)
 tomli>=2.0.0; python_version < "3.11"
