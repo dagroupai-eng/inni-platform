@@ -420,71 +420,56 @@ def build_fixed_program_markdown() -> str:
     ])
 
 def save_analysis_result(block_id, analysis_result, project_info=None):
-    """개별 블록 분석 결과를 JSON 파일로 저장 + GitHub 백업"""
-    from datetime import datetime
-    import json
-    import os
-
-    # 1. 로컬 저장 (기존 방식)
-    analysis_folder = "analysis_results"
-    os.makedirs(analysis_folder, exist_ok=True)
-
-    # 파일명: block_{block_id}_{timestamp}.json
-    filename = f"block_{block_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    filepath = os.path.join(analysis_folder, filename)
-
-    block_record = {
-        "block_id": block_id,
-        "analysis_result": analysis_result,
-        "saved_timestamp": datetime.now().isoformat(),
-        "project_info": project_info or {
-            "project_name": st.session_state.get('project_name', ''),
-            "location": st.session_state.get('location', '')
-        }
-    }
-
-    try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(block_record, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        st.error(f"분석 결과 저장 실패 ({block_id}): {e}")
-        return None
-
-    return filepath
+    """개별 블록 분석 결과 저장 — Supabase는 save_work_session()이 처리하므로 여기서는 no-op"""
+    # analysis_results는 session_state에 저장되며,
+    # save_work_session() / save_analysis_progress()가 Supabase에 저장함
+    return None
 
 def load_saved_analysis_results():
-    """analysis_results 폴더 + GitHub에서 저장된 모든 블록 결과를 로드"""
+    """Supabase analysis_sessions에서 현재 로그인 사용자의 분석 결과를 로드"""
     import json
-    import os
-    import glob
-    from datetime import datetime
 
     results = {}
 
-    # 1. 로컬 파일에서 먼저 로드
-    analysis_folder = "analysis_results"
-    if os.path.exists(analysis_folder):
-        pattern = os.path.join(analysis_folder, "block_*.json")
-        files = glob.glob(pattern)
+    if 'pms_current_user' not in st.session_state:
+        return results
 
-        block_latest = {}
-        for filepath in files:
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    block_id = data.get('block_id')
-                    if block_id:
-                        saved_time = datetime.fromisoformat(data.get('saved_timestamp', ''))
-                        if block_id not in block_latest or saved_time > block_latest[block_id]['time']:
-                            block_latest[block_id] = {
-                                'result': data.get('analysis_result', ''),
-                                'time': saved_time,
-                                'file': filepath
-                            }
-            except Exception:
-                continue
+    try:
+        from database.db_manager import execute_query
 
-        results = {block_id: info['result'] for block_id, info in block_latest.items()}
+        user_id = st.session_state.pms_current_user.get('id')
+        if not user_id:
+            return results
+
+        project_id = st.session_state.get('current_project_id')
+        if project_id:
+            rows = execute_query(
+                """
+                SELECT session_data FROM analysis_sessions
+                WHERE user_id = ? AND project_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (user_id, project_id)
+            )
+        else:
+            rows = execute_query(
+                """
+                SELECT session_data FROM analysis_sessions
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (user_id,)
+            )
+
+        if rows and rows[0]:
+            raw = rows[0]['session_data']
+            session_data = json.loads(raw) if isinstance(raw, str) else raw
+            results = session_data.get('analysis_results', {})
+
+    except Exception as e:
+        print(f"분석 결과 로드 오류: {e}")
 
     return results
 

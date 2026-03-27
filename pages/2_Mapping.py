@@ -112,18 +112,11 @@ def _api_key() -> str:
     return os.getenv("VWORLD_API_KEY", "")
 
 def _domain() -> Optional[str]:
-    return os.getenv("VWORLD_API_DOMAIN") or None
+    return os.getenv("VWORLD_DOMAIN") or os.getenv("VWORLD_API_DOMAIN") or None
 
 def _vworld_get(url: str, params: dict, timeout: int = 10):
-    """VWorld API GET 요청 — CLOUDFLARE_WORKER_URL 설정 시 프록시 경유"""
+    """VWorld API GET 요청 — 서울 리전 서버에서 직접 호출"""
     import requests
-    worker_url = os.getenv("CLOUDFLARE_WORKER_URL", "").rstrip("/")
-    if worker_url:
-        return requests.post(
-            f"{worker_url}/proxy",
-            json={"url": url, "params": {k: str(v) for k, v in params.items()}, "method": "GET"},
-            timeout=timeout,
-        )
     return requests.get(url, params=params, timeout=timeout)
 
 

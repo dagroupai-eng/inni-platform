@@ -146,6 +146,13 @@ downloads/
 temp/
 logs/
 
+# SSH keys
+*.key
+*.pem
+
+# 배포 가이드 (서버 IP 등 민감 정보 포함 가능)
+oracle.md
+
 # Streamlit secrets (contains API keys)
 .streamlit/secrets.toml
 
