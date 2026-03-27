@@ -913,6 +913,13 @@ def show_main_app():
 if AUTH_AVAILABLE:
     if is_authenticated():
         show_main_app()
+    elif st.session_state.get('_checking_session'):
+        # localStorage에서 세션 토큰 확인 중 (첫 렌더 대기)
+        st.markdown("<br>" * 5, unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            with st.spinner("세션 확인 중..."):
+                st.empty()
     else:
         show_login_page()
 else:

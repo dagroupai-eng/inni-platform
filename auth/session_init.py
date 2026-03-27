@@ -35,7 +35,14 @@ def restore_login_session():
         from streamlit_javascript import st_javascript
         token = st_javascript("localStorage.getItem('pms_session_token') || ''")
 
-        # st_javascript는 첫 렌더에서 0(int)을 반환할 수 있음
+        # st_javascript는 첫 렌더에서 0(int)을 반환함 → 아직 JS 미실행 상태
+        if token == 0:
+            st.session_state['_checking_session'] = True
+            return
+
+        # JS 실행 완료 → 체크 플래그 해제
+        st.session_state.pop('_checking_session', None)
+
         if not token or not isinstance(token, str) or len(token) < 10:
             return
 
