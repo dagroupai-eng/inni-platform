@@ -21,16 +21,49 @@ def init_page_session():
 
 
 def restore_login_session():
-    """로그인 세션을 복원합니다. (파일 기반 복원 제거됨)"""
+    """로그인 세션을 복원합니다. (브라우저 localStorage + Supabase 기반)"""
     # 이미 세션이 있으면 스킵
     if 'pms_session_token' in st.session_state and st.session_state.pms_session_token:
-        # print("[DEBUG] 세션 이미 존재, 복원 스킵")
         return
 
-    # 파일 기반 세션 복원 제거 (멀티유저 환경에서 세션 충돌 방지)
-    # Streamlit Cloud에서는 각 브라우저 세션이 독립적이므로 파일 기반 복원 불필요
-    # 새로운 세션의 경우 로그인 페이지로 이동하게 됨
-    pass
+    # 복원 시도 중 플래그 (무한 루프 방지)
+    if st.session_state.get('_login_restore_attempted'):
+        return
+    st.session_state['_login_restore_attempted'] = True
+
+    try:
+        from streamlit_javascript import st_javascript
+        token = st_javascript("localStorage.getItem('pms_session_token') || ''")
+
+        # st_javascript는 첫 렌더에서 0(int)을 반환할 수 있음
+        if not token or not isinstance(token, str) or len(token) < 10:
+            return
+
+        from auth.session_manager import get_session
+        from auth.user_manager import get_user_by_id
+
+        session_data = get_session(token)
+        if not session_data:
+            return
+
+        user_id = session_data.get('user_id')
+        if not user_id:
+            return
+
+        user = get_user_by_id(user_id)
+        if user and user.get('status') == 'active':
+            st.session_state.pms_session_token = token
+            st.session_state.pms_current_user = {
+                'id': user['id'],
+                'personal_number': user.get('personal_number'),
+                'display_name': user.get('display_name'),
+                'role': user.get('role'),
+                'team_id': user.get('team_id'),
+            }
+            print(f"[Session] localStorage에서 세션 복원: {user.get('display_name')}")
+
+    except Exception as e:
+        print(f"[Session] 브라우저 세션 복원 오류: {e}")
 
 
 def restore_work_session():

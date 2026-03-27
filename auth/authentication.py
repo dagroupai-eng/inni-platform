@@ -83,16 +83,12 @@ def login(personal_number: str, auto_create: bool = False) -> tuple[bool, str]:
     st_session[SESSION_TOKEN_KEY] = session_token
     st_session[CURRENT_USER_KEY] = user
 
-    # 로컬 파일 저장 제거 (멀티유저 환경에서 세션 충돌 방지)
-    # Streamlit Cloud에서는 각 브라우저 세션이 독립적이므로 파일 기반 세션 불필요
-    # try:
-    #     from pathlib import Path
-    #     from config.settings import DATA_DIR
-    #     last_session_file = DATA_DIR / "last_session.txt"
-    #     with open(last_session_file, 'w') as f:
-    #         f.write(session_token)
-    # except Exception as e:
-    #     print(f"세션 파일 저장 오류: {e}")
+    # 브라우저 localStorage에 토큰 저장 (서버 재시작 후 자동 복원용)
+    try:
+        from auth.browser_session import save_session_to_browser
+        save_session_to_browser(session_token)
+    except Exception as e:
+        print(f"[Session] localStorage 저장 오류: {e}")
 
     return True, f"환영합니다, {user.get('display_name', personal_number)}님!"
 
@@ -127,6 +123,13 @@ def logout() -> bool:
     # API 키 로드 플래그 제거
     if 'api_keys_loaded' in st_session:
         del st_session['api_keys_loaded']
+
+    # 브라우저 localStorage에서 토큰 삭제
+    try:
+        from auth.browser_session import clear_session_from_browser
+        clear_session_from_browser()
+    except Exception as e:
+        print(f"[Session] localStorage 삭제 오류: {e}")
 
     # 로컬 파일 삭제 제거 (멀티유저 환경에서 세션 충돌 방지)
     # try:

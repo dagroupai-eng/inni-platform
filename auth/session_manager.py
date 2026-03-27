@@ -23,6 +23,62 @@ def generate_session_token() -> str:
     return secrets.token_urlsafe(SESSION_TOKEN_LENGTH)
 
 
+def _save_session_supabase(user_id: int, token: str, session_data: dict):
+    """세션 토큰을 Supabase user_settings에 저장합니다."""
+    try:
+        from database.db_manager import execute_query
+        import json as _json
+
+        rows = execute_query(
+            "SELECT settings_data FROM user_settings WHERE user_id = ?",
+            (user_id,)
+        )
+        if rows and rows[0]:
+            raw = rows[0]['settings_data']
+            settings = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+        else:
+            settings = {}
+
+        settings['_session'] = {
+            'token': token,
+            'user_id': user_id,
+            'personal_number': session_data.get('personal_number'),
+            'display_name': session_data.get('display_name'),
+            'role': session_data.get('role'),
+            'team_id': session_data.get('team_id'),
+            'expires_at': session_data.get('expires_at'),
+        }
+
+        execute_query(
+            "INSERT OR REPLACE INTO user_settings (user_id, settings_data, updated_at) VALUES (?, ?, ?)",
+            (user_id, _json.dumps(settings, ensure_ascii=False), datetime.now().isoformat()),
+            commit=True
+        )
+    except Exception as e:
+        print(f"[Session] Supabase 세션 저장 오류: {e}")
+
+
+def _get_session_supabase(token: str) -> Optional[Dict[str, Any]]:
+    """Supabase user_settings에서 토큰으로 세션을 조회합니다."""
+    try:
+        from database.supabase_client import get_supabase_client
+
+        client = get_supabase_client()
+        result = client.table('user_settings').select('user_id, settings_data').execute()
+
+        for row in (result.data or []):
+            settings = row.get('settings_data') or {}
+            session = settings.get('_session') or {}
+            if session.get('token') == token:
+                expires_at = session.get('expires_at')
+                if expires_at and datetime.fromisoformat(expires_at) > datetime.now():
+                    return session
+        return None
+    except Exception as e:
+        print(f"[Session] Supabase 세션 조회 오류: {e}")
+        return None
+
+
 def create_session(user_id: int, personal_number: str, extra_data: Optional[Dict[str, Any]] = None) -> str:
     """
     새 세션을 생성합니다.
@@ -49,9 +105,13 @@ def create_session(user_id: int, personal_number: str, extra_data: Optional[Dict
     if extra_data:
         session_data.update(extra_data)
 
+    # 로컬 파일 저장 (현재 프로세스 내 빠른 조회용)
     session_path = _get_session_path(token)
     with open(session_path, 'w', encoding='utf-8') as f:
         json.dump(session_data, f, ensure_ascii=False, indent=2)
+
+    # Supabase 저장 (서버 재시작 후 복원용)
+    _save_session_supabase(user_id, token, session_data)
 
     return token
 
@@ -59,7 +119,7 @@ def create_session(user_id: int, personal_number: str, extra_data: Optional[Dict
 def get_session(session_token: str) -> Optional[Dict[str, Any]]:
     """
     세션 데이터를 가져옵니다.
-    만료된 세션은 삭제하고 None을 반환합니다.
+    로컬 파일 → Supabase 순서로 조회합니다.
 
     Args:
         session_token: 세션 토큰
@@ -69,30 +129,26 @@ def get_session(session_token: str) -> Optional[Dict[str, Any]]:
     """
     session_path = _get_session_path(session_token)
 
-    if not session_path.exists():
-        return None
+    # 1. 로컬 파일 조회 (현재 프로세스 내 빠른 경로)
+    if session_path.exists():
+        try:
+            with open(session_path, 'r', encoding='utf-8') as f:
+                session_data = json.load(f)
 
-    try:
-        with open(session_path, 'r', encoding='utf-8') as f:
-            session_data = json.load(f)
+            expires_at = datetime.fromisoformat(session_data["expires_at"])
+            if datetime.now() > expires_at:
+                delete_session(session_token)
+            else:
+                session_data["last_activity"] = datetime.now().isoformat()
+                with open(session_path, 'w', encoding='utf-8') as f:
+                    json.dump(session_data, f, ensure_ascii=False, indent=2)
+                return session_data
 
-        # 만료 확인
-        expires_at = datetime.fromisoformat(session_data["expires_at"])
-        if datetime.now() > expires_at:
+        except (json.JSONDecodeError, KeyError, ValueError):
             delete_session(session_token)
-            return None
 
-        # 마지막 활동 시간 업데이트
-        session_data["last_activity"] = datetime.now().isoformat()
-        with open(session_path, 'w', encoding='utf-8') as f:
-            json.dump(session_data, f, ensure_ascii=False, indent=2)
-
-        return session_data
-
-    except (json.JSONDecodeError, KeyError, ValueError):
-        # 손상된 세션 파일 삭제
-        delete_session(session_token)
-        return None
+    # 2. Supabase 폴백 (서버 재시작 후 로컬 파일 없을 때)
+    return _get_session_supabase(session_token)
 
 
 def update_session(session_token: str, data: Dict[str, Any]) -> bool:
