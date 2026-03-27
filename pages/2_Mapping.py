@@ -21,6 +21,15 @@ try:
 except Exception:
     pass
 
+# 세션 초기화 및 인증 확인
+try:
+    from auth.session_init import init_page_session
+    from auth.authentication import check_page_access
+    init_page_session()
+    check_page_access()
+except Exception:
+    pass
+
 # ─── VWorld 레이어 ────────────────────────────────────────────────────────────
 LAYER_PARCEL   = "LT_C_LANDINFOBASEMAP"  # 토지정보기본도
 LAYER_ZONING   = "LT_C_UQ111"           # 용도지역
