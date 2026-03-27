@@ -4071,34 +4071,31 @@ with tab_run:
         and len(st.session_state.analysis_results) >= len(st.session_state.cot_plan)
     )
     if all_blocks_completed:
-        if st.button("💾 분석 결과 저장", use_container_width=True):
-            from datetime import datetime
-            import json
-            analysis_folder = "analysis_results"
-            os.makedirs(analysis_folder, exist_ok=True)
-            filename = f"analysis_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            filepath = os.path.join(analysis_folder, filename)
-            ordered_results_for_save = {
-                block_id: st.session_state.analysis_results[block_id]
-                for block_id in st.session_state.cot_plan
-                if block_id in st.session_state.analysis_results
+        from datetime import datetime
+        import json
+        filename = f"analysis_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        ordered_results_for_save = {
+            block_id: st.session_state.analysis_results[block_id]
+            for block_id in st.session_state.cot_plan
+            if block_id in st.session_state.analysis_results
+        }
+        analysis_record = {
+            "project_info": project_info_payload,
+            "analysis_results": ordered_results_for_save,
+            "analysis_timestamp": datetime.now().isoformat(),
+            "cot_history": st.session_state.get('cot_history', []),
+            "llm_settings": {
+                "temperature": st.session_state.llm_temperature,
+                "max_tokens": st.session_state.llm_max_tokens
             }
-            analysis_record = {
-                "project_info": project_info_payload,
-                "analysis_results": ordered_results_for_save,
-                "analysis_timestamp": datetime.now().isoformat(),
-                "cot_history": st.session_state.get('cot_history', []),
-                "llm_settings": {
-                    "temperature": st.session_state.llm_temperature,
-                    "max_tokens": st.session_state.llm_max_tokens
-                }
-            }
-            try:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    json.dump(analysis_record, f, ensure_ascii=False, indent=2)
-                st.success(f"분석 결과가 {filepath}에 저장되었습니다.")
-            except Exception as e:
-                st.warning(f"분석 결과 저장 실패: {e}")
+        }
+        st.download_button(
+            label="💾 분석 결과 다운로드 (JSON)",
+            data=json.dumps(analysis_record, ensure_ascii=False, indent=2),
+            file_name=filename,
+            mime="application/json",
+            use_container_width=True,
+        )
 
 with tab_download:
     st.header("결과 다운로드")
