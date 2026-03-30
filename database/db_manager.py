@@ -273,7 +273,8 @@ def _try_parse_json(val):
 
 # JSONB 컬럼 목록 (Supabase에서 JSONB 타입인 컬럼)
 _JSONB_COLUMNS = {
-    'session_data', 'progress_data', 'settings_data', 'block_data', 'shared_with_teams'
+    'session_data', 'progress_data', 'settings_data', 'block_data', 'shared_with_teams',
+    'input_snapshot', 'inputs', 'outputs'
 }
 
 

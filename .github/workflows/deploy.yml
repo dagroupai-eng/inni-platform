@@ -1,0 +1,39 @@
+name: Deploy to Lightsail
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy-teamA:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to teamA
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP_A }}
+          username: ubuntu
+          key: ${{ secrets.SERVER_SSH_KEY_A }}
+          script: |
+            cd /home/ubuntu/inni-platform
+            git pull
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+            sudo systemctl restart streamlit
+
+  deploy-teamB:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to teamB
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP_B }}
+          username: ubuntu
+          key: ${{ secrets.SERVER_SSH_KEY_B }}
+          script: |
+            cd /home/ubuntu/inni-platform
+            git pull
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+            sudo systemctl restart streamlit
