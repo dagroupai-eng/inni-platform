@@ -159,3 +159,8 @@ oracle.md
 # PMS data directory (contains user data, sessions, database)
 data/
 !data/.gitkeep
+
+# 로컬 데이터 파일 (Supabase로 이전됨)
+analysis_results/
+shared_data/
+blocks.json

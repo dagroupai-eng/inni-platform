@@ -26,10 +26,9 @@ def restore_login_session():
     if 'pms_session_token' in st.session_state and st.session_state.pms_session_token:
         return
 
-    # 복원 시도 중 플래그 (무한 루프 방지)
+    # 복원 시도 중 플래그 (무한 루프 방지) - JS가 실제 값을 반환한 후에만 설정
     if st.session_state.get('_login_restore_attempted'):
         return
-    st.session_state['_login_restore_attempted'] = True
 
     try:
         from streamlit_javascript import st_javascript
@@ -38,9 +37,10 @@ def restore_login_session():
         # st_javascript는 첫 렌더에서 0(int)을 반환함 → 아직 JS 미실행 상태
         if token == 0:
             st.session_state['_checking_session'] = True
-            return
+            return  # _login_restore_attempted 설정하지 않고 대기
 
-        # JS 실행 완료 → 체크 플래그 해제
+        # JS 실행 완료 → 체크 플래그 해제 + 재시도 방지 플래그 설정
+        st.session_state['_login_restore_attempted'] = True
         st.session_state.pop('_checking_session', None)
 
         if not token or not isinstance(token, str) or len(token) < 10:
@@ -71,6 +71,8 @@ def restore_login_session():
 
     except Exception as e:
         print(f"[Session] 브라우저 세션 복원 오류: {e}")
+        st.session_state['_login_restore_attempted'] = True
+        st.session_state.pop('_checking_session', None)
 
 
 def restore_work_session():
