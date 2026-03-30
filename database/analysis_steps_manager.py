@@ -21,9 +21,9 @@ def create_run(
         execute_query(
             """
             INSERT INTO analysis_runs (project_id, user_id, status, input_snapshot)
-            VALUES (?, ?, 'running', ?)
+            VALUES (?, ?, ?, ?)
             """,
-            (project_id, user_id, json.dumps(input_snapshot or {}, ensure_ascii=False)),
+            (project_id, user_id, 'running', json.dumps(input_snapshot or {}, ensure_ascii=False)),
             commit=True,
         )
         return get_last_insert_id()
@@ -68,9 +68,9 @@ def create_steps(
             """
             INSERT INTO analysis_steps
                 (run_id, project_id, user_id, block_id, block_name, step_index, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending')
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (run_id, project_id, user_id, bid, bname, idx),
+            (run_id, project_id, user_id, bid, bname, idx, 'pending'),
             commit=True,
         )
         mapping[bid] = get_last_insert_id()

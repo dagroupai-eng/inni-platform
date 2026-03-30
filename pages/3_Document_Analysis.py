@@ -3796,14 +3796,23 @@ with tab_run:
         if stop_clicked:
             st.session_state.cot_running_block = None
             st.warning(f"{next_block_name} 블록 분석을 중단했습니다. 페이지를 새로고침합니다.")
-            
+            # analysis_runs 취소 처리
+            _run_id = st.session_state.get("current_analysis_run_id")
+            if _run_id and not st.session_state.get(f"_run_finalized_{_run_id}"):
+                try:
+                    from database.analysis_steps_manager import finalize_run
+                    finalize_run(_run_id, status="cancelled")
+                    st.session_state[f"_run_finalized_{_run_id}"] = True
+                except Exception as _fin_err:
+                    print(f"[AnalysisSteps] finalize_run 오류: {_fin_err}")
+
             # 세션 저장 후 재시작
             try:
                 from auth.session_init import save_work_session
                 save_work_session()
             except Exception as e:
                 print(f"세션 저장 오류: {e}")
-            
+
             st.rerun()
 
         # 건너뛰기 처리
@@ -4017,6 +4026,15 @@ with tab_run:
 
     if st.session_state.cot_session and st.session_state.cot_plan and st.session_state.cot_current_index >= len(st.session_state.cot_plan):
         st.success("모든 블록에 대한 단계별 분석이 완료되었습니다.")
+        # analysis_runs 완료 처리
+        _run_id = st.session_state.get("current_analysis_run_id")
+        if _run_id and not st.session_state.get(f"_run_finalized_{_run_id}"):
+            try:
+                from database.analysis_steps_manager import finalize_run
+                finalize_run(_run_id, status="completed")
+                st.session_state[f"_run_finalized_{_run_id}"] = True
+            except Exception as _fin_err:
+                print(f"[AnalysisSteps] finalize_run 오류: {_fin_err}")
 
     # 결과는 cot_results와 analysis_results 둘 다 확인 (동기화 보장)
     analysis_results_state = st.session_state.get('analysis_results', {})
