@@ -3244,8 +3244,15 @@ class EnhancedArchAnalyzer:
 5. **상호 보완**: 이전 블록 결과를 보완하고 발전시키는 방향으로 분석
 
 ### 📋 현재 블록 분석 프롬프트
+
+> **[필수]** 분석 완료 후 반드시 아래 태그 안에 핵심 결과를 3~5줄로 요약하세요:
+> [BLOCK_SUMMARY]
+> • (핵심 발견 1)
+> • (핵심 발견 2)
+> • (핵심 발견 3)
+> [/BLOCK_SUMMARY]
 """
-        
+
         return cot_context
     
     def _format_prompt_template(self, block_info, cot_context, pdf_text: str = ""):
@@ -5399,11 +5406,9 @@ class EnhancedArchAnalyzer:
         return 0.3
     
     def _extract_key_insights(self, analysis_text, max_length=200):
-        """분석 결과에서 핵심 인사이트 추출 (문자열 반환)"""
+        """분석 결과에서 [BLOCK_SUMMARY] 태그 파싱으로 핵심 인사이트 추출"""
         try:
-            # analysis_text가 dict인 경우 (Structured Output) 문자열로 변환
             if isinstance(analysis_text, dict):
-                # structured output에서 텍스트 추출
                 parts = []
                 if 'summary' in analysis_text:
                     parts.append(str(analysis_text['summary']))
@@ -5414,42 +5419,21 @@ class EnhancedArchAnalyzer:
                     parts.append(str(analysis_text['conclusion']))
                 analysis_text = ' '.join(parts) if parts else str(analysis_text)
 
-            # analysis_text가 문자열이 아닌 경우 변환
             if not isinstance(analysis_text, str):
                 analysis_text = str(analysis_text)
 
             import re
 
-            # 핵심 키워드가 포함된 문장들 찾기
-            key_patterns = [
-                r'핵심[^.]*[.]',
-                r'주요[^.]*[.]',
-                r'중요[^.]*[.]',
-                r'결론[^.]*[.]',
-                r'발견[^.]*[.]',
-                r'인사이트[^.]*[.]'
-            ]
+            # [BLOCK_SUMMARY] 태그 파싱 (Gemini가 생성한 구조화 요약)
+            match = re.search(r'\[BLOCK_SUMMARY\](.*?)\[/BLOCK_SUMMARY\]', analysis_text, re.DOTALL)
+            if match:
+                summary = match.group(1).strip()
+                return summary
 
-            insights = []
-            for pattern in key_patterns:
-                matches = re.findall(pattern, analysis_text)
-                insights.extend(matches[:2])  # 패턴당 최대 2개
-
-            # 중복 제거 및 길이 제한
-            unique_insights = []
-            for insight in insights:
-                if insight not in unique_insights and len(insight) <= max_length:
-                    unique_insights.append(insight)
-
-            # 문자열로 결합하여 반환 (리스트가 아닌 문자열)
-            if unique_insights:
-                return ' | '.join(unique_insights[:3])
-
-            # 인사이트를 찾지 못한 경우 앞부분 반환
+            # 태그가 없으면 앞부분 반환 (fallback)
             return analysis_text[:max_length] + "..." if len(analysis_text) > max_length else analysis_text
 
         except Exception:
-            # 오류 시 간단히 앞부분 반환
             text = str(analysis_text) if analysis_text else ""
             return text[:max_length] + "..." if len(text) > max_length else text
     

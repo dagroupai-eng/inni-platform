@@ -45,6 +45,15 @@ UNIFIED_PROMPT_TEMPLATE = """
 
 ## 분석할 입력 텍스트
 {pdf_text}
+
+## 🔑 블록 요약 (다음 블록 참고용) — 반드시 작성
+분석 완료 후 아래 태그 안에 핵심 결과를 3~5줄로 요약하세요. 다음 블록 분석에 컨텍스트로 활용됩니다.
+
+[BLOCK_SUMMARY]
+• (핵심 발견 1)
+• (핵심 발견 2)
+• (핵심 발견 3)
+[/BLOCK_SUMMARY]
 """.strip()
 
 
@@ -92,17 +101,7 @@ def load_blocks(include_user_blocks: bool = True) -> List[Dict[str, Any]]:
     """
     blocks = []
 
-    # 1. blocks.json에서 시스템 블록 로드
-    try:
-        with open('blocks.json', 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            blocks = data.get('blocks', [])
-    except FileNotFoundError:
-        print("blocks.json 파일을 찾을 수 없습니다.")
-    except json.JSONDecodeError:
-        print("blocks.json 파일 형식이 올바르지 않습니다.")
-
-    # 2. 사용자 DB 블록 로드 (인증된 경우만)
+    # DB 블록 로드 (인증된 경우만)
     if include_user_blocks:
         try:
             from auth.authentication import is_authenticated, get_current_user
@@ -148,9 +147,16 @@ def process_prompt(block: Dict[str, Any], pdf_text: str) -> str:
                     return ""
             return template.format_map(_Safe(values))
         
-        # PDF 텍스트 길이 제한 (토큰 제한 고려)
-        if len(pdf_text) > 8000:
-            pdf_text = pdf_text[:8000] + "\n\n[내용이 길어 일부만 표시됩니다...]"
+        # PDF 텍스트 길이 제한 (Gemini: 50,000자, 기타 모델: 8,000자)
+        try:
+            import streamlit as st
+            provider = st.session_state.get('llm_provider', '')
+            is_gemini = 'gemini' in provider.lower()
+        except Exception:
+            is_gemini = False
+        max_chars = 50000 if is_gemini else 8000
+        if len(pdf_text) > max_chars:
+            pdf_text = pdf_text[:max_chars] + "\n\n[내용이 길어 일부만 표시됩니다...]"
         
         # RISEN 구조 블록인지 확인
         if 'role' in block and 'instructions' in block and 'steps' in block:
