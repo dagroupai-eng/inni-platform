@@ -1644,6 +1644,20 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
 
     st.success(f"✅ {len(parcels)}개 필지 정보를 분석에 적용했습니다. '문서 분석' 페이지에서 분석을 시작하세요.")
 
+    # projects.location 자동 업데이트
+    try:
+        from auth.authentication import is_authenticated, get_current_user
+        from auth.project_manager import get_or_create_current_project, update_project
+        if is_authenticated():
+            _u = get_current_user()
+            if _u:
+                _uid = _u.get("id")
+                _pid = get_or_create_current_project(_uid)
+                if _pid and site_location:
+                    update_project(_uid, _pid, location=site_location)
+    except Exception as _upd_err:
+        print(f"[Mapping] projects.location 업데이트 오류: {_upd_err}")
+
     # 지도 데이터 즉시 자동 저장
     try:
         from auth.session_init import auto_save_debounced
