@@ -126,7 +126,7 @@ def update_user(user_id: int, **kwargs) -> bool:
     Returns:
         성공 여부
     """
-    allowed_fields = ["display_name", "role", "team_id", "status"]
+    allowed_fields = ["display_name", "role", "team_id", "status", "server"]
     update_data = {}
 
     for field, value in kwargs.items():

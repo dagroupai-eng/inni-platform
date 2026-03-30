@@ -164,10 +164,14 @@ def show_user_management():
             with col2:
                 new_role = st.selectbox(
                     "역할",
-                    options=["user", "team_lead", "admin"],
-                    format_func=lambda x: {"user": "일반 사용자", "team_lead": "팀 리드", "admin": "관리자"}[x]
+                    options=["user", "admin"],
+                    format_func=lambda x: {"user": "일반 사용자", "admin": "관리자"}[x]
                 )
-
+                new_server = st.selectbox(
+                    "접속 서버",
+                    options=["A", "B", ""],
+                    format_func=lambda x: {"A": "서버 A", "B": "서버 B", "": "제한 없음"}[x]
+                )
                 teams = get_all_teams_admin()
                 team_options = {0: "팀 없음"}
                 team_options.update({t["id"]: t["name"] for t in teams})
@@ -182,7 +186,8 @@ def show_user_management():
                     new_personal_number,
                     new_display_name,
                     new_role,
-                    new_team_id if new_team_id != 0 else None
+                    new_team_id if new_team_id != 0 else None,
+                    server=new_server if new_server else None,
                 )
                 if success:
                     st.success(message)
@@ -211,8 +216,10 @@ def show_user_management():
                     st.markdown(f"**표시 이름:** {user.get('display_name', '-')}")
 
                 with col2:
-                    role_display = {"user": "일반", "team_lead": "팀리드", "admin": "관리자"}
+                    role_display = {"user": "일반", "admin": "관리자"}
                     st.markdown(f"**역할:** {role_display.get(user.get('role'), user.get('role'))}")
+                    server_display = {"A": "서버 A", "B": "서버 B"}
+                    st.markdown(f"**접속 서버:** {server_display.get(user.get('server'), '제한 없음')}")
                     st.markdown(f"**소속 팀:** {user.get('team_name', '없음')}")
 
                 with col3:
@@ -242,19 +249,25 @@ def show_user_management():
                     )
 
                 with col2:
-                    role_options = ["user", "team_lead", "admin"]
+                    role_options = ["user", "admin"]
                     current_role = user.get("role", "user")
-                    try:
-                        role_index = role_options.index(current_role)
-                    except ValueError:
-                        role_index = 0
-                    
+                    role_index = role_options.index(current_role) if current_role in role_options else 0
                     new_role = st.selectbox(
                         "역할",
                         options=role_options,
-                        format_func=lambda x: {"user": "일반 사용자", "team_lead": "팀 리드", "admin": "관리자"}[x],
+                        format_func=lambda x: {"user": "일반 사용자", "admin": "관리자"}[x],
                         index=role_index,
                         key=f"role_{user['id']}"
+                    )
+                    server_options = ["A", "B", ""]
+                    current_server = user.get("server") or ""
+                    server_index = server_options.index(current_server) if current_server in server_options else 2
+                    new_server = st.selectbox(
+                        "접속 서버",
+                        options=server_options,
+                        format_func=lambda x: {"A": "서버 A", "B": "서버 B", "": "제한 없음"}[x],
+                        index=server_index,
+                        key=f"server_{user['id']}"
                     )
 
                 with col3:
@@ -281,23 +294,15 @@ def show_user_management():
                 col1, col2 = st.columns([3, 1])
                 with col1:
                     if st.button("정보 업데이트", key=f"update_{user['id']}", type="primary"):
-                        print(f"[DEBUG 업데이트] user_id: {user['id']}")
-                        print(f"[DEBUG 업데이트] 이전 status: {user.get('status')} -> 새 status: {new_status}")
-                        print(f"[DEBUG 업데이트] 이전 role: {user.get('role')} -> 새 role: {new_role}")
-                        print(f"[DEBUG 업데이트] 이전 team_id: {user.get('team_id')} -> 새 team_id: {new_team_id}")
-                        
-                        # team_id 처리: 0이면 None으로, 그 외에는 그대로
                         final_team_id = None if new_team_id == 0 else new_team_id
-                        print(f"[DEBUG 업데이트] 최종 team_id: {final_team_id}")
-                        
+                        final_server = new_server if new_server else None
                         success, message = update_user_admin(
                             user["id"],
                             status=new_status,
                             role=new_role,
-                            team_id=final_team_id
+                            team_id=final_team_id,
+                            server=final_server,
                         )
-                        print(f"[DEBUG 업데이트] 결과: success={success}, message={message}")
-                        
                         if success:
                             st.success(message)
                             st.rerun()

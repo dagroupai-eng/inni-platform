@@ -64,13 +64,13 @@ def login(personal_number: str, auto_create: bool = False) -> tuple[bool, str]:
     if user.get("status") != UserStatus.ACTIVE.value:
         return False, "비활성화된 계정입니다. 관리자에게 문의하세요."
 
-    # 서버 팀 제한 확인 (admin은 모든 서버 접근 가능)
+    # 서버 접근 제한 확인 (admin은 모든 서버 접근 가능)
     if user.get("role") != "admin":
-        from config.settings import get_server_team_id
-        server_team_id = get_server_team_id()
-        if server_team_id:
-            user_team_id = user.get("team_id")
-            if str(user_team_id) != str(server_team_id):
+        from config.settings import get_server_id
+        server_id = get_server_id()
+        if server_id:
+            user_server = user.get("server")
+            if str(user_server) != str(server_id):
                 return False, "이 서버에 접근 권한이 없습니다. 담당 서버로 접속해주세요."
 
     # 세션 생성

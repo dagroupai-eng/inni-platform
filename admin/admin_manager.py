@@ -127,7 +127,8 @@ def create_user_admin(
     personal_number: str,
     display_name: Optional[str] = None,
     role: str = "user",
-    team_id: Optional[int] = None
+    team_id: Optional[int] = None,
+    server: Optional[str] = None,
 ) -> tuple[bool, str]:
     """
     관리자가 새 사용자를 생성합니다.
@@ -135,8 +136,9 @@ def create_user_admin(
     Args:
         personal_number: 개인 번호
         display_name: 표시 이름
-        role: 역할 (user, team_lead, admin)
+        role: 역할 (user, admin)
         team_id: 팀 ID
+        server: 접속 서버 ('A' 또는 'B', None이면 제한 없음)
 
     Returns:
         (성공 여부, 메시지)
@@ -169,6 +171,13 @@ def create_user_admin(
     )
 
     if user_id:
+        # server 컬럼 업데이트 (create_user가 지원하지 않으므로 별도 처리)
+        if server:
+            try:
+                from database.supabase_client import get_supabase_client
+                get_supabase_client().table('users').update({'server': server}).eq('id', user_id).execute()
+            except Exception as e:
+                print(f"[Admin] server 컬럼 업데이트 오류: {e}")
         return True, f"사용자 '{personal_number}'가 생성되었습니다."
     else:
         return False, "사용자 생성에 실패했습니다."
@@ -178,8 +187,9 @@ def update_user_admin(
     user_id: int,
     display_name: Optional[str] = None,
     role: Optional[str] = None,
-    team_id: Optional[int] = ...,  # ... (Ellipsis)를 기본값으로 사용
-    status: Optional[str] = None
+    team_id: Optional[int] = ...,
+    status: Optional[str] = None,
+    server: Optional[str] = ...,
 ) -> tuple[bool, str]:
     """
     관리자가 사용자 정보를 업데이트합니다.
@@ -187,9 +197,10 @@ def update_user_admin(
     Args:
         user_id: 사용자 ID
         display_name: 새 표시 이름
-        role: 새 역할
+        role: 새 역할 (user, admin)
         team_id: 새 팀 ID (None이면 팀 제거, ...이면 변경 안 함)
         status: 새 상태
+        server: 접속 서버 ('A', 'B', None이면 제한 없음, ...이면 변경 안 함)
 
     Returns:
         (성공 여부, 메시지)
@@ -205,10 +216,8 @@ def update_user_admin(
         except ValueError:
             pass
 
-    # team_id: ... (Ellipsis)가 아니면 업데이트 (None 포함)
     if team_id is not ...:
         update_data["team_id"] = team_id
-        print(f"[DEBUG update_user_admin] team_id 업데이트: {team_id}")
 
     if status is not None:
         try:
@@ -216,10 +225,12 @@ def update_user_admin(
         except ValueError:
             pass
 
+    if server is not ...:
+        update_data["server"] = server if server else None
+
     if not update_data:
         return False, "업데이트할 정보가 없습니다."
 
-    print(f"[DEBUG update_user_admin] update_data: {update_data}")
     success = update_user(user_id, **update_data)
     if success:
         return True, "사용자 정보가 업데이트되었습니다."

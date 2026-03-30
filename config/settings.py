@@ -63,13 +63,13 @@ def get_encryption_master_key() -> str:
     return key
 
 
-def get_server_team_id() -> Optional[str]:
+def get_server_id() -> Optional[str]:
     """
-    이 서버에 접근 가능한 팀 ID를 반환합니다.
+    이 서버의 식별자를 반환합니다 ('A' 또는 'B').
     설정되지 않으면 None (제한 없음).
-    secrets.toml에 SERVER_TEAM_ID = "1" 형태로 설정.
+    secrets.toml에 SERVER_ID = "A" 형태로 설정.
     """
-    return get_secret("SERVER_TEAM_ID")
+    return get_secret("SERVER_ID")
 
 
 def get_admin_personal_numbers() -> list:
