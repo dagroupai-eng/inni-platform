@@ -689,7 +689,7 @@ def _get_feature(layer: str, lon: float, lat: float) -> list:
             return []
         return data["response"]["result"]["featureCollection"]["features"]
     except Exception as e:
-        logger.debug("VWorld Data API [%s] 오류: %s", layer, e)
+        print(f"[VWorld Data API] {layer} 오류: {type(e).__name__}: {e}")
         return []
 
 
@@ -749,7 +749,12 @@ def _fetch_parcel_info(lon: float, lat: float, nearby_radius: int = 500) -> dict
     try:
         r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
         r.raise_for_status()
-        feats = _json.loads(r.content.decode("utf-8")).get("features", [])
+        raw_text = r.content.decode("utf-8")
+        wfs_json = _json.loads(raw_text)
+        feats = wfs_json.get("features", [])
+        if not feats:
+            # VWorld가 features 없이 다른 구조를 반환할 경우 로그
+            print(f"[VWorld WFS] features 없음. 응답 앞 300자: {raw_text[:300]}")
         if feats:
             # 클릭 좌표가 실제로 포함된 polygon 선택 (point-in-polygon)
             matched = next(
@@ -794,8 +799,15 @@ def _fetch_parcel_info(lon: float, lat: float, nearby_radius: int = 500) -> dict
                 "price_year":            str(props.get("gosi_year", "") or ""),
                 "geometry":              geom,
             })
+    except _json.JSONDecodeError as e:
+        # VWorld가 JSON이 아닌 XML/HTML 오류를 반환할 때 (key 오류, domain 불일치 등)
+        try:
+            raw_preview = r.content.decode("utf-8")[:500]
+        except Exception:
+            raw_preview = "(응답 읽기 실패)"
+        print(f"[VWorld WFS] JSON 파싱 실패 — 응답: {raw_preview}")
     except Exception as e:
-        logger.debug("WFS 조회 실패: %s", e)
+        print(f"[VWorld WFS] 조회 실패: {type(e).__name__}: {e}")
 
     # ── 2. Data API → 면적·지목 보완 (LT_C_LANDINFOBASEMAP) ──────────
     da_feats = _get_feature(LAYER_PARCEL, lon, lat)
