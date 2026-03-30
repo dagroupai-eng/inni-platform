@@ -83,7 +83,7 @@ def download_project_file(storage_path: str) -> Optional[bytes]:
 
 
 def delete_project_files(user_id: int, project_id: int) -> bool:
-    """프로젝트의 모든 저장 파일을 삭제합니다."""
+    """프로젝트의 모든 저장 파일을 Storage와 DB에서 삭제합니다."""
     try:
         prefix = f"{user_id}/{project_id}/"
         client = _client()
@@ -92,6 +92,13 @@ def delete_project_files(user_id: int, project_id: int) -> bool:
         if paths:
             full_paths = [f"{prefix}{p}" for p in paths]
             client.storage.from_(_BUCKET).remove(full_paths)
+        # DB 레코드도 삭제
+        from database.db_manager import execute_query
+        execute_query(
+            "DELETE FROM project_files WHERE project_id = ? AND user_id = ?",
+            (project_id, user_id),
+            commit=True,
+        )
         return True
     except Exception as e:
         print(f"[FileStorage] 파일 삭제 실패: {e}")

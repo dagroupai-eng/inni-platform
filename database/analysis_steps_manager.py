@@ -34,12 +34,13 @@ def create_run(
 
 def finalize_run(run_id: int, status: str = "completed") -> bool:
     try:
-        from database.db_manager import execute_query
-        execute_query(
-            "UPDATE analysis_runs SET status = ? WHERE id = ?",
-            (status, run_id),
-            commit=True,
-        )
+        from database.supabase_client import get_supabase_client
+        from datetime import datetime
+        client = get_supabase_client()
+        client.table('analysis_runs').update({
+            'status': status,
+            'finished_at': datetime.now().isoformat(),
+        }).eq('id', run_id).execute()
         return True
     except Exception as e:
         print(f"[AnalysisSteps] finalize_run 오류: {e}")
@@ -137,14 +138,17 @@ def list_steps(run_id: int) -> List[Dict[str, Any]]:
 
 def set_step_status(step_id: int, status: str, error: Optional[str] = None) -> bool:
     try:
-        from database.db_manager import execute_query
-        # started_at/finished_at는 DB NOW()를 쓰기 위해 raw SQL을 쓰고 싶지만
-        # execute_query 파서 제약이 있어 문자열로 저장한다.
-        execute_query(
-            "UPDATE analysis_steps SET status = ?, error = ? WHERE id = ?",
-            (status, error, step_id),
-            commit=True,
-        )
+        from database.supabase_client import get_supabase_client
+        from datetime import datetime
+        client = get_supabase_client()
+        update_data: dict = {'status': status}
+        if error is not None:
+            update_data['error'] = error
+        if status == 'running':
+            update_data['started_at'] = datetime.now().isoformat()
+        elif status in ('completed', 'failed', 'skipped', 'cancelled'):
+            update_data['finished_at'] = datetime.now().isoformat()
+        client.table('analysis_steps').update(update_data).eq('id', step_id).execute()
         return True
     except Exception as e:
         print(f"[AnalysisSteps] set_step_status 오류: {e}")
