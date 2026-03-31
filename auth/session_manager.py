@@ -58,6 +58,29 @@ def _save_session_supabase(user_id: int, token: str, session_data: dict):
         print(f"[Session] Supabase 세션 저장 오류: {e}")
 
 
+def _clear_session_supabase(user_id: int):
+    """Supabase user_settings에서 _session 키를 제거합니다 (로그아웃 시 호출)."""
+    try:
+        from database.db_manager import execute_query
+        import json as _json
+
+        rows = execute_query(
+            "SELECT settings_data FROM user_settings WHERE user_id = ?",
+            (user_id,)
+        )
+        if rows and rows[0]:
+            raw = rows[0]['settings_data']
+            settings = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+            settings.pop('_session', None)
+            execute_query(
+                "INSERT OR REPLACE INTO user_settings (user_id, settings_data, updated_at) VALUES (?, ?, ?)",
+                (user_id, _json.dumps(settings, ensure_ascii=False), datetime.now().isoformat()),
+                commit=True
+            )
+    except Exception as e:
+        print(f"[Session] Supabase 세션 정리 오류: {e}")
+
+
 def _get_session_supabase(token: str) -> Optional[Dict[str, Any]]:
     """Supabase user_settings에서 토큰으로 세션을 조회합니다."""
     try:
@@ -178,7 +201,7 @@ def update_session(session_token: str, data: Dict[str, Any]) -> bool:
 
 def delete_session(session_token: str) -> bool:
     """
-    세션을 삭제합니다.
+    세션을 삭제합니다. 로컬 파일 + Supabase _session 모두 정리합니다.
 
     Args:
         session_token: 세션 토큰
@@ -188,13 +211,29 @@ def delete_session(session_token: str) -> bool:
     """
     session_path = _get_session_path(session_token)
 
+    # 로컬 파일에서 user_id 먼저 확인 (Supabase 정리에 필요)
+    user_id = None
+    if session_path.exists():
+        try:
+            with open(session_path, 'r', encoding='utf-8') as f:
+                user_id = json.load(f).get('user_id')
+        except Exception:
+            pass
+
+    # 로컬 파일 삭제
+    deleted = False
     if session_path.exists():
         try:
             os.remove(session_path)
-            return True
+            deleted = True
         except OSError:
             return False
-    return False
+
+    # Supabase _session 무효화
+    if user_id:
+        _clear_session_supabase(user_id)
+
+    return deleted
 
 
 def extend_session(session_token: str, hours: int = SESSION_TTL_HOURS) -> bool:

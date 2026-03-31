@@ -23,6 +23,26 @@ try:
 except ImportError:
     BLOCKS_DB_AVAILABLE = False
 
+
+def _resolve_shared_teams(visibility: str, user: dict) -> list:
+    """
+    팀 공유 대상 team ID 목록을 결정합니다.
+    - 사용자에게 team_id가 있으면 해당 팀만
+    - team_id가 없는 경우(관리자 등)는 모든 팀에 공유
+    """
+    if visibility != "team":
+        return []
+    user_team_id = user.get("team_id") if user else None
+    if user_team_id:
+        return [user_team_id]
+    # team_id 없는 사용자(관리자): 전체 팀 조회 후 공유
+    try:
+        from database.supabase_client import get_supabase_client
+        r = get_supabase_client().table("teams").select("id").execute()
+        return [row["id"] for row in (r.data or [])]
+    except Exception:
+        return []
+
 def generate_dspy_signature(block_id, block_name, block_description):
     """블록 정보를 바탕으로 DSPy Signature 코드를 생성합니다."""
     
@@ -515,9 +535,7 @@ def main():
                                         from blocks.block_manager import update_user_block
 
                                         user = get_current_user()
-                                        shared_teams = []
-                                        if new_visibility == "team" and user and user.get("team_id"):
-                                            shared_teams = [user["team_id"]]
+                                        shared_teams = _resolve_shared_teams(new_visibility, user)
 
                                         if update_user_block(
                                             db_id,
@@ -1279,10 +1297,8 @@ def main():
                             if user:
                                 visibility_enum = BlockVisibility(visibility) if visibility else BlockVisibility.PERSONAL
 
-                                # 팀 공유인 경우 shared_with_teams에 현재 사용자의 팀 추가
-                                shared_teams = []
-                                if visibility == "team" and user.get("team_id"):
-                                    shared_teams = [user["team_id"]]
+                                # 팀 공유 대상 결정 (team_id 없는 관리자는 전체 팀)
+                                shared_teams = _resolve_shared_teams(visibility, user)
 
                                 new_db_id = create_user_block(
                                     owner_id=user["id"],

@@ -12,20 +12,79 @@
   - 11개 테이블 모두 존재 확인
   - blocks, user_settings 신규 생성 완료
 
-- [ ] **2-1. Supabase 스키마 보완 (SQL 실행 필요)**
-  - `analysis_runs` 테이블에 `finished_at` 컬럼 추가:
-    ```sql
-    ALTER TABLE public.analysis_runs ADD COLUMN IF NOT EXISTS finished_at timestamp with time zone;
-    ```
-  - `blocks` 테이블에 `block_id` UNIQUE 제약 추가:
-    ```sql
-    ALTER TABLE public.blocks ADD CONSTRAINT blocks_block_id_key UNIQUE (block_id);
-    ```
+- [x] **2-1. Supabase 스키마 보완 (SQL 실행 완료)** ✅
+  - `analysis_runs.finished_at` 컬럼 추가
+  - `blocks.block_id` UNIQUE 제약 추가
 
-- [ ] **3. project-files 버킷 Storage Policy 설정**
-  - 현재 Policies: 0 → service_role 키로 우회 중이라 당장 오류는 아니지만 보안상 필요
-  - Supabase Dashboard → Storage → project-files → Policies → Add policy
-  - 권장 정책: 인증된 사용자만 자신의 경로(`{user_id}/`)에 읽기/쓰기 허용
+---
+
+## Supabase 연동 기능별 동작 확인
+
+> 실제 배포 환경에서 아래 항목을 순서대로 테스트한다.
+
+### 진단 스크립트
+- `check_supabase.py` 실행 방법:
+  ```
+  SUPABASE_URL=xxx SUPABASE_SERVICE_ROLE_KEY=yyy python check_supabase.py
+  ```
+  (환경: `da_AI_env` 사용 → `/c/Users/dA/miniconda3/envs/da_AI_env/python.exe check_supabase.py`)
+
+### A. 인증 / 사용자
+
+| # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
+|---|------|-----------|------------|------|
+| A-1 | 로그인 | `auth/user_manager.py` | `users` | [x] users 24명, last_login 기록 정상 |
+| A-2 | 로그아웃 | `auth/session_manager.py` | `user_settings` | [x] 코드 수정 완료 (로그아웃 시 DB _session 제거) |
+| A-3 | 팀 접근 제한 | `auth/user_manager.py` | `users`, `teams` | [x] teams 6개 정상 확인 |
+
+> user_id=4,15,23 의 `_session` 잔류분(만료됨): 코드 수정 전 데이터, 보안 무해
+
+### B. 프로젝트 / 세션
+
+| # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
+|---|------|-----------|------------|------|
+| B-1 | 프로젝트 생성/조회 | `auth/project_manager.py` | `projects` | [x] 1개 프로젝트 확인 (location은 아직 미설정) |
+| B-2 | 작업 세션 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [ ] 실 사용 후 확인 필요 (현재 0행) |
+| B-3 | 분석 진행 저장/복원 | `auth/session_init.py` | `analysis_progress` | [ ] 분석 실행 후 확인 필요 (현재 0행) |
+
+### C. 파일 업로드 / Storage
+
+| # | 기능 | 관련 파일 | 연동 | 확인 |
+|---|------|-----------|------|------|
+| C-1 | 파일 업로드 | `auth/file_storage.py` | Storage `project-files` 버킷 | [ ] 실 업로드 후 확인 필요 |
+| C-2 | 파일 다운로드 | `auth/file_storage.py` | Storage `project-files` 버킷 | [ ] |
+| C-3 | 파일 삭제 (DB+Storage 동시) | `auth/file_storage.py` | `project_files` 테이블 + Storage | [ ] |
+
+### D. 블록 생성
+
+| # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
+|---|------|-----------|------------|------|
+| D-1 | 블록 생성/저장 | `blocks/block_manager.py` | `blocks` | [x] personal/team 블록 생성 정상 |
+| D-2 | 블록 조회 (등급별) | `blocks/block_manager.py` | `blocks` | [x] get_accessible_blocks 정상 (팀원 가시성 수정 포함) |
+| D-3 | 블록 수정/삭제 | `blocks/block_manager.py` | `blocks` | [x] 소유자만 수정/삭제 가능 확인 |
+
+### E. 지도 (Mapping)
+
+| # | 기능 | 관련 파일 | 연동 | 확인 |
+|---|------|-----------|------|------|
+| E-1 | 필지 클릭 → 폴리곤 표시 | `pages/2_Mapping.py` | VWorld WFS API (DB 없음) | [ ] |
+| E-2 | 필지 선택 → projects.location 저장 | `pages/2_Mapping.py` | `projects` 테이블 | [ ] 실 선택 후 확인 필요 |
+
+### F. 문서 분석
+
+| # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
+|---|------|-----------|------------|------|
+| F-1 | PDF/DOCX 업로드 → 텍스트 추출 | `file_analyzer.py` | (로컬 처리) | [ ] |
+| F-2 | 분석 세션 준비 | `pages/3_Document_Analysis.py` | `analysis_runs`, `analysis_steps` | [ ] 분석 실행 후 확인 필요 (현재 0개) |
+| F-3 | 블록별 분석 실행 → step 상태 업데이트 | `database/analysis_steps_manager.py` | `analysis_steps` | [ ] |
+| F-4 | 분석 완료 → run finalize | `database/analysis_steps_manager.py` | `analysis_runs.finished_at` | [ ] |
+
+### G. 관리자
+
+| # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
+|---|------|-----------|------------|------|
+| G-1 | 사용자 목록 조회 | `pages/6_Admin.py` | `users`, `teams` | [x] users 24명, teams 6개 정상 |
+| G-2 | 사용자 생성/수정/삭제 | `pages/6_Admin.py` | `users` | [ ] 실 동작 확인 필요 |
 
 ---
 
@@ -40,7 +99,23 @@
 - [x] **6. 분석 결과물 퀄리티 개선** ✅ `959bd6c`
   - pdf_text 50000자, blocks.json 제거, [BLOCK_SUMMARY] 태그 연계
 
-- [x] **6-추가. DB 버그 수정** ✅ (커밋 예정)
+- [x] **6-추가-4. 팀 공유 블록 가시성 버그 수정** ✅
+  - 원인: `team_id=None`인 사용자(관리자)가 팀 공유 블록 생성 시 `shared_with_teams=[]`로 저장 → 어떤 팀원도 조회 불가
+  - 수정: `_resolve_shared_teams()` 헬퍼 추가 — team_id 없으면 전체 팀 ID 조회 후 공유
+  - 적용: 블록 생성/공개범위 변경 두 곳 모두 교체
+  - 기존 팀 공유 블록(id=2) `shared_with_teams=[1,2,3,4,5,6]`으로 직접 수정
+
+- [x] **6-추가-3. location 필드 개선** ✅
+  - `2_Mapping.py` `_apply_to_analysis()`: 필지 선택 시 `session_state["location"]`에 필지 주소 자동 주입
+  - `2_Mapping.py`: 대표 필지 lat/lon을 `session_state["latitude"]`, `["longitude"]`에 자동 설정 (Google Maps 블록용)
+  - `3_Document_Analysis.py`: 좌표 직접 입력 expander 제거, 지도 연동 안내 문구 추가
+
+- [x] **6-추가-2. 로그아웃 시 Supabase 세션 미정리 버그 수정** ✅
+  - `delete_session()`: 로컬 파일 삭제 전 `user_id` 읽어서 `_clear_session_supabase()` 호출
+  - `_clear_session_supabase(user_id)` 함수 추가: `user_settings.settings_data._session` 제거
+  - 기존 문제: 로그아웃해도 Supabase에 토큰 잔류 → 서버 재시작 후 만료 전 자동 로그인 가능
+
+- [x] **6-추가. DB 버그 수정** ✅
   - `finalize_run()`: `finished_at` 타임스탬프 기록 추가
   - `set_step_status()`: `started_at`/`finished_at` 타임스탬프 기록 추가
   - `delete_project_files()`: Storage 삭제 후 DB 레코드도 함께 삭제
@@ -61,23 +136,65 @@
   - 장점: 신규 테이블 불필요, user_id UNIQUE로 1인 1슬롯 보장
   - 동시 분석 제한: processing 상태 row 수 ≤ 2
 
+  ### ⚠️ 주의: restore_analysis_progress 충돌 방지
+  - `analysis_progress.progress_data`는 기존 분석 복원 로직도 읽음
+  - `restore_analysis_progress()`는 `cot_results` / `cot_session` 키 존재 여부로 복원 판단
+  - **queue_status 키는 별도 네임스페이스(`_queue` 하위 키)에 넣거나,
+    row 자체를 queue 전용 / progress 전용으로 구분하는 flag 컬럼을 추가해야 함**
+  - 권장 방식: `progress_data` 안에 `"_queue": {...}` 서브키로 격리
+    ```json
+    {
+      "_queue": {
+        "status": "waiting",
+        "position": 2,
+        "entered_at": "..."
+      },
+      "cot_results": {...},
+      ...
+    }
+    ```
+  - `restore_analysis_progress()`는 `_queue` 키를 무시하도록 수정 필요
+
   ### 구현 항목
-  - [ ] `database/queue_manager.py` 생성 (enter_queue, exit_queue, get_position, get_processing_count)
-  - [ ] `pages/3_Document_Analysis.py` 분석 시작 시 queue 진입 → 대기 UI 표시
-  - [ ] 분석 완료/취소 시 queue에서 자동 제거
-  - [ ] 페이지 이탈 감지 후 queue 정리 (session_state cleanup)
+  - [ ] `database/queue_manager.py` 생성
+    - `enter_queue(user_id)` — 대기열 진입 (analysis_progress upsert)
+    - `exit_queue(user_id)` — 대기열 제거 (`_queue` 키 삭제)
+    - `get_position(user_id)` — 내 대기 순서 반환
+    - `get_processing_count()` — processing 수 조회
+    - `can_process(user_id)` — 내 차례 여부 (processing < 2)
+  - [ ] `pages/3_Document_Analysis.py` 수정
+    - 🚀 버튼 클릭 시 → `enter_queue()` → 슬롯 여유 있으면 바로 시작, 없으면 대기 UI
+    - 분석 완료/중단(`finally` 블록) 시 → `exit_queue()`
+  - [ ] `auth/session_init.py` 수정
+    - `restore_analysis_progress()`: `_queue` 키 있어도 복원 판단에서 제외
+
+---
+
+## 우선 확인 항목 (Queue 구현 전 필수)
+
+> Queue 구현 시작 전에 아래 두 가지를 반드시 먼저 확인한다.
+
+### ① B-3: 분석 진행 복원 동작 확인 (Queue 충돌 지점)
+- `analysis_progress` 테이블에 실제로 저장/복원이 되는지 확인
+- `restore_analysis_progress()`가 `cot_results` / `cot_session` 키로만 복원 판단하는지 코드 재검증
+- 확인 방법: 분석 세션 준비 → 중간 이탈 → 재접속 시 복원 배너 뜨는지
+- [ ] 확인 완료
+
+### ② F-2 → F-3 → F-4: 분석 실행 1회 end-to-end 확인
+- 실제 PDF/DOCX 파일로 분석 1회 완전히 돌린 후 Supabase에서 직접 확인:
+  - `analysis_runs` 행 생성 여부 + `finished_at` 값 입력 여부 (방금 추가한 컬럼)
+  - `analysis_steps` 각 블록별 `status`, `started_at`, `finished_at` 기록 여부
+- **확인 방법 (Supabase Dashboard):**
+  1. Supabase Dashboard → 좌측 Table Editor
+  2. `analysis_runs` 테이블 선택 → 최신 행의 `finished_at` 컬럼에 값이 있는지 확인
+  3. `analysis_steps` 테이블 선택 → 해당 `run_id`로 필터 → 각 행의 `status` / `started_at` / `finished_at` 확인
+- [ ] 확인 완료
 
 ---
 
 ## 배포 마무리
 
-- [ ] **8. 기능 테스트 (배포 후 실제 동작 확인)**
-  - 로그인 / 로그아웃
-  - 블록 생성 및 저장
-  - 지도(VWorld) 필지 클릭 → 폴리곤 표시
-  - 문서 분석 (PDF, DOCX)
-  - 파일 업로드 → Supabase Storage 저장 확인
-  - 관리자 페이지
+- [ ] **8. 기능 테스트** → 위 Supabase 연동 기능별 확인 표 참고
 
 - [ ] **9. 0119 브랜치 정리**
   - master로 머지 완료됐으므로 0119 브랜치 삭제 여부 결정

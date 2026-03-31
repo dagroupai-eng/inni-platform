@@ -1502,6 +1502,13 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
     st.session_state["site_location"] = site_location
     st.session_state["site_area"]     = site_area
     st.session_state["zoning"]        = zoning_str
+    # 문서 분석 location 필드 자동 주입 (필지 주소로 덮어씀)
+    st.session_state["location"] = site_location
+    # 대표 필지 좌표 자동 설정 (Google Maps 블록용)
+    rep = next((p for p in parcels if p.get("lat") and p.get("lon")), None)
+    if rep:
+        st.session_state["latitude"]  = str(rep["lat"])
+        st.session_state["longitude"] = str(rep["lon"])
     # 지도 필지 선택 플래그 (메인 페이지 배너용)
     st.session_state["_map_parcel_loaded"] = True
 

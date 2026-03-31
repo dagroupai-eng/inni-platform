@@ -2262,43 +2262,15 @@ with tab_project:
         placeholder="예: 삼척 스포츠아카데미",
         key="project_name"
     )
+    # 지도에서 필지 선택 시 자동 주입된 경우 안내
+    if st.session_state.get("_map_parcel_loaded") and st.session_state.get("location"):
+        st.caption("📍 지도(필지 선택) 페이지에서 선택한 필지 주소가 자동으로 입력되었습니다.")
     st.text_input(
         "위치/지역",
         value=st.session_state.get("location", ""),
-        placeholder="예: 강원도 삼척시 도계읍 일대",
+        placeholder="예: 강원도 삼척시 도계읍 일대 (또는 지도 페이지에서 필지 선택 시 자동 입력)",
         key="location"
     )
-    
-    # 좌표 입력 (Google Maps용, 선택사항)
-    with st.expander("🗺️ 위치 좌표 입력 (Google Maps용, 선택사항)", expanded=False):
-        st.caption("Google Maps 기반 검색을 위해 위도/경도를 입력할 수 있습니다. 입력하지 않으면 지리적 데이터에서 자동으로 추출됩니다.")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.text_input(
-                "위도 (Latitude)",
-                value=st.session_state.get("latitude", ""),
-                placeholder="예: 37.5665",
-                key="latitude",
-                help="위도 값을 입력하세요 (예: 37.5665)"
-            )
-        with col2:
-            st.text_input(
-                "경도 (Longitude)",
-                value=st.session_state.get("longitude", ""),
-                placeholder="예: 126.9780",
-                key="longitude",
-                help="경도 값을 입력하세요 (예: 126.9780)"
-            )
-        if st.session_state.get('latitude') and st.session_state.get('longitude'):
-            try:
-                lat = float(st.session_state.latitude)
-                lon = float(st.session_state.longitude)
-                if -90 <= lat <= 90 and -180 <= lon <= 180:
-                    st.success(f" 좌표 확인: ({lat}, {lon})")
-                else:
-                    st.warning(" 좌표 범위를 확인하세요. 위도: -90~90, 경도: -180~180")
-            except ValueError:
-                st.error("❌ 좌표는 숫자여야 합니다.")
     
     st.text_area(
         "프로젝트 목표",
