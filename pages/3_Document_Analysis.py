@@ -142,74 +142,14 @@ def _load_latest_steps_into_session(user_id: int, project_id: int) -> None:
     except Exception as e:
         print(f"[AnalysisSteps] 복원 실패: {e}")
 
-# 강제 불러오기 처리 (불러오기 버튼 클릭 시)
-if st.session_state.get('_force_load_session'):
-    try:
-        from database.db_manager import execute_query
-        import json
-
-        # 플래그 제거
-        del st.session_state['_force_load_session']
-
-        # 로그인 확인
-        if 'pms_current_user' in st.session_state:
-            user_id = st.session_state.pms_current_user.get('id')
-
-            if user_id:
-                print(f"[강제 불러오기] 사용자 ID: {user_id}")
-
-                # DB에서 최근 세션 조회
-                result = execute_query(
-                    """
-                    SELECT session_data, created_at FROM analysis_sessions
-                    WHERE user_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """,
-                    (user_id,)
-                )
-
-                if result and result[0]:
-                    raw = result[0]['session_data']
-                    session_data = json.loads(raw) if isinstance(raw, str) else raw
-                    saved_time = result[0]['created_at']
-
-                    print(f"[강제 불러오기] DB에서 데이터 로드: {len(session_data)}개 키")
-
-                    # 복원 플래그 초기화 (강제 복원)
-                    if 'work_session_restored_global' in st.session_state:
-                        del st.session_state['work_session_restored_global']
-                    if 'work_session_restoring' in st.session_state:
-                        del st.session_state['work_session_restoring']
-
-                    # 임시로 데이터 저장 (다음 rerun 때 표시용)
-                    st.session_state['_loaded_data_info'] = {
-                        'project_name': session_data.get('project_name', '(없음)'),
-                        'location': session_data.get('location', '(없음)'),
-                        'saved_time': saved_time,
-                        'count': len(session_data)
-                    }
-
-                    print(f"[강제 불러오기] 복원 플래그 초기화 완료, 자동 복원 시작")
-                    st.rerun()
-                else:
-                    st.warning("⚠️ 저장된 세션이 없습니다.")
-                    print("[강제 불러오기] DB에 저장된 세션 없음")
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"[강제 불러오기 오류]:\n{error_details}")
-        st.error(f"❌ 불러오기 실패: {str(e)}")
-
-# 불러오기 완료 메시지 표시
-if '_loaded_data_info' in st.session_state:
-    info = st.session_state['_loaded_data_info']
-    del st.session_state['_loaded_data_info']
-    st.success(f"✅ 저장된 정보를 불러왔습니다! (저장 시간: {info['saved_time']})")
-    with st.expander("불러온 내용 확인", expanded=True):
-        st.write(f"**프로젝트명**: {info['project_name']}")
-        st.write(f"**위치**: {info['location']}")
-        st.write(f"**총 {info['count']}개 항목 불러옴**")
+# ── 저장 알림 표시 (rerun 후 한 번만) ────────────────────────────────────────
+if '_notify' in st.session_state:
+    _n = st.session_state.pop('_notify')
+    if _n['type'] == 'save':
+        msg = f"✅ '{_n['project_name']}' 저장 완료!"
+        if _n.get('renamed'):
+            msg += " (이름 중복 → 자동 넘버링)"
+        st.success(msg)
 
 # 로그인 체크
 if AUTH_AVAILABLE:
@@ -219,12 +159,14 @@ if AUTH_AVAILABLE:
 st.title("도시 프로젝트 분석")
 st.markdown("**도시 프로젝트 문서 분석 (PDF, Word, Excel, CSV, 텍스트, JSON 지원)**")
 
-# ── 프로젝트 선택 바 ──────────────────────────────────────────────────────────
+# ── 현재 프로젝트 ID 확인 (없으면 자동 생성) ──────────────────────────────────
 try:
-    from auth.project_manager import render_project_selector
-    render_project_selector()
+    from auth.project_manager import get_or_create_current_project
+    _uid_check = (st.session_state.get("pms_current_user") or {}).get("id")
+    if _uid_check:
+        get_or_create_current_project(_uid_check)
 except Exception as _pm_err:
-    print(f"[ProjectManager] 렌더링 오류: {_pm_err}")
+    print(f"[ProjectManager] 오류: {_pm_err}")
 
 # 프로젝트 선택 후 단계별 결과 자동 복원
 try:
@@ -280,7 +222,7 @@ with col_reset:
 
 st.markdown("---")
 
-# 사용자 인증 상태 표시 (사이드바)
+# 사용자 인증 상태 + 프로젝트 관리 (사이드바)
 if AUTH_AVAILABLE:
     with st.sidebar:
         if is_authenticated():
@@ -290,6 +232,13 @@ if AUTH_AVAILABLE:
             st.warning("로그인이 필요합니다")
             st.info("사이드바에서 '로그인' 페이지로 이동하세요.")
         st.markdown("---")
+        # ── 프로젝트 관리 ─────────────────────────────────────────────────────
+        if is_authenticated():
+            try:
+                from auth.project_manager import render_sidebar_project_manager
+                render_sidebar_project_manager()
+            except Exception as _sb_err:
+                print(f"[SidebarPM] 오류: {_sb_err}")
 
 # Session state 초기화 (자동 복원 없이 빈 값으로 초기화)
 if 'project_name' not in st.session_state:
@@ -2287,74 +2236,6 @@ with tab_project:
         key="additional_info"
     )
 
-    # 프로젝트 정보 저장/불러오기 버튼
-    col_load, col_save = st.columns(2)
-
-    with col_load:
-        if st.button("📥 저장된 정보 불러오기", use_container_width=True, key="load_project_info"):
-            # 불러오기 플래그 설정하고 즉시 rerun (위젯이 생성되기 전에)
-            st.session_state['_force_load_session'] = True
-            st.rerun()
-
-    with col_save:
-        save_button_clicked = st.button("✅ 프로젝트 정보 저장", use_container_width=True, type="primary", key="save_project_info")
-
-    if save_button_clicked:
-        # 세션 저장
-        try:
-            from auth.session_init import save_work_session, save_analysis_progress
-            from database.db_manager import execute_query
-            import json
-            from datetime import datetime
-
-            # 로그인 확인
-            if 'pms_current_user' not in st.session_state:
-                st.error("❌ 로그인 정보가 없습니다. 다시 로그인해주세요.")
-                st.stop()
-
-            user_id = st.session_state.pms_current_user.get('id')
-            if not user_id:
-                st.error("❌ 사용자 ID를 가져올 수 없습니다.")
-                st.stop()
-
-            # 현재 세션 상태 출력 (디버그)
-            print(f"[저장] 사용자 ID: {user_id}")
-            print(f"[저장] project_name: '{st.session_state.get('project_name')}'")
-            print(f"[저장] location: '{st.session_state.get('location')}'")
-            print(f"[저장] project_goals: '{st.session_state.get('project_goals', '')[:50]}...'")
-
-            # 저장 실행
-            save_work_session()
-            save_analysis_progress(force=True)
-
-            # 저장 확인 (디버그)
-            check_result = execute_query(
-                "SELECT session_data FROM analysis_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
-                (user_id,)
-            )
-            if check_result:
-                _raw = check_result[0]['session_data']
-                saved_data = json.loads(_raw) if isinstance(_raw, str) else _raw
-                print(f"[저장 확인] DB에 저장된 project_name: '{saved_data.get('project_name')}'")
-                print(f"[저장 확인] DB에 저장된 location: '{saved_data.get('location')}'")
-
-                # UI에 저장된 내용 표시
-                st.success("✅ 프로젝트 정보가 저장되었습니다!")
-                with st.expander("저장된 내용 확인", expanded=True):
-                    st.write(f"**프로젝트명**: {saved_data.get('project_name', '(없음)')}")
-                    st.write(f"**위치**: {saved_data.get('location', '(없음)')}")
-                    st.write(f"**총 {len(saved_data)}개 항목 저장됨**")
-            else:
-                st.warning("⚠️ 저장은 완료되었으나 확인할 수 없습니다.")
-
-        except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            print(f"[저장 오류 전체 내역]:\n{error_details}")
-            st.error(f"❌ 저장 실패: {str(e)}")
-            with st.expander("오류 상세 정보"):
-                st.code(error_details)
-
     st.markdown("---")
     st.header("파일 업로드")
 
@@ -2561,10 +2442,17 @@ with tab_project:
             # 파일 업로드 확인 버튼
             if st.button("✅ 파일 분석 완료 확인", use_container_width=True, type="primary", key="confirm_file_upload"):
                 try:
-                    from auth.session_init import save_work_session, save_analysis_progress
-                    save_work_session()
+                    from auth.project_manager import save_project_from_session
+                    from auth.session_init import save_analysis_progress
+                    original_name = (st.session_state.get("project_name") or "").strip()
+                    final_name = save_project_from_session()
                     save_analysis_progress(force=True)
-                    st.success("파일 분석 결과가 저장되었습니다! '분석 블록 선택' 탭으로 이동하세요.")
+                    st.session_state['_notify'] = {
+                        'type': 'save',
+                        'project_name': final_name,
+                        'renamed': final_name != original_name,
+                    }
+                    st.rerun()
                 except Exception as e:
                     st.warning(f"저장 중 오류: {e}")
                     st.success("파일 분석이 확인되었습니다. '분석 블록 선택' 탭으로 이동하세요.")
@@ -2585,9 +2473,7 @@ with tab_blocks:
     has_file = st.session_state.get('pdf_uploaded', False)
     
     if not has_basic_info and not has_file:
-        st.warning("프로젝트 기본 정보를 입력하거나 파일을 업로드해주세요.")
-        st.stop()
-
+        st.info("기본 정보 탭에서 프로젝트 정보를 입력하거나 파일을 업로드하면 분석에 활용됩니다.")
 
     # get_example_blocks()는 이미 모든 블록(custom 포함)을 반환하므로 중복 방지
     all_blocks = get_example_blocks()
@@ -2910,13 +2796,11 @@ with tab_blocks:
         st.markdown("---")
         if st.button("✅ 블록 선택 완료", use_container_width=True, type="primary", key="confirm_block_selection"):
             try:
-                from auth.session_init import save_work_session, save_analysis_progress
+                from auth.session_init import save_work_session
                 save_work_session()
-                save_analysis_progress(force=True)
-                st.success(f"{len(selected_blocks)}개 블록이 선택되었습니다! '분석 실행' 탭으로 이동하세요.")
             except Exception as e:
-                st.warning(f"저장 중 오류: {e}")
-                st.success(f"{len(selected_blocks)}개 블록 선택 완료! '분석 실행' 탭으로 이동하세요.")
+                print(f"블록 선택 자동저장 오류: {e}")
+            st.success(f"{len(selected_blocks)}개 블록 선택 완료! '분석 실행' 탭으로 이동하세요.")
     else:
         st.warning("분석할 블록을 선택해주세요.")
 
@@ -4156,6 +4040,27 @@ with tab_download:
                 )
     else:
         st.info("분석 결과가 없습니다.")
+
+    # 결과 프로젝트 저장
+    st.markdown("---")
+    if st.button("💾 분석 결과를 프로젝트에 저장", use_container_width=True, type="primary", key="save_results_to_project"):
+        try:
+            from auth.project_manager import save_project_from_session
+            from auth.session_init import save_analysis_progress
+            original_name = (st.session_state.get("project_name") or "").strip()
+            final_name = save_project_from_session()
+            save_analysis_progress(force=True)
+            if final_name:
+                st.session_state['_notify'] = {
+                    'type': 'save',
+                    'project_name': final_name,
+                    'renamed': final_name != original_name,
+                }
+                st.rerun()
+            else:
+                st.warning("로그인 후 저장 가능합니다.")
+        except Exception as e:
+            st.error(f"❌ 저장 실패: {e}")
 
 # 페이지 렌더링 완료 후 작업 세션 자동 저장 (3초 스로틀)
 try:

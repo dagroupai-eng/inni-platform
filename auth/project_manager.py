@@ -286,6 +286,150 @@ def _create_new_project(uid: int):
         st.rerun()
 
 
+def _resolve_project_name(user_id: int, desired_name: str, current_project_id: int) -> str:
+    """
+    프로젝트명 중복 시 (1), (2)... 자동 넘버링.
+    현재 프로젝트 자신은 비교 대상에서 제외한다.
+    """
+    existing = {p["name"] for p in list_projects(user_id) if p["id"] != current_project_id}
+    if desired_name not in existing:
+        return desired_name
+    n = 1
+    while f"{desired_name} ({n})" in existing:
+        n += 1
+    return f"{desired_name} ({n})"
+
+
+def save_project_from_session() -> str:
+    """
+    session_state의 project_name / location 을 projects 테이블에 저장하고
+    analysis_sessions 에도 전체 세션을 저장한다.
+    이름 중복 시 자동 넘버링. 저장된 최종 프로젝트명 반환.
+    """
+    from auth.session_init import save_work_session
+
+    uid = _uid()
+    if not uid:
+        return ""
+
+    pid = st.session_state.get("current_project_id")
+    if not pid:
+        pid = get_or_create_current_project(uid)
+
+    desired_name = (st.session_state.get("project_name") or "").strip() or "새 프로젝트"
+    location = (st.session_state.get("location") or "").strip()
+
+    # 이름 중복 시 넘버링
+    final_name = _resolve_project_name(uid, desired_name, pid)
+    if final_name != desired_name:
+        st.session_state["project_name"] = final_name
+
+    # projects 테이블 업데이트
+    update_project(uid, pid, name=final_name, location=location)
+
+    # analysis_sessions 전체 세션 저장
+    save_work_session()
+
+    return final_name
+
+
+def render_sidebar_project_manager():
+    """
+    사이드바 프로젝트 관리 UI.
+    위: 프로젝트 목록 (불러오기 버튼)
+    아래: 저장 버튼
+    """
+    uid = _uid()
+    if not uid:
+        return
+
+    projects = list_projects(uid)
+    current_pid = st.session_state.get("current_project_id")
+
+    # 프로젝트가 없으면 자동 생성
+    if not projects:
+        new_pid = create_project(uid)
+        if new_pid:
+            st.session_state.current_project_id = new_pid
+            st.rerun()
+        return
+
+    # current_project_id가 목록에 없으면 첫 번째로 교정
+    ids = [p["id"] for p in projects]
+    if current_pid not in ids:
+        current_pid = ids[0]
+        st.session_state.current_project_id = current_pid
+
+    current_project = next((p for p in projects if p["id"] == current_pid), projects[0])
+
+    # ── 프로젝트 목록 ─────────────────────────────────────────────────────────
+    st.markdown("**📁 내 프로젝트**")
+    for p in projects:
+        pid = p["id"]
+        pname = p.get("name") or "새 프로젝트"
+        updated_raw = p.get("updated_at", "")
+        updated_str = updated_raw[:16].replace("T", " ") if updated_raw else "—"
+        is_current = (pid == current_pid)
+
+        col_info, col_btn = st.columns([3, 1])
+        with col_info:
+            if is_current:
+                st.markdown(f"**▶ {pname}**")
+            else:
+                st.markdown(f"　{pname}")
+            st.caption(updated_str)
+        with col_btn:
+            if not is_current:
+                if st.button("열기", key=f"sb_load_{pid}", use_container_width=True):
+                    _switch_project(uid, pid)
+            else:
+                if st.button("🗑", key=f"sb_del_{pid}", use_container_width=True, help="현재 프로젝트 삭제"):
+                    _confirm_delete_project(uid, pid)
+
+    st.markdown("---")
+
+    # ── 새 프로젝트 + 프로젝트명 수정 ────────────────────────────────────────
+    if st.button("＋ 새 프로젝트", use_container_width=True, key="sb_new_project"):
+        _create_new_project(uid)
+
+    with st.expander("✏️ 프로젝트명 수정", expanded=False):
+        new_name = st.text_input(
+            "프로젝트명",
+            value=current_project.get("name", ""),
+            key="sb_project_name_editor",
+            label_visibility="collapsed",
+        )
+        if st.button("저장", key="sb_save_name"):
+            if new_name.strip():
+                update_project(uid, current_pid, name=new_name.strip())
+                st.session_state["project_name"] = new_name.strip()
+                st.rerun()
+
+    st.markdown("---")
+
+    # ── 저장 버튼 ─────────────────────────────────────────────────────────────
+    if st.button("💾 현재 작업 저장", use_container_width=True, key="sb_save_work", type="primary"):
+        from auth.session_init import save_analysis_progress
+        original_name = (st.session_state.get("project_name") or "").strip()
+        final_name = save_project_from_session()
+        save_analysis_progress(force=True)
+        if final_name:
+            st.session_state["_notify"] = {
+                "type": "save",
+                "project_name": final_name,
+                "renamed": final_name != original_name,
+            }
+            st.rerun()
+
+    updated_raw = current_project.get("updated_at", "")
+    updated_str = updated_raw[:16].replace("T", " ") if updated_raw else "—"
+    save_status = st.session_state.get("_save_status", "saved")
+    if save_status == "error":
+        st.caption("⚠️ 저장 실패")
+    else:
+        st.caption(f"마지막 저장: {updated_str}")
+
+
 def _confirm_delete_project(uid: int, project_id: int):
     """삭제 확인 플래그 토글."""
     key = f"_confirm_del_{project_id}"
