@@ -3225,7 +3225,8 @@ with tab_run:
                                 if bid in st.session_state.get('cot_citations', {}):
                                     del st.session_state.cot_citations[bid]
                             st.success(f"'{block_name}'(으)로 이동했습니다.")
-                            st.rerun()
+                            # st.rerun() 생략 — 버튼 클릭이 이미 rerun을 트리거함
+                            # 명시적 rerun을 추가하면 2번 rerun되어 탭이 tab1으로 리셋됨
 
                 if has_result:
                     # 피드백 유형 선택

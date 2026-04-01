@@ -152,21 +152,7 @@ def restore_work_session():
 
         if project_id:
             session_data = load_project_session(user_id, project_id)
-
-        # project_id 세션 없으면 전체 최신으로 폴백 (LIMIT 1, 병합 없음)
-        if not session_data:
-            result = execute_query(
-                """
-                SELECT session_data FROM analysis_sessions
-                WHERE user_id = ?
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (user_id,)
-            )
-            if result and result[0]:
-                raw = result[0]['session_data']
-                session_data = json.loads(raw) if isinstance(raw, str) else raw
+        # project_id 없을 때만 전체 최신으로 폴백 (새 프로젝트로 이동 시 이전 데이터 복원 방지)
 
         if session_data:
             print(f"[복원] DB에서 데이터 로드 완료: {len(session_data)}개 키")
