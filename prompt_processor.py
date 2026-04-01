@@ -117,11 +117,11 @@ def load_blocks(include_user_blocks: bool = True) -> List[Dict[str, Any]]:
                 # 접근 가능한 블록 조회
                 db_blocks = get_accessible_blocks(user_id, team_id)
 
-                # block_data 필드를 블록 형태로 변환
+                # block_data 필드를 블록 형태로 변환 (복사 후 메타데이터 추가)
                 for db_block in db_blocks:
                     block_data = db_block.get("block_data", {})
                     if isinstance(block_data, dict):
-                        # DB 메타데이터 추가
+                        block_data = dict(block_data)  # 원본 dict 뮤테이션 방지
                         block_data["_db_id"] = db_block.get("id")
                         block_data["_owner_id"] = db_block.get("owner_id")
                         block_data["_visibility"] = db_block.get("visibility")
@@ -130,6 +130,11 @@ def load_blocks(include_user_blocks: bool = True) -> List[Dict[str, Any]]:
             pass  # 인증 모듈이 없으면 시스템 블록만 사용
         except Exception as e:
             print(f"사용자 블록 로드 오류: {e}")
+            try:
+                import streamlit as _st
+                _st.sidebar.warning(f"블록 로드 실패: {e}")
+            except Exception:
+                pass
 
     return blocks
 

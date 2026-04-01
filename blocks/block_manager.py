@@ -287,52 +287,60 @@ def get_accessible_blocks(user_id: int, team_id: Optional[int] = None) -> List[D
         접근 가능한 블록 목록
     """
     # 본인 블록
-    own_blocks = get_user_blocks(user_id)
+    own_blocks = []
+    try:
+        own_blocks = get_user_blocks(user_id)
+    except Exception as e:
+        print(f"[BlockManager] 본인 블록 조회 오류: {e}")
 
     # 공개 블록 (다른 사용자의)
-    public_result = execute_query(
-        "SELECT * FROM blocks WHERE visibility = 'public' AND owner_id != ?",
-        (user_id,)
-    )
     public_blocks = []
-    for row in public_result:
-        block = dict(row)
-        try:
-            block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
-            block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
-        except json.JSONDecodeError:
-            pass
-        public_blocks.append(block)
+    try:
+        public_result = execute_query(
+            "SELECT * FROM blocks WHERE visibility = 'public' AND owner_id != ?",
+            (user_id,)
+        )
+        for row in public_result:
+            block = dict(row)
+            try:
+                block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
+                block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
+            except json.JSONDecodeError:
+                pass
+            public_blocks.append(block)
+    except Exception as e:
+        print(f"[BlockManager] 공개 블록 조회 오류: {e}")
 
     # 팀 공유 블록
     team_blocks = []
     if team_id:
-        # 방법 1: shared_with_teams에 현재 팀이 포함된 블록
-        # 방법 2: 소유자가 같은 팀에 속한 블록 (visibility='team')
-        # Supabase: JOIN 대신 foreign key 관계로 조회
-        from database.supabase_client import get_supabase_client
-        _client = get_supabase_client()
-        _team_res = _client.table('blocks').select('*, users(team_id)').eq('visibility', 'team').neq('owner_id', user_id).execute()
-        team_result = _team_res.data or []
+        try:
+            # Supabase: JOIN 대신 foreign key 관계로 조회
+            from database.supabase_client import get_supabase_client
+            _client = get_supabase_client()
+            _team_res = _client.table('blocks').select('*, users(team_id)').eq('visibility', 'team').neq('owner_id', user_id).execute()
+            team_result = _team_res.data or []
 
-        for row in team_result:
-            block = dict(row)
-            # users(team_id) 결과를 owner_team_id로 변환
-            _user_info = block.pop('users', None)
-            block['owner_team_id'] = _user_info['team_id'] if _user_info and isinstance(_user_info, dict) else None
-            try:
-                block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
-                _swt = block.get("shared_with_teams") or "[]"
-                shared_teams = json.loads(_swt) if isinstance(_swt, str) else _swt
-                block["shared_with_teams"] = shared_teams
-                owner_team_id = block.get("owner_team_id")
+            for row in team_result:
+                block = dict(row)
+                # users(team_id) 결과를 owner_team_id로 변환
+                _user_info = block.pop('users', None)
+                block['owner_team_id'] = _user_info['team_id'] if _user_info and isinstance(_user_info, dict) else None
+                try:
+                    block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
+                    _swt = block.get("shared_with_teams") or "[]"
+                    shared_teams = json.loads(_swt) if isinstance(_swt, str) else _swt
+                    block["shared_with_teams"] = shared_teams
+                    owner_team_id = block.get("owner_team_id")
 
-                # 조건 1: shared_with_teams에 현재 팀이 포함
-                # 조건 2: 블록 소유자가 같은 팀에 속함
-                if team_id in shared_teams or owner_team_id == team_id:
-                    team_blocks.append(block)
-            except json.JSONDecodeError:
-                pass
+                    # 조건 1: shared_with_teams에 현재 팀이 포함
+                    # 조건 2: 블록 소유자가 같은 팀에 속함
+                    if team_id in shared_teams or owner_team_id == team_id:
+                        team_blocks.append(block)
+                except json.JSONDecodeError:
+                    pass
+        except Exception as e:
+            print(f"[BlockManager] 팀 블록 조회 오류: {e}")
 
     # 중복 제거하며 병합
     all_blocks = own_blocks + public_blocks + team_blocks
