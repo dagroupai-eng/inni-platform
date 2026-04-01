@@ -2809,9 +2809,6 @@ with tab_run:
                     _v = _sf.get(_key)
                     if _v and str(_v) not in ('True','False',''):
                         st.write(f"• {_label}: {_v}")
-        if _geo:
-            for _lname, _ldata in _geo.items():
-                st.info(f"✓ 공간 레이어: {_lname} ({_ldata.get('feature_count', 0)}개 필지)")
 
     st.markdown("---")
 
@@ -3418,37 +3415,6 @@ with tab_run:
         # 다음 실행 대상 블록 명확히 표시
         st.info(f"🎯 다음 실행 대상: **{st.session_state.cot_current_index + 1}번째 블록 - {next_block_name}** (ID: `{next_block_id}`)")
 
-        # 블록별 공간 데이터 선택 UI
-        downloaded_geo_data = st.session_state.get('downloaded_geo_data', {})
-        if downloaded_geo_data:
-            with st.expander("🗺️ 이 블록에 공간 데이터 연결", expanded=False):
-                st.caption("분석에 포함할 WFS 레이어를 선택하세요.")
-
-                # 블록별 선택 상태 초기화
-                if 'block_spatial_selection' not in st.session_state:
-                    st.session_state.block_spatial_selection = {}
-
-                # 현재 블록의 선택 상태
-                current_selection = st.session_state.block_spatial_selection.get(next_block_id, [])
-
-                # 레이어 선택 체크박스
-                new_selection = []
-                for layer_name, data in downloaded_geo_data.items():
-                    is_checked = st.checkbox(
-                        f"{layer_name} ({data['feature_count']}개)",
-                        value=layer_name in current_selection,
-                        key=f"spatial_block_{next_block_id}_{layer_name}"
-                    )
-                    if is_checked:
-                        new_selection.append(layer_name)
-
-                st.session_state.block_spatial_selection[next_block_id] = new_selection
-
-                if new_selection:
-                    st.success(f"선택: {len(new_selection)}개 레이어")
-                else:
-                    st.info("공간 데이터 없이 분석합니다.")
-
         # 실행, 멈춤, 건너뛰기 버튼
         is_running = st.session_state.cot_running_block is not None
 
@@ -3556,50 +3522,9 @@ with tab_run:
                     st.session_state.cot_progress_messages = st.session_state.cot_progress_messages[-50:]
                 progress_placeholder.info(message)
 
-            # 블록별 공간 데이터 컨텍스트 생성
-            block_spatial_context = ""
-            block_spatial_selection = st.session_state.get('block_spatial_selection', {})
-            selected_layers = block_spatial_selection.get(next_block_id, [])
-            downloaded_geo_data = st.session_state.get('downloaded_geo_data', {})
-
-            if selected_layers and downloaded_geo_data:
-                try:
-                    import geopandas as gpd
-                    from geo_data_loader import extract_spatial_context_for_ai
-                    spatial_parts = []
-                    for layer_name in selected_layers:
-                        if layer_name in downloaded_geo_data:
-                            geo_data = downloaded_geo_data[layer_name]
-                            geojson = geo_data.get('geojson', {})
-                            features = geojson.get('features', [])
-                            if features:
-                                gdf = gpd.GeoDataFrame.from_features(features, crs='EPSG:4326')
-                                # 레이어 타입 추정
-                                layer_type = 'general'
-                                if any(kw in layer_name for kw in ['행정', '시군', '읍면', '경계']):
-                                    layer_type = 'administrative'
-                                elif any(kw in layer_name for kw in ['용도', '지역', '지구']):
-                                    layer_type = 'zoning'
-                                elif any(kw in layer_name for kw in ['도시계획', '시설']):
-                                    layer_type = 'urban_planning'
-                                spatial_text = extract_spatial_context_for_ai(gdf, layer_type)
-                                spatial_parts.append(f"**{layer_name}**\n{spatial_text}")
-                    if spatial_parts:
-                        block_spatial_context = "\n\n[공간 데이터 컨텍스트]\n" + "\n\n---\n\n".join(spatial_parts)
-                        st.caption(f"📍 {len(spatial_parts)}개 공간 레이어 포함")
-                except Exception as e:
-                    st.warning(f"공간 데이터 처리 오류: {e}")
-
-            # 피드백과 공간 컨텍스트 결합
+            # 사용자 피드백
             user_feedback = st.session_state.cot_feedback_inputs.get(next_block_id, "").strip()
-            combined_feedback = None
-            if user_feedback or block_spatial_context:
-                parts = []
-                if user_feedback:
-                    parts.append(user_feedback)
-                if block_spatial_context:
-                    parts.append(block_spatial_context)
-                combined_feedback = "\n\n".join(parts) if parts else None
+            combined_feedback = user_feedback or None
 
             # 블록별 RAG 컨텍스트 주입
             doc_rag_system = st.session_state.get('doc_rag_system')

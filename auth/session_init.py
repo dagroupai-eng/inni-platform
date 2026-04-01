@@ -393,13 +393,14 @@ def save_analysis_progress(force: bool = False):
             progress_data['_saved_at'] = datetime.now().isoformat()
 
             # 기존 분석 진행 상태 업데이트 또는 삽입
+            project_id = st.session_state.get('current_project_id')
             execute_query(
                 """
                 INSERT OR REPLACE INTO analysis_progress
-                (user_id, progress_data, updated_at)
-                VALUES (?, ?, ?)
+                (user_id, project_id, progress_data, updated_at)
+                VALUES (?, ?, ?, ?)
                 """,
-                (user_id, json.dumps(progress_data, ensure_ascii=False), datetime.now().isoformat()),
+                (user_id, project_id, json.dumps(progress_data, ensure_ascii=False), datetime.now().isoformat()),
                 commit=True
             )
 
@@ -428,18 +429,30 @@ def restore_analysis_progress() -> Optional[dict]:
         if not user_id:
             return None
 
-        # 1시간 이내의 분석 진행 상태 조회
+        # 1시간 이내의 분석 진행 상태 조회 (현재 프로젝트 기준)
         one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+        project_id = st.session_state.get('current_project_id')
 
-        result = execute_query(
-            """
-            SELECT progress_data, updated_at FROM analysis_progress
-            WHERE user_id = ? AND updated_at > ?
-            ORDER BY updated_at DESC
-            LIMIT 1
-            """,
-            (user_id, one_hour_ago)
-        )
+        if project_id:
+            result = execute_query(
+                """
+                SELECT progress_data, updated_at FROM analysis_progress
+                WHERE user_id = ? AND project_id = ? AND updated_at > ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (user_id, project_id, one_hour_ago)
+            )
+        else:
+            result = execute_query(
+                """
+                SELECT progress_data, updated_at FROM analysis_progress
+                WHERE user_id = ? AND updated_at > ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (user_id, one_hour_ago)
+            )
 
         if result and result[0]:
             raw = result[0]['progress_data']

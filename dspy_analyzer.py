@@ -116,30 +116,44 @@ except UnicodeDecodeError:
 
 # API 제공자별 설정 정보 (Gemini 2.5 Pro 고성능 모델)
 PROVIDER_CONFIG = {
-    'gemini': {
-        'api_key_env': 'GEMINI_API_KEY',  # Google AI Studio API 키
-        'model': 'gemini-2.5-pro',  # LiteLLM 형식: gemini/gemini-2.5-pro
-        'provider': 'gemini',  # Google AI Studio (API Key)
-        'display_name': 'Gemini 2.5 Pro'
-    },
-    'gemini_3pro': {
-        'api_key_env': 'GEMINI_API_KEY',  # Google AI Studio API 키
-        'model': 'gemini-3-pro-preview',  # 가장 지능적인 모델
-        'provider': 'gemini',  # Google AI Studio (API Key)
-        'display_name': 'Gemini 3 Pro'
-    },
+    # ── Google Gemini 2.5 (GA, stable) ────────────────────────────────────
     'gemini_25flash': {
-        'api_key_env': 'GEMINI_API_KEY',  # Google AI Studio API 키
-        'model': 'gemini-2.5-flash',  # 빠르고 가격 대비 성능 우수
-        'provider': 'gemini',  # Google AI Studio (API Key)
+        'api_key_env': 'GEMINI_API_KEY',
+        'model': 'gemini-2.5-flash',
+        'provider': 'gemini',
         'display_name': 'Gemini 2.5 Flash'
     },
+    'gemini': {
+        'api_key_env': 'GEMINI_API_KEY',
+        'model': 'gemini-2.5-pro',
+        'provider': 'gemini',
+        'display_name': 'Gemini 2.5 Pro'
+    },
+    'gemini_25flash_lite': {
+        'api_key_env': 'GEMINI_API_KEY',
+        'model': 'gemini-2.5-flash-lite',
+        'provider': 'gemini',
+        'display_name': 'Gemini 2.5 Flash Lite'
+    },
+    # ── Google Gemini 3 (Preview) ──────────────────────────────────────────
+    'gemini_31pro': {
+        'api_key_env': 'GEMINI_API_KEY',
+        'model': 'gemini-3.1-pro-preview',
+        'provider': 'gemini',
+        'display_name': 'Gemini 3.1 Pro'
+    },
     'gemini_3flash': {
-        'api_key_env': 'GEMINI_API_KEY',  # Google AI Studio API 키
-        'model': 'gemini-3-flash-preview',  # Gemini 3.0 Flash
-        'provider': 'gemini',  # Google AI Studio (API Key)
-        'display_name': 'Gemini 3.0 Flash'
-    }
+        'api_key_env': 'GEMINI_API_KEY',
+        'model': 'gemini-3-flash-preview',
+        'provider': 'gemini',
+        'display_name': 'Gemini 3 Flash'
+    },
+    'gemini_31flash_lite': {
+        'api_key_env': 'GEMINI_API_KEY',
+        'model': 'gemini-3.1-flash-lite-preview',
+        'provider': 'gemini',
+        'display_name': 'Gemini 3.1 Flash Lite'
+    },
 }
 
 # 피드백 유형 분류
@@ -640,7 +654,7 @@ class EnhancedArchAnalyzer:
             Long Context 모델이면 True, 아니면 False
         """
         current_provider = self._active_provider or get_current_provider()
-        return current_provider in ['gemini', 'gemini_3pro', 'gemini_25pro', 'gemini_25flash']
+        return PROVIDER_CONFIG.get(current_provider, {}).get('provider') == 'gemini'
 
     def _get_pdf_content_for_context(self, pdf_text: str, max_length: int = 4000, use_long_context: bool = False) -> str:
         """
@@ -935,7 +949,7 @@ class EnhancedArchAnalyzer:
             base_model_name = provider_config['model']
             
             # Google AI Studio (Gemini)의 경우 특별 처리
-            if current_provider in ['gemini', 'gemini_3pro', 'gemini_25pro', 'gemini_25flash']:
+            if PROVIDER_CONFIG.get(current_provider, {}).get('provider') == 'gemini':
                 # Google AI Studio API 키 방식
                 # models/ 접두사 제거
                 clean_model = base_model_name.replace('models/', '').replace('model/', '')
@@ -1034,9 +1048,18 @@ class EnhancedArchAnalyzer:
                         thinking_config['include_thoughts'] = True
                         print(f"   Thought Summaries: 활성화")
                     
-                    # extra_body에 thinking_config 추가
+                    # extra_body에 thinking_config 추가 — Gemini REST API: generationConfig.thinkingConfig
                     if thinking_config:
-                        extra_body['thinking_config'] = thinking_config
+                        _tc_gemini = {}
+                        if 'thinking_budget' in thinking_config:
+                            _tc_gemini['thinkingBudget'] = thinking_config['thinking_budget']
+                        if 'thinking_level' in thinking_config:
+                            _tc_gemini['thinkingLevel'] = thinking_config['thinking_level']
+                        if 'include_thoughts' in thinking_config:
+                            _tc_gemini['includeThoughts'] = thinking_config['include_thoughts']
+                        if 'generationConfig' not in extra_body:
+                            extra_body['generationConfig'] = {}
+                        extra_body['generationConfig']['thinkingConfig'] = _tc_gemini
                     else:
                         print(f"   Thinking: 기본값 사용 (모델 기본 설정)")
                 
@@ -1151,13 +1174,21 @@ class EnhancedArchAnalyzer:
         if lm is None:
             yield
             return
-        
-        # System Instruction을 LM에 적용
+
+        # Gemini 외 모델은 extra_body system_instruction 미지원 → 일반 컨텍스트로 실행
+        _current_prov = self._active_provider or get_current_provider()
+        if PROVIDER_CONFIG.get(_current_prov, {}).get('provider') != 'gemini':
+            with self._lm_context(provider):
+                yield
+            return
+
+        # System Instruction을 LM에 적용 (Gemini 전용)
         original_extra_body = None
         try:
+            import copy as _copy
             # LiteLLM의 extra_body에 system_instruction 추가
             if hasattr(lm, 'kwargs') and 'extra_body' in lm.kwargs:
-                original_extra_body = lm.kwargs.get('extra_body', {}).copy()
+                original_extra_body = _copy.deepcopy(lm.kwargs.get('extra_body', {}))
                 if not isinstance(lm.kwargs.get('extra_body'), dict):
                     lm.kwargs['extra_body'] = {}
                 lm.kwargs['extra_body']['system_instruction'] = {
@@ -1169,14 +1200,7 @@ class EnhancedArchAnalyzer:
                         "parts": [{"text": system_instruction}]
                     }
                 }
-            
-            # System instruction을 extra_body에 직접 추가 (LiteLLM 형식)
-            if hasattr(lm, 'kwargs'):
-                if 'extra_body' not in lm.kwargs:
-                    lm.kwargs['extra_body'] = {}
-                # LiteLLM은 system_instruction을 extra_body에 추가
-                lm.kwargs['extra_body']['system_instruction'] = system_instruction
-            
+
             try:
                 ctx = dspy.settings.context(lm=lm)
             except Exception:
@@ -1189,9 +1213,7 @@ class EnhancedArchAnalyzer:
             if original_extra_body is not None and hasattr(lm, 'kwargs'):
                 lm.kwargs['extra_body'] = original_extra_body
             elif hasattr(lm, 'kwargs') and 'extra_body' in lm.kwargs:
-                # system_instruction만 제거
-                if 'system_instruction' in lm.kwargs['extra_body']:
-                    del lm.kwargs['extra_body']['system_instruction']
+                lm.kwargs['extra_body'].pop('system_instruction', None)
     
     @contextmanager
     def _lm_context_with_params(self, thinking_budget: Optional[int] = None, temperature: Optional[float] = None, system_instruction: Optional[str] = None, provider: Optional[str] = None):
@@ -1245,44 +1267,48 @@ class EnhancedArchAnalyzer:
         original_extra_body = None
         try:
             if hasattr(lm, 'kwargs'):
+                import copy as _copy
                 if 'extra_body' in lm.kwargs:
-                    original_extra_body = lm.kwargs.get('extra_body', {}).copy()
+                    original_extra_body = _copy.deepcopy(lm.kwargs.get('extra_body', {}))
                 else:
                     lm.kwargs['extra_body'] = {}
-                
-                # System Instruction 추가
+
+                # System Instruction 추가 — Gemini API는 Content 객체 형식 필요
                 if system_instruction:
-                    lm.kwargs['extra_body']['system_instruction'] = system_instruction
-                
-                # Thinking Config 추가
+                    lm.kwargs['extra_body']['system_instruction'] = {
+                        "parts": [{"text": system_instruction}]
+                    }
+
+                # Thinking Config 추가 — generationConfig.thinkingConfig 형식으로 전송
                 is_gemini_3 = 'gemini-3' in clean_model
                 is_gemini_25_pro = 'gemini-2.5-pro' in clean_model
                 is_gemini_25_flash = 'gemini-2.5-flash' in clean_model or 'gemini-2.5-flash-lite' in clean_model
-                
+
                 thinking_config = {}
-                
+
                 if is_gemini_3:
-                    # Gemini 3는 thinking_level 사용 권장, 하지만 thinking_budget도 지원
-                    if thinking_budget > 0:
-                        thinking_config['thinking_budget'] = thinking_budget
+                    if thinking_budget is not None and thinking_budget > 0:
+                        thinking_config['thinkingBudget'] = thinking_budget
                 elif is_gemini_25_pro:
-                    # Gemini 2.5 Pro는 thinking_budget만 지원
-                    if thinking_budget > 0:
-                        thinking_config['thinking_budget'] = max(128, min(32768, thinking_budget))
+                    if thinking_budget is not None:
+                        if thinking_budget == -1:
+                            thinking_config['thinkingBudget'] = -1
+                        elif thinking_budget >= 128:
+                            thinking_config['thinkingBudget'] = min(32768, thinking_budget)
                 elif is_gemini_25_flash:
-                    # Gemini 2.5 Flash는 thinking_budget 지원, 0으로 비활성화 가능
-                    thinking_config['thinking_budget'] = max(0, min(24576, thinking_budget))
-                
+                    if thinking_budget is not None:
+                        thinking_config['thinkingBudget'] = max(0, min(24576, thinking_budget))
+
                 if thinking_config:
-                    if 'thinking_config' not in lm.kwargs['extra_body']:
-                        lm.kwargs['extra_body']['thinking_config'] = {}
-                    lm.kwargs['extra_body']['thinking_config'].update(thinking_config)
-            
+                    if 'generationConfig' not in lm.kwargs['extra_body']:
+                        lm.kwargs['extra_body']['generationConfig'] = {}
+                    lm.kwargs['extra_body']['generationConfig']['thinkingConfig'] = thinking_config
+
             # Temperature 적용
             if temperature is not None:
                 original_temperature = lm.kwargs.get('temperature')
                 lm.kwargs['temperature'] = max(0.0, min(1.0, temperature))
-            
+
             try:
                 ctx = dspy.settings.context(lm=lm)
             except Exception:
@@ -1291,16 +1317,17 @@ class EnhancedArchAnalyzer:
                 with ctx:
                     yield
         finally:
-            # 원래 상태로 복원
+            # 원래 상태로 복원 (deepcopy로 저장했으므로 정확히 복원)
             if original_extra_body is not None and hasattr(lm, 'kwargs'):
                 lm.kwargs['extra_body'] = original_extra_body
             elif hasattr(lm, 'kwargs') and 'extra_body' in lm.kwargs:
-                # 추가한 항목만 제거
-                if 'system_instruction' in lm.kwargs['extra_body']:
-                    del lm.kwargs['extra_body']['system_instruction']
-                if 'thinking_config' in lm.kwargs['extra_body']:
-                    del lm.kwargs['extra_body']['thinking_config']
-            
+                # extra_body가 원래 없었던 경우 — 추가한 항목만 제거
+                lm.kwargs['extra_body'].pop('system_instruction', None)
+                if 'generationConfig' in lm.kwargs['extra_body']:
+                    lm.kwargs['extra_body']['generationConfig'].pop('thinkingConfig', None)
+                    if not lm.kwargs['extra_body']['generationConfig']:
+                        del lm.kwargs['extra_body']['generationConfig']
+
             # Temperature 복원
             if 'original_temperature' in locals() and original_temperature is not None and hasattr(lm, 'kwargs'):
                 lm.kwargs['temperature'] = original_temperature
@@ -2007,7 +2034,7 @@ class EnhancedArchAnalyzer:
                 else:
                     # Long Context 모델 감지 및 제한 완화
                     current_provider = self._active_provider or get_current_provider()
-                    is_long_context_model = current_provider in ['gemini', 'gemini_3pro', 'gemini_25pro', 'gemini_25flash']
+                    is_long_context_model = PROVIDER_CONFIG.get(current_provider, {}).get('provider') == 'gemini'
 
                     # Long Context 모델의 경우 더 긴 텍스트 허용
                     # 1M 토큰 ≈ 750,000 문자 (대략적인 변환: 1 토큰 ≈ 0.75 문자)
@@ -2133,7 +2160,7 @@ class EnhancedArchAnalyzer:
             # Function Calling 지원 (Gemini 모델에서 function_declarations가 제공된 경우)
             if function_declarations:
                 current_provider = self._active_provider or get_current_provider()
-                if current_provider in ['gemini', 'gemini_3pro', 'gemini_25pro', 'gemini_25flash']:
+                if PROVIDER_CONFIG.get(current_provider, {}).get('provider') == 'gemini':
                     try:
                         return self._analyze_with_function_calling(
                             prompt=enhanced_prompt,
@@ -2154,7 +2181,7 @@ class EnhancedArchAnalyzer:
             structured_output_config = self._get_structured_output_config(response_schema)
             if structured_output_config:
                 current_provider = self._active_provider or get_current_provider()
-                if current_provider in ['gemini', 'gemini_3pro', 'gemini_25pro', 'gemini_25flash']:
+                if PROVIDER_CONFIG.get(current_provider, {}).get('provider') == 'gemini':
                     try:
                         # LiteLLM을 직접 호출하여 구조화된 출력 사용
                         import litellm

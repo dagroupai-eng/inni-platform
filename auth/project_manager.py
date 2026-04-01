@@ -48,9 +48,9 @@ def create_project(user_id: int, name: str = "새 프로젝트", location: str =
         execute_query(
             """
             INSERT INTO projects (user_id, name, location, status, created_at, updated_at)
-            VALUES (?, ?, ?, 'in_progress', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (user_id, name, location, now, now),
+            (user_id, name, location, 'in_progress', now, now),
             commit=True,
         )
         pid = get_last_insert_id()

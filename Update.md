@@ -15,6 +15,7 @@
 - [x] **2-1. Supabase 스키마 보완 (SQL 실행 완료)** ✅
   - `analysis_runs.finished_at` 컬럼 추가
   - `blocks.block_id` UNIQUE 제약 추가
+  - `analysis_progress` UNIQUE 제약: `user_id` 단독 → `(user_id, project_id)` 복합으로 변경 (프로젝트별 진행 상태 분리)
 
 ---
 
@@ -45,7 +46,7 @@
 |---|------|-----------|------------|------|
 | B-1 | 프로젝트 생성/조회 | `auth/project_manager.py` | `projects` | [x] 1개 프로젝트 확인 (location은 아직 미설정) |
 | B-2 | 작업 세션 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [x] 저장 확인 (10행+) — autosave가 빈 project_name으로 덮어쓰는 버그 수정 완료 |
-| B-3 | 분석 진행 저장/복원 | `auth/session_init.py` | `analysis_progress` | [ ] 분석 실행 후 확인 필요 (현재 0행) |
+| B-3 | 분석 진행 저장/복원 | `auth/session_init.py` | `analysis_progress` | [x] 1행 저장 확인 — project_id=None 버그 수정 완료 (session_init.py INSERT에 project_id 추가) |
 
 ### C. 파일 업로드 / Storage
 
@@ -68,16 +69,16 @@
 | # | 기능 | 관련 파일 | 연동 | 확인 |
 |---|------|-----------|------|------|
 | E-1 | 필지 클릭 → 폴리곤 표시 | `pages/2_Mapping.py` | VWorld WFS API (DB 없음) | [ ] |
-| E-2 | 필지 선택 → projects.location 저장 | `pages/2_Mapping.py` | `projects` 테이블 | [ ] 실 선택 후 확인 필요 |
+| E-2 | 필지 선택 → projects.location 저장 | `pages/2_Mapping.py` | `projects` 테이블 | [x] Supabase projects 테이블에 location 저장 확인 |
 
 ### F. 문서 분석
 
 | # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
 |---|------|-----------|------------|------|
 | F-1 | PDF/DOCX 업로드 → 텍스트 추출 | `file_analyzer.py` | (로컬 처리) | [ ] |
-| F-2 | 분석 세션 준비 | `pages/3_Document_Analysis.py` | `analysis_runs`, `analysis_steps` | [ ] 분석 실행 후 확인 필요 (현재 0개) |
-| F-3 | 블록별 분석 실행 → step 상태 업데이트 | `database/analysis_steps_manager.py` | `analysis_steps` | [ ] |
-| F-4 | 분석 완료 → run finalize | `database/analysis_steps_manager.py` | `analysis_runs.finished_at` | [ ] |
+| F-2 | 분석 세션 준비 | `pages/3_Document_Analysis.py` | `analysis_runs`, `analysis_steps` | [x] analysis_runs 1행(project_id=6, status=completed) 확인 |
+| F-3 | 블록별 분석 실행 → step 상태 업데이트 | `database/analysis_steps_manager.py` | `analysis_steps` | [x] analysis_steps 2행(step_id=1,2, status=completed, started_at/finished_at 기록) 확인 |
+| F-4 | 분석 완료 → run finalize | `database/analysis_steps_manager.py` | `analysis_runs.finished_at` | [x] finished_at 값 정상 기록 확인 |
 
 ### G. 관리자
 
@@ -92,6 +93,14 @@
 
 - [x] **4. analysis_runs / analysis_steps 저장 로직 추가** ✅ `9962833`
   - INSERT 리터럴 버그 수정, finalize_run() 호출 추가
+
+- [x] **4-추가. projects.status 타임스탬프 저장 버그 수정** ✅
+  - 원인: `create_project()` SQL에 `'in_progress'` 리터럴 혼용 → `_build_values`가 컬럼-파라미터 매핑 오류로 status에 timestamp 저장
+  - 수정: SQL VALUES 절의 `'in_progress'` 리터럴을 `?`로 교체, 파라미터 튜플에 `'in_progress'` 추가
+
+- [x] **4-추가-2. analysis_progress.project_id=None 버그 수정** ✅
+  - 원인: `save_analysis_progress()` INSERT에 `project_id` 컬럼 누락
+  - 수정: INSERT 컬럼/VALUES에 `project_id` 추가, `current_project_id` 세션에서 읽어서 전달
 
 - [x] **5. VWorld 필지 선택 버그 수정** ✅ `f908b2f`
   - VWorld 포털 서비스URL에 서버 IP 추가, 진단 로그 추가
