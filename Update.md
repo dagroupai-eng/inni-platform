@@ -136,6 +136,19 @@
   - `set_step_status()`: `started_at`/`finished_at` 타임스탬프 기록 추가
   - `delete_project_files()`: Storage 삭제 후 DB 레코드도 함께 삭제
 
+- [x] **6-추가-6. 페이지 초기화 버그 2개 수정** ✅ `76989d0`
+  - **Bug A**: 초기화 후 autosave가 빈 세션을 최신 행으로 INSERT → "열기" 시 구 데이터 복원되는 문제
+    - `page_just_reset` 플래그로 초기화 직후 첫 rerender의 autosave 1회 스킵
+  - **Bug B**: 초기화 후 프로젝트가 선택된 채로 남는 문제
+    - `keys_to_reset`에 `current_project_id` 추가
+
+- [x] **6-추가-7. AI 모델 설정 버그 수정** ✅ `dad7494`
+  - `dspy_analyzer.py` PROVIDER_CONFIG: Gemini 전용 최신 모델만 유지 (Anthropic/OpenAI 제거)
+  - `system_instruction` 문자열 덮어쓰기 버그 수정 (Content format 유지)
+  - `thinking_config` 필드 위치 수정: 최상위 → `generationConfig.thinkingConfig` (camelCase)
+  - `dict.copy()` → `copy.deepcopy()` (중첩 dict 복원 버그)
+  - 하드코딩된 Gemini provider 목록 체크 → `PROVIDER_CONFIG` 동적 조회로 전환
+
 - [ ] **7. 분석 대기열(Queue) 시스템 구현**
 
   ### 설계: analysis_progress 테이블 재활용
@@ -192,13 +205,20 @@
 
 ### ① B-3: 분석 진행 복원 동작 확인 (Queue 충돌 지점)
 - `analysis_progress` 테이블에 실제로 저장/복원이 되는지 확인
-- `restore_analysis_progress()`가 `cot_results` / `cot_session` 키로만 복원 판단하는지 코드 재검증
-- 확인 방법: 분석 세션 준비 → 중간 이탈 → 재접속 시 복원 배너 뜨는지
+- 확인 방법: 분석 세션 준비 → 중간 이탈 → 재접속 시 복원 배너 뜨는지 (사이드바 "세션 관리")
+- `restore_analysis_progress()`가 project_id 필터로 올바른 행을 읽는지 확인
 - [ ] 확인 완료
 
-### ② F-2 → F-3 → F-4: 분석 실행 1회 end-to-end 확인
+### ② 페이지 초기화 버그 수정 확인 (금번 수정)
+- 분석 진행 → "현재 작업 저장" → "페이지 초기화" → 프로젝트 "열기"
+- 기대 동작:
+  - 초기화 후 프로젝트가 선택 해제되어 있는지 확인 (Bug B)
+  - "열기" 후 최신 분석 결과가 복원되는지 확인 (Bug A)
+- [ ] 확인 완료
+
+### ③ F-2 → F-3 → F-4: 분석 실행 1회 end-to-end 확인
 - 실제 PDF/DOCX 파일로 분석 1회 완전히 돌린 후 Supabase에서 직접 확인:
-  - `analysis_runs` 행 생성 여부 + `finished_at` 값 입력 여부 (방금 추가한 컬럼)
+  - `analysis_runs` 행 생성 여부 + `finished_at` 값 입력 여부
   - `analysis_steps` 각 블록별 `status`, `started_at`, `finished_at` 기록 여부
 - **확인 방법 (Supabase Dashboard):**
   1. Supabase Dashboard → 좌측 Table Editor
@@ -210,7 +230,7 @@
 
 ## 배포 마무리
 
-- [ ] **8. 기능 테스트** → 위 Supabase 연동 기능별 확인 표 참고
+- [ ] **8. 기능 테스트** → 위 Supabase 연동 기능별 확인 표 참고 (C-1~C-3, E-1, F-1, G-2 미확인)
 
 - [ ] **9. 0119 브랜치 정리**
   - master로 머지 완료됐으므로 0119 브랜치 삭제 여부 결정
