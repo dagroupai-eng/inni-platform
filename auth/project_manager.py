@@ -225,10 +225,12 @@ def render_project_selector():
         return
 
     # current_project_id 가 목록에 없으면 첫 번째로 교정
+    # (_no_auto_project=True이면 리셋 직후 → 자동 선택 금지)
     ids = [p["id"] for p in projects]
     if current_pid not in ids:
-        current_pid = ids[0]
-        st.session_state.current_project_id = current_pid
+        if not st.session_state.get('_no_auto_project'):
+            current_pid = ids[0]
+            st.session_state.current_project_id = current_pid
 
     # 마지막 저장 시각 계산
     current_project = next((p for p in projects if p["id"] == current_pid), projects[0])
@@ -250,7 +252,9 @@ def render_project_selector():
                 key="project_selector_widget",
                 label_visibility="collapsed",
             )
-            if selected != current_pid:
+            # current_pid가 None(리셋 직후)이면 selectbox 기본값(0번)이 자동 선택되어
+            # selected != None이 되지만, 이때는 _no_auto_project 가드로 전환 방지
+            if selected != current_pid and not st.session_state.get('_no_auto_project'):
                 _switch_project(uid, selected)
 
         with col_new:
@@ -383,10 +387,12 @@ def render_sidebar_project_manager():
         return
 
     # current_project_id가 목록에 없으면 첫 번째로 교정
+    # (_no_auto_project=True이면 리셋 직후 → 자동 선택 금지)
     ids = [p["id"] for p in projects]
     if current_pid not in ids:
-        current_pid = ids[0]
-        st.session_state.current_project_id = current_pid
+        if not st.session_state.get('_no_auto_project'):
+            current_pid = ids[0]
+            st.session_state.current_project_id = current_pid
 
     current_project = next((p for p in projects if p["id"] == current_pid), projects[0])
 
