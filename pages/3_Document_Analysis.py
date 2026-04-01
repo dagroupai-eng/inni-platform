@@ -201,7 +201,8 @@ with col_reset:
             'preprocessed_text', 'preprocessed_summary', 'preprocessing_meta',
             'reference_documents', 'reference_combined_text', 'reference_signature',
             'block_spatial_selection',
-            'document_summary', 'doc_rag_system'
+            'document_summary', 'doc_rag_system',
+            'current_project_id',  # 초기화 후 프로젝트 선택 해제
         ]
         for key in keys_to_reset:
             if key in st.session_state:
@@ -3816,8 +3817,10 @@ with tab_download:
             st.error(f"❌ 저장 실패: {e}")
 
 # 페이지 렌더링 완료 후 작업 세션 자동 저장 (3초 스로틀)
+# page_just_reset=True이면 초기화 직후 첫 렌더 → 빈 세션 덮어쓰기 방지를 위해 1회 스킵
 try:
     from auth.session_init import auto_save_debounced
-    auto_save_debounced(throttle_seconds=3.0)
+    if not st.session_state.pop('page_just_reset', False):
+        auto_save_debounced(throttle_seconds=3.0)
 except Exception as e:
     pass
