@@ -126,7 +126,8 @@ def get_user_blocks(
         # JSON 문자열을 파싱
         try:
             block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
-            block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
+            _swt = block.get("shared_with_teams")
+            block["shared_with_teams"] = _swt if isinstance(_swt, list) else (json.loads(_swt) if isinstance(_swt, str) and _swt else [])
         except json.JSONDecodeError:
             pass
         blocks.append(block)
@@ -153,7 +154,8 @@ def get_block_by_id(block_db_id: int) -> Optional[Dict[str, Any]]:
         block = dict(result[0])
         try:
             block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
-            block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
+            _swt = block.get("shared_with_teams")
+            block["shared_with_teams"] = _swt if isinstance(_swt, list) else (json.loads(_swt) if isinstance(_swt, str) and _swt else [])
         except json.JSONDecodeError:
             pass
         return block
@@ -187,7 +189,8 @@ def get_block_by_block_id(block_id: str, owner_id: Optional[int] = None) -> Opti
         block = dict(result[0])
         try:
             block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
-            block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
+            _swt = block.get("shared_with_teams")
+            block["shared_with_teams"] = _swt if isinstance(_swt, list) else (json.loads(_swt) if isinstance(_swt, str) and _swt else [])
         except json.JSONDecodeError:
             pass
         return block
@@ -304,7 +307,8 @@ def get_accessible_blocks(user_id: int, team_id: Optional[int] = None) -> List[D
             block = dict(row)
             try:
                 block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
-                block["shared_with_teams"] = json.loads(block.get("shared_with_teams") or "[]")
+                _swt = block.get("shared_with_teams")
+                block["shared_with_teams"] = _swt if isinstance(_swt, list) else (json.loads(_swt) if isinstance(_swt, str) and _swt else [])
             except json.JSONDecodeError:
                 pass
             public_blocks.append(block)
