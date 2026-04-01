@@ -3220,6 +3220,8 @@ with tab_run:
                             for bid in blocks_to_remove:
                                 if bid in st.session_state.cot_results:
                                     del st.session_state.cot_results[bid]
+                                if bid in st.session_state.get('analysis_results', {}):
+                                    del st.session_state.analysis_results[bid]
                                 if bid in st.session_state.get('cot_citations', {}):
                                     del st.session_state.cot_citations[bid]
                             st.success(f"'{block_name}'(으)로 이동했습니다.")
