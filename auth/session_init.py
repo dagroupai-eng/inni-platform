@@ -197,7 +197,7 @@ def restore_work_session():
                 'analysis_results', 'cot_results', 'cot_session', 'cot_plan',
                 'cot_current_index', 'selected_blocks', 'cot_history', 'cot_citations',
                 'cot_feedback_inputs', 'skipped_blocks',
-                'cot_verifications', 'urban_indicator_results', 'block_spatial_data',
+                'cot_verifications', 'urban_indicator_results',
             ]
 
             restored_count = 0
@@ -267,12 +267,17 @@ def save_work_session():
         ]
 
         # 크기 제한이 있는 키 (500KB 이하만 저장)
-        large_keys = ['downloaded_geo_data', 'block_spatial_data']
+        large_keys = ['downloaded_geo_data']
         _SIZE_LIMIT = 500 * 1024  # 500 KB
+
+        # 빈 문자열로 저장 금지: 이전 유효값을 덮어쓰지 않도록 보호
+        _no_empty_keys = {'project_name', 'project_goals', 'additional_info'}
 
         for key in save_keys:
             if key in st.session_state:
                 value = st.session_state[key]
+                if key in _no_empty_keys and not value:
+                    continue  # 빈 값이면 저장 스킵
                 try:
                     json.dumps(value)
                     session_data[key] = value
@@ -316,6 +321,10 @@ def save_work_session():
             st.session_state['_last_saved_at'] = datetime.now().isoformat()
         else:
             st.session_state['_save_status'] = 'saved'
+
+        # autosave 타이머 갱신 (명시적 save 후 즉시 autosave 중복 방지)
+        import time as _time
+        st.session_state['last_save_time'] = _time.time()
 
     except Exception as e:
         print(f"작업 세션 저장 오류: {e}")
@@ -666,7 +675,7 @@ def render_session_manager_sidebar():
 
             if reset_blocks:
                 # 블록 초기화
-                block_keys = ['selected_blocks', 'block_spatial_data', 'prelinked_block_layers']
+                block_keys = ['selected_blocks', 'prelinked_block_layers']
                 deleted = 0
                 for key in block_keys:
                     if key in st.session_state:

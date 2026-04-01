@@ -44,7 +44,7 @@
 | # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
 |---|------|-----------|------------|------|
 | B-1 | 프로젝트 생성/조회 | `auth/project_manager.py` | `projects` | [x] 1개 프로젝트 확인 (location은 아직 미설정) |
-| B-2 | 작업 세션 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [ ] 실 사용 후 확인 필요 (현재 0행) |
+| B-2 | 작업 세션 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [x] 저장 확인 (10행+) — autosave가 빈 project_name으로 덮어쓰는 버그 수정 완료 |
 | B-3 | 분석 진행 저장/복원 | `auth/session_init.py` | `analysis_progress` | [ ] 분석 실행 후 확인 필요 (현재 0행) |
 
 ### C. 파일 업로드 / Storage
@@ -98,6 +98,13 @@
 
 - [x] **6. 분석 결과물 퀄리티 개선** ✅ `959bd6c`
   - pdf_text 50000자, blocks.json 제거, [BLOCK_SUMMARY] 태그 연계
+
+- [x] **6-추가-5. 각 탭 저장 버튼 → 프로젝트 연동 + 자동 넘버링** ✅
+  - `project_manager.py`: `save_project_from_session()` 추가 — projects 테이블 name/location 업데이트 + analysis_sessions 저장 통합
+  - `project_manager.py`: `_resolve_project_name()` 추가 — 이름 중복 시 자동 (1),(2)... 넘버링
+  - Tab 1 "프로젝트 정보 저장" / "파일 분석 완료 확인" → 새 함수로 교체
+  - Tab 2 "블록 선택 완료" → 새 함수로 교체
+  - Tab 4 "분석 결과를 프로젝트에 저장" 버튼 신규 추가
 
 - [x] **6-추가-4. 팀 공유 블록 가시성 버그 수정** ✅
   - 원인: `team_id=None`인 사용자(관리자)가 팀 공유 블록 생성 시 `shared_with_teams=[]`로 저장 → 어떤 팀원도 조회 불가

@@ -105,21 +105,48 @@ def delete_project(user_id: int, project_id: int) -> bool:
 
 
 def load_project_session(user_id: int, project_id: int) -> Optional[dict]:
-    """프로젝트의 최신 세션 데이터를 반환한다."""
+    """프로젝트의 최신 세션 데이터를 반환한다.
+    최신 행을 기준으로 하되, project_name이 비어 있으면 가장 최근의
+    project_name이 있는 행에서 해당 필드를 병합한다.
+    """
     try:
         from database.db_manager import execute_query
         rows = execute_query(
             """
             SELECT session_data FROM analysis_sessions
             WHERE user_id = ? AND project_id = ?
-            ORDER BY created_at DESC LIMIT 1
+            ORDER BY created_at DESC LIMIT 20
             """,
             (user_id, project_id),
         )
-        if rows and rows[0]:
-            raw = rows[0]["session_data"]
-            return json.loads(raw) if isinstance(raw, str) else raw
-        return None
+        if not rows:
+            return None
+
+        # 첫 번째(최신) 행을 기준 데이터로 사용
+        raw = rows[0]["session_data"]
+        base = json.loads(raw) if isinstance(raw, str) else raw
+        if not base:
+            return None
+
+        # project_name이 비어 있으면 이전 행에서 유효한 값 병합
+        _fill_keys = ['project_name', 'project_goals', 'additional_info']
+        if any(not base.get(k) for k in _fill_keys):
+            for row in rows[1:]:
+                r = row["session_data"]
+                candidate = json.loads(r) if isinstance(r, str) else r
+                if not candidate:
+                    continue
+                filled = True
+                for k in _fill_keys:
+                    if not base.get(k) and candidate.get(k):
+                        base[k] = candidate[k]
+                        print(f"[load_project_session] {k} 이전 행에서 복원: {candidate[k][:30]}")
+                    if not base.get(k):
+                        filled = False
+                if filled:
+                    break
+
+        return base
     except Exception as e:
         print(f"[ProjectManager] load_project_session 오류: {e}")
         return None
@@ -159,7 +186,7 @@ def apply_project_session(session_data: dict) -> int:
     ]
     extra_keys = [
         "site_fields", "downloaded_geo_data", "cot_verifications",
-        "urban_indicator_results", "block_spatial_data", "preprocessing_meta",
+        "urban_indicator_results", "preprocessing_meta",
         "preprocessed_text", "reference_documents", "reference_combined_text",
     ]
 

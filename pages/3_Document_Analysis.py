@@ -200,7 +200,7 @@ with col_reset:
             'skipped_blocks', 'cot_citations', 'cot_history', 'cot_analyzer',
             'preprocessed_text', 'preprocessed_summary', 'preprocessing_meta',
             'reference_documents', 'reference_combined_text', 'reference_signature',
-            'block_spatial_data', 'block_spatial_selection',
+            'block_spatial_selection',
             'document_summary', 'doc_rag_system'
         ]
         for key in keys_to_reset:
@@ -2506,10 +2506,6 @@ with tab_blocks:
                 
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    # 공간 데이터 연동 여부 확인
-                    block_spatial = st.session_state.get('block_spatial_data', {})
-                    is_linked = block_id in block_spatial
-
                     block_name = block.get('name', '이름 없음')
 
                     # 사용자 블록에 [개인]/[팀] 태그 추가
@@ -2522,12 +2518,7 @@ with tab_blocks:
                             if not block_name.startswith('[팀]'):
                                 block_name = f"[팀] {block_name}"
 
-                    if is_linked:
-                        linked_layer = block_spatial[block_id].get('layer_name', '')
-                        st.markdown(f"**{block_name}** 📍")
-                        st.caption(f"🔗 연동: {linked_layer}")
-                    else:
-                        st.markdown(f"**{block_name}**")
+                    st.markdown(f"**{block_name}**")
 
                     description = block.get('description')
                     if description:
@@ -2720,78 +2711,6 @@ with tab_blocks:
                     except Exception as e:
                         st.error(f"순서 업데이트 중 오류: {e}")
 
-        # 공간 데이터 연동 섹션
-        if st.session_state.get('downloaded_geo_data'):
-            st.markdown("---")
-            st.subheader("🔗 공간 데이터 연동")
-            st.caption("Mapping에서 조회한 공간 데이터를 각 블록의 분석에 활용할 수 있습니다.")
-
-            # block_spatial_data 초기화
-            if 'block_spatial_data' not in st.session_state:
-                st.session_state.block_spatial_data = {}
-
-            # 사용 가능한 레이어 목록
-            available_layers = list(st.session_state.downloaded_geo_data.keys())
-            layer_info = {
-                layer_name: f"{layer_name} ({data.get('feature_count', 0)}개)"
-                for layer_name, data in st.session_state.downloaded_geo_data.items()
-            }
-
-            # 각 선택된 블록에 대해 레이어 연동 UI
-            for block_id in selected_blocks:
-                block = block_lookup.get(block_id)
-                block_name = block.get('name', block_id) if block else block_id
-
-                # 현재 연동된 레이어 가져오기
-                current_linked = []
-                if block_id in st.session_state.block_spatial_data:
-                    current_linked = st.session_state.block_spatial_data[block_id].get('layers', [])
-
-                col_block, col_layer = st.columns([2, 3])
-                with col_block:
-                    st.markdown(f"**{block_name}**")
-                with col_layer:
-                    # multiselect로 레이어 선택
-                    selected_layers = st.multiselect(
-                        "연동할 레이어",
-                        options=available_layers,
-                        default=[l for l in current_linked if l in available_layers],
-                        format_func=lambda x: layer_info.get(x, x),
-                        key=f"layer_link_{block_id}",
-                        label_visibility="collapsed"
-                    )
-
-                    # 선택 변경 시 block_spatial_data 업데이트
-                    if selected_layers:
-                        combined_features = []
-                        total_count = 0
-                        for layer_name in selected_layers:
-                            if layer_name in st.session_state.downloaded_geo_data:
-                                data = st.session_state.downloaded_geo_data[layer_name]
-                                geojson = data.get('geojson', {})
-                                for feature in geojson.get('features', []):
-                                    feature_copy = dict(feature)
-                                    if 'properties' not in feature_copy:
-                                        feature_copy['properties'] = {}
-                                    feature_copy['properties']['_layer'] = layer_name
-                                    combined_features.append(feature_copy)
-                                total_count += data.get('feature_count', 0)
-
-                        st.session_state.block_spatial_data[block_id] = {
-                            'layer_name': ', '.join(selected_layers),
-                            'geojson': {'type': 'FeatureCollection', 'features': combined_features},
-                            'feature_count': total_count,
-                            'layers': selected_layers
-                        }
-                    elif block_id in st.session_state.block_spatial_data:
-                        # 선택 해제 시 삭제
-                        del st.session_state.block_spatial_data[block_id]
-
-            # 연동 현황 요약
-            linked_blocks = [bid for bid in selected_blocks if bid in st.session_state.block_spatial_data]
-            if linked_blocks:
-                st.success(f"✓ {len(linked_blocks)}개 블록에 공간 데이터가 연동되었습니다.")
-
         # 블록 선택 완료 버튼
         st.markdown("---")
         if st.button("✅ 블록 선택 완료", use_container_width=True, type="primary", key="confirm_block_selection"):
@@ -2894,19 +2813,6 @@ with tab_run:
             for _lname, _ldata in _geo.items():
                 st.info(f"✓ 공간 레이어: {_lname} ({_ldata.get('feature_count', 0)}개 필지)")
 
-    # 공간 데이터 연동 상태 표시
-    if st.session_state.get('block_spatial_data'):
-        st.markdown("---")
-        st.markdown("**🔗 Mapping 블록 연동 데이터**")
-        block_spatial_data = st.session_state.block_spatial_data
-        linked_blocks = [bid for bid in selected_blocks if bid in block_spatial_data]
-        if linked_blocks:
-            for block_id in linked_blocks:
-                spatial_info = block_spatial_data[block_id]
-                st.success(f"✓ {block_id}: {spatial_info['layer_name']} ({spatial_info['feature_count']}개 피처)")
-        else:
-            st.info(" Mapping 페이지에서 블록에 공간 데이터를 연동할 수 있습니다.")
-
     st.markdown("---")
 
     base_text_candidates: List[str] = []
@@ -3005,84 +2911,6 @@ with tab_run:
 
         # WFS 다운로드 데이터는 블록별로 선택되므로 여기서는 제외
         # (각 블록 실행 시점에 선택한 레이어가 feedback으로 추가됨)
-
-        # 2. Mapping 페이지에서 블록에 연동된 공간 데이터
-        if st.session_state.get('block_spatial_data'):
-            block_spatial_data = st.session_state.block_spatial_data
-            for block_id in selected_blocks:
-                if block_id in block_spatial_data:
-                    spatial_info = block_spatial_data[block_id]
-                    layer_name = spatial_info['layer_name']
-                    feature_count = spatial_info['feature_count']
-
-                    # GeoJSON 요약 정보 추출
-                    geojson = spatial_info.get('geojson', {})
-                    features = geojson.get('features', [])
-
-                    summary_text = f"**Mapping 연동 레이어: {layer_name}** (블록: {block_id})\n"
-                    summary_text += f"- 총 피처 수: {feature_count}개\n"
-
-                    # 속성별 분포 통계 계산 (용도지역, 건물용도 등)
-                    if features:
-                        from collections import Counter
-                        # 용도지역/건물용도 관련 컬럼 찾기
-                        zone_counters = {}
-                        price_values = []
-                        area_values = []
-
-                        for feature in features:
-                            props = feature.get('properties', {})
-                            for key, value in props.items():
-                                if value is None or value == '':
-                                    continue
-                                key_upper = key.upper()
-                                # 용도지역 관련 컬럼
-                                if any(k in key_upper for k in ['USG_NM', 'PRPOS_AREA_NM', '용도지역', 'ZONE_NM', 'JIJIMOK']):
-                                    if '용도지역' not in zone_counters:
-                                        zone_counters['용도지역'] = Counter()
-                                    zone_counters['용도지역'][str(value)] += 1
-                                # 건물용도 관련 컬럼
-                                elif any(k in key_upper for k in ['PURPS_NM', 'MAIN_PURPS', '주용도', 'BDTYP_NM']):
-                                    if '건물용도' not in zone_counters:
-                                        zone_counters['건물용도'] = Counter()
-                                    zone_counters['건물용도'][str(value)] += 1
-                                # 공시지가
-                                elif any(k in key_upper for k in ['PBLNTF', '공시지가', 'PRICE']):
-                                    try:
-                                        price_values.append(float(value))
-                                    except:
-                                        pass
-                                # 면적
-                                elif any(k in key_upper for k in ['AREA', '면적', 'LNDPCLR']):
-                                    try:
-                                        area_values.append(float(value))
-                                    except:
-                                        pass
-
-                        # 분포 통계 텍스트 생성
-                        for category, counter in zone_counters.items():
-                            if counter:
-                                summary_text += f"\n**{category} 분포:**\n"
-                                for zone_name, count in counter.most_common(10):
-                                    summary_text += f"  - {zone_name}: {count}개\n"
-
-                        # 공시지가 통계
-                        if price_values:
-                            avg_price = sum(price_values) / len(price_values)
-                            summary_text += f"\n**공시지가 통계:**\n"
-                            summary_text += f"  - 평균: {int(avg_price):,}원/㎡\n"
-                            summary_text += f"  - 최소: {int(min(price_values)):,}원/㎡\n"
-                            summary_text += f"  - 최대: {int(max(price_values)):,}원/㎡\n"
-
-                        # 면적 통계
-                        if area_values:
-                            total_area = sum(area_values)
-                            avg_area = total_area / len(area_values)
-                            summary_text += f"\n**면적 통계:**\n"
-                            summary_text += f"  - 총 면적: {total_area:,.1f}㎡\n"
-                            summary_text += f"  - 평균 면적: {avg_area:,.1f}㎡\n"
-
-                    spatial_contexts.append(summary_text)
 
         # 공간 컨텍스트 통합 (업로드된 Shapefile만)
         if spatial_contexts:
