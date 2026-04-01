@@ -225,12 +225,10 @@ def render_project_selector():
         return
 
     # current_project_id 가 목록에 없으면 첫 번째로 교정
-    # (_no_auto_project=True이면 리셋 직후 → 자동 선택 금지)
     ids = [p["id"] for p in projects]
     if current_pid not in ids:
-        if not st.session_state.get('_no_auto_project'):
-            current_pid = ids[0]
-            st.session_state.current_project_id = current_pid
+        current_pid = ids[0]
+        st.session_state.current_project_id = current_pid
 
     # 마지막 저장 시각 계산
     current_project = next((p for p in projects if p["id"] == current_pid), projects[0])
@@ -252,9 +250,7 @@ def render_project_selector():
                 key="project_selector_widget",
                 label_visibility="collapsed",
             )
-            # current_pid가 None(리셋 직후)이면 selectbox 기본값(0번)이 자동 선택되어
-            # selected != None이 되지만, 이때는 _no_auto_project 가드로 전환 방지
-            if selected != current_pid and not st.session_state.get('_no_auto_project'):
+            if selected != current_pid:
                 _switch_project(uid, selected)
 
         with col_new:
@@ -293,7 +289,6 @@ def _switch_project(uid: int, project_id: int):
     """프로젝트 전환: 세션 초기화 후 선택 프로젝트 데이터 로드."""
     from auth.session_init import reset_full_work_state
     reset_full_work_state()
-    st.session_state.pop('_no_auto_project', None)  # 프로젝트 명시 선택 시 자동 선택 금지 해제
     session_data = load_project_session(uid, project_id)
     if session_data:
         count = apply_project_session(session_data)
@@ -387,12 +382,11 @@ def render_sidebar_project_manager():
         return
 
     # current_project_id가 목록에 없으면 첫 번째로 교정
-    # (_no_auto_project=True이면 리셋 직후 → 자동 선택 금지)
+    # current_project_id가 목록에 없으면 첫 번째로 교정
     ids = [p["id"] for p in projects]
     if current_pid not in ids:
-        if not st.session_state.get('_no_auto_project'):
-            current_pid = ids[0]
-            st.session_state.current_project_id = current_pid
+        current_pid = ids[0]
+        st.session_state.current_project_id = current_pid
 
     current_project = next((p for p in projects if p["id"] == current_pid), projects[0])
 

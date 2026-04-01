@@ -160,11 +160,10 @@ st.title("도시 프로젝트 분석")
 st.markdown("**도시 프로젝트 문서 분석 (PDF, Word, Excel, CSV, 텍스트, JSON 지원)**")
 
 # ── 현재 프로젝트 ID 확인 (없으면 자동 생성) ──────────────────────────────────
-# _no_auto_project=True이면 페이지 초기화 직후 → 사용자가 직접 프로젝트를 열 때까지 자동 선택 금지
 try:
     from auth.project_manager import get_or_create_current_project
     _uid_check = (st.session_state.get("pms_current_user") or {}).get("id")
-    if _uid_check and not st.session_state.get('_no_auto_project'):
+    if _uid_check:
         get_or_create_current_project(_uid_check)
 except Exception as _pm_err:
     print(f"[ProjectManager] 오류: {_pm_err}")
@@ -190,38 +189,17 @@ if _restore_notice:
 col_title, col_reset = st.columns([5, 1])
 with col_reset:
     if st.button("🗑️ 페이지 초기화", use_container_width=True, help="이 페이지의 모든 데이터를 초기화합니다"):
-        # Document Analysis 페이지 관련 모든 데이터 초기화
-        keys_to_reset = [
-            'project_name', 'location', 'latitude', 'longitude',
-            'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded',
-            'uploaded_file', 'file_type', 'file_analysis',
-            'selected_blocks', 'analysis_results', 'cot_results',
-            'cot_session', 'cot_plan', 'cot_current_index',
-            'cot_running_block', 'cot_progress_messages', 'cot_feedback_inputs',
-            'skipped_blocks', 'cot_citations', 'cot_history', 'cot_analyzer',
-            'preprocessed_text', 'preprocessed_summary', 'preprocessing_meta',
-            'reference_documents', 'reference_combined_text', 'reference_signature',
-            'block_spatial_selection',
-            'document_summary', 'doc_rag_system',
-            'current_project_id',  # 초기화 후 프로젝트 선택 해제
-        ]
-        for key in keys_to_reset:
-            if key in st.session_state:
-                del st.session_state[key]
-
-        # 초기화 플래그 설정 (rerun 후 자동 복원 방지)
-        st.session_state['page_just_reset'] = True
-        st.session_state['_no_auto_project'] = True  # 사용자가 직접 프로젝트 열 때까지 자동 선택 금지
-        st.session_state['work_session_restored_global'] = True
-        if 'work_session_restoring' in st.session_state:
-            del st.session_state['work_session_restoring']
-
-        # 저장된 데이터는 유지 (DB/GitHub 삭제하지 않음)
-        # 세션 상태만 클리어하여 화면을 깨끗하게 함
-        print(f"[초기화] {len(keys_to_reset)}개 세션 키 삭제 완료 (저장된 데이터는 유지)")
-
-        st.success("✅ 페이지가 완전히 초기화되었습니다.")
-        st.rerun()
+        # 새 빈 프로젝트를 생성하고 전환 → 기존 데이터는 DB에 보존, 화면만 초기화
+        _uid_reset = (st.session_state.get("pms_current_user") or {}).get("id")
+        if _uid_reset:
+            st.session_state['page_just_reset'] = True
+            st.session_state['work_session_restored_global'] = True
+            if 'work_session_restoring' in st.session_state:
+                del st.session_state['work_session_restoring']
+            from auth.project_manager import _create_new_project
+            _create_new_project(_uid_reset)  # 내부에서 reset_full_work_state() + rerun()
+        else:
+            st.warning("로그인이 필요합니다.")
 
 st.markdown("---")
 
@@ -3819,12 +3797,9 @@ with tab_download:
             st.error(f"❌ 저장 실패: {e}")
 
 # 페이지 렌더링 완료 후 작업 세션 자동 저장 (3초 스로틀)
-# page_just_reset=True이면 초기화 직후 첫 렌더 → 빈 세션 덮어쓰기 방지를 위해 1회 스킵
-# current_project_id 없으면 어떤 프로젝트에도 저장할 필요 없음
+st.session_state.pop('page_just_reset', None)  # 플래그 정리
 try:
     from auth.session_init import auto_save_debounced
-    if not st.session_state.pop('page_just_reset', False):
-        if st.session_state.get('current_project_id'):
-            auto_save_debounced(throttle_seconds=3.0)
+    auto_save_debounced(throttle_seconds=3.0)
 except Exception as e:
     pass
