@@ -104,27 +104,28 @@ def load_blocks(include_user_blocks: bool = True) -> List[Dict[str, Any]]:
     # DB 블록 로드 (인증된 경우만)
     if include_user_blocks:
         try:
-            from auth.authentication import is_authenticated, get_current_user
+            import streamlit as st
             from blocks.block_manager import get_accessible_blocks
 
-            if is_authenticated():
-                user = get_current_user()
-                if user:
-                    user_id = user.get("id")
-                    team_id = user.get("team_id")
+            # is_authenticated() 재호출 대신 session_state 직접 확인
+            # (is_authenticated()는 매번 get_session()을 호출해 세션을 삭제할 수 있음)
+            user = st.session_state.get('pms_current_user')
+            if user:
+                user_id = user.get("id")
+                team_id = user.get("team_id")
 
-                    # 접근 가능한 블록 조회
-                    db_blocks = get_accessible_blocks(user_id, team_id)
+                # 접근 가능한 블록 조회
+                db_blocks = get_accessible_blocks(user_id, team_id)
 
-                    # block_data 필드를 블록 형태로 변환
-                    for db_block in db_blocks:
-                        block_data = db_block.get("block_data", {})
-                        if isinstance(block_data, dict):
-                            # DB 메타데이터 추가
-                            block_data["_db_id"] = db_block.get("id")
-                            block_data["_owner_id"] = db_block.get("owner_id")
-                            block_data["_visibility"] = db_block.get("visibility")
-                            blocks.append(block_data)
+                # block_data 필드를 블록 형태로 변환
+                for db_block in db_blocks:
+                    block_data = db_block.get("block_data", {})
+                    if isinstance(block_data, dict):
+                        # DB 메타데이터 추가
+                        block_data["_db_id"] = db_block.get("id")
+                        block_data["_owner_id"] = db_block.get("owner_id")
+                        block_data["_visibility"] = db_block.get("visibility")
+                        blocks.append(block_data)
         except ImportError:
             pass  # 인증 모듈이 없으면 시스템 블록만 사용
         except Exception as e:
