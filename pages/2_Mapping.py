@@ -58,6 +58,59 @@ PREVIEW_COLOR = "#ff6d00"   # 미리보기 (클릭 직후) → 주황
 
 # ─── 주소 파싱/포맷 ────────────────────────────────────────────────────────────
 
+def _parse_batch_parcel_input(text: str) -> list:
+    """
+    쉼표 구분 다중 지번 입력을 개별 전체 주소 리스트로 변환.
+
+    입력 예:
+      "강원특별자치도 삼척시 도계읍 산12-1임, 산12-3임, 127-1잡, 130-2철, 131-3대, 129-3대"
+    출력:
+      ["강원특별자치도 삼척시 도계읍 산12-1",
+       "강원특별자치도 삼척시 도계읍 산12-3",
+       "강원특별자치도 삼척시 도계읍 127-1",
+       "강원특별자치도 삼척시 도계읍 130-2",
+       "강원특별자치도 삼척시 도계읍 131-3",
+       "강원특별자치도 삼척시 도계읍 129-3"]
+
+    - 지번 끝 지목 코드(임·대·전·답·잡·철 등 한글 접미) 자동 제거
+    - 읍/면/동/리/가 모두 베이스 주소 기준점으로 지원
+    - 쉼표 없는 단일 주소는 [text] 반환
+    """
+    import re
+    text = text.strip()
+    if not text:
+        return []
+
+    parts = [p.strip() for p in text.split(',') if p.strip()]
+    if len(parts) <= 1:
+        return [text]
+
+    # 첫 번째 파트에서 베이스 주소 추출
+    # 행정단위(읍/면/동/리/가) 바로 뒤 공백을 경계로 분리
+    first = parts[0]
+    m = re.match(r'^(.*?(?:읍|면|동|리|가))\s+(.+)$', first)
+    if not m:
+        # 행정단위 인식 불가 → 기존 파서로 위임
+        return _parse_multi_parcel_address(text)
+
+    base = m.group(1).strip()
+    first_lot_raw = m.group(2).strip()
+
+    def _strip_category(raw: str) -> str:
+        """지번 끝 지목 코드(한글) 제거: "산12-1임" → "산12-1", "127-1잡" → "127-1" """
+        raw = raw.strip().replace('번지', '').strip()
+        # 숫자 바로 뒤 한글 접미 제거
+        return re.sub(r'(?<=[0-9])[가-힣]+$', '', raw).strip()
+
+    results = []
+    for lot_raw in [first_lot_raw] + parts[1:]:
+        lot_clean = _strip_category(lot_raw)
+        if lot_clean:
+            results.append(f"{base} {lot_clean}")
+
+    return results if results else [text]
+
+
 def _parse_multi_parcel_address(text: str) -> list:
     """
     "서울특별시 강남구 논현동 16, 16-7, 16-16번지" → 개별 주소 리스트
@@ -1873,7 +1926,7 @@ def render_land_map_page():
     sc1, sc2, sc3 = st.columns([5, 1, 1])
     with sc1:
         addr_q = st.text_input(
-            "주소", placeholder="주소 검색 (예: 서울특별시 강남구 삼성동 167)",
+            "주소", placeholder="주소 검색 — 단일: 강원도 삼척시 도계읍 산12-1  또는  다중: 강원도 삼척시 도계읍 산12-1임, 산12-3임, 127-1잡",
             label_visibility="collapsed", key="lm_addr_q",
         )
     with sc2:
@@ -1911,18 +1964,26 @@ def render_land_map_page():
             st.rerun()
 
     if do_search and addr_q.strip():
-        with st.spinner("좌표 변환 중..."):
-            coords = _geocode(addr_q.strip())
-        if coords:
-            lon_g, lat_g = coords
-            st.session_state.lm_center = [lat_g, lon_g]
-            st.session_state.lm_zoom   = 18
-            with st.spinner("필지 정보 조회 중..."):
-                info = _fetch_parcel_info(lon_g, lat_g, nearby_radius=st.session_state.lm_nearby_radius)
-            st.session_state.lm_preview = info
+        addresses = _parse_batch_parcel_input(addr_q.strip())
+        if len(addresses) > 1:
+            # 다중 필지: pending 등록 후 일괄 로드
+            st.session_state["_pending_map_addresses"] = addresses
             st.rerun()
         else:
-            st.warning("주소를 찾을 수 없습니다.")
+            # 단일 필지: 기존 흐름
+            single = addresses[0] if addresses else addr_q.strip()
+            with st.spinner("좌표 변환 중..."):
+                coords = _geocode(single)
+            if coords:
+                lon_g, lat_g = coords
+                st.session_state.lm_center = [lat_g, lon_g]
+                st.session_state.lm_zoom   = 18
+                with st.spinner("필지 정보 조회 중..."):
+                    info = _fetch_parcel_info(lon_g, lat_g, nearby_radius=st.session_state.lm_nearby_radius)
+                st.session_state.lm_preview = info
+                st.rerun()
+            else:
+                st.warning("주소를 찾을 수 없습니다.")
 
     # ── 합계 (필지 있을 때만) ─────────────────────────────────────────────
     if parcels:
