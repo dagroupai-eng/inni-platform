@@ -82,17 +82,26 @@ def _clear_session_supabase(user_id: int):
 
 
 def _get_session_supabase(token: str) -> Optional[Dict[str, Any]]:
-    """Supabase user_settings에서 토큰으로 세션을 조회합니다."""
+    """Supabase user_settings에서 토큰으로 세션을 조회합니다.
+    JSONB contains 필터로 서버 측에서 직접 매칭 → O(n) 전체 스캔 방지.
+    """
     try:
         from database.supabase_client import get_supabase_client
 
         client = get_supabase_client()
-        result = client.table('user_settings').select('user_id, settings_data').execute()
+
+        # JSONB @> 연산자: settings_data가 {"_session": {"token": "..."}} 를 포함하는 행만 반환
+        result = (
+            client.table('user_settings')
+            .select('user_id, settings_data')
+            .contains('settings_data', {'_session': {'token': token}})
+            .execute()
+        )
 
         for row in (result.data or []):
             settings = row.get('settings_data') or {}
             session = settings.get('_session') or {}
-            if session.get('token') == token:
+            if session.get('token') == token:  # 이중 확인
                 expires_at = session.get('expires_at')
                 if expires_at and datetime.fromisoformat(expires_at) > datetime.now():
                     return session

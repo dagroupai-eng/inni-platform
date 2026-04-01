@@ -67,6 +67,11 @@ CREATE TABLE IF NOT EXISTS user_settings (
     settings_data JSONB DEFAULT '{}'::jsonb,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+-- 세션 토큰 조회 최적화: settings_data->_session->token expression 인덱스
+-- Supabase SQL Editor에서 수동 실행 필요 (CREATE INDEX는 마이그레이션으로 처리)
+-- CREATE INDEX IF NOT EXISTS idx_user_settings_session_token
+--     ON user_settings ((settings_data -> '_session' ->> 'token'))
+--     WHERE settings_data ? '_session';
 
 -- 7. 분석 진행 상태 (실시간 저장용)
 CREATE TABLE IF NOT EXISTS analysis_progress (
