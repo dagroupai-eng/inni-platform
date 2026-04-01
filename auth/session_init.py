@@ -22,8 +22,17 @@ def init_page_session():
 
 def restore_login_session():
     """로그인 세션을 복원합니다. (브라우저 localStorage + Supabase 기반)"""
-    # 이미 세션이 있으면 스킵
+    # 이미 세션이 있으면 localStorage 동기화 후 스킵
+    # (login() 직후 st.rerun()으로 인해 save_session_to_browser()가 미실행될 수 있으므로
+    #  첫 렌더에서 여기서 확실히 저장)
     if 'pms_session_token' in st.session_state and st.session_state.pms_session_token:
+        if not st.session_state.get('_browser_token_synced'):
+            try:
+                from auth.browser_session import save_session_to_browser
+                save_session_to_browser(st.session_state.pms_session_token)
+                st.session_state['_browser_token_synced'] = True
+            except Exception:
+                pass
         return
 
     # 복원 시도 중 플래그 (무한 루프 방지) - JS가 실제 값을 반환한 후에만 설정
