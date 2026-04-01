@@ -160,10 +160,11 @@ st.title("도시 프로젝트 분석")
 st.markdown("**도시 프로젝트 문서 분석 (PDF, Word, Excel, CSV, 텍스트, JSON 지원)**")
 
 # ── 현재 프로젝트 ID 확인 (없으면 자동 생성) ──────────────────────────────────
+# _no_auto_project=True이면 페이지 초기화 직후 → 사용자가 직접 프로젝트를 열 때까지 자동 선택 금지
 try:
     from auth.project_manager import get_or_create_current_project
     _uid_check = (st.session_state.get("pms_current_user") or {}).get("id")
-    if _uid_check:
+    if _uid_check and not st.session_state.get('_no_auto_project'):
         get_or_create_current_project(_uid_check)
 except Exception as _pm_err:
     print(f"[ProjectManager] 오류: {_pm_err}")
@@ -210,6 +211,7 @@ with col_reset:
 
         # 초기화 플래그 설정 (rerun 후 자동 복원 방지)
         st.session_state['page_just_reset'] = True
+        st.session_state['_no_auto_project'] = True  # 사용자가 직접 프로젝트 열 때까지 자동 선택 금지
         st.session_state['work_session_restored_global'] = True
         if 'work_session_restoring' in st.session_state:
             del st.session_state['work_session_restoring']
@@ -3818,9 +3820,11 @@ with tab_download:
 
 # 페이지 렌더링 완료 후 작업 세션 자동 저장 (3초 스로틀)
 # page_just_reset=True이면 초기화 직후 첫 렌더 → 빈 세션 덮어쓰기 방지를 위해 1회 스킵
+# current_project_id 없으면 어떤 프로젝트에도 저장할 필요 없음
 try:
     from auth.session_init import auto_save_debounced
     if not st.session_state.pop('page_just_reset', False):
-        auto_save_debounced(throttle_seconds=3.0)
+        if st.session_state.get('current_project_id'):
+            auto_save_debounced(throttle_seconds=3.0)
 except Exception as e:
     pass

@@ -289,6 +289,7 @@ def _switch_project(uid: int, project_id: int):
     """프로젝트 전환: 세션 초기화 후 선택 프로젝트 데이터 로드."""
     from auth.session_init import reset_full_work_state
     reset_full_work_state()
+    st.session_state.pop('_no_auto_project', None)  # 프로젝트 명시 선택 시 자동 선택 금지 해제
     session_data = load_project_session(uid, project_id)
     if session_data:
         count = apply_project_session(session_data)
