@@ -139,36 +139,22 @@ def restore_work_session():
 
     try:
         from database.db_manager import execute_query
+        from auth.project_manager import load_project_session
         import json
 
         user_id = st.session_state.pms_current_user.get('id')
         if not user_id:
             return
 
-        # project_id 기반 조회 우선, 없으면 최신 세션
+        # project_id 기반 조회 우선 (병합 로직 포함한 load_project_session 사용)
         project_id = st.session_state.get('current_project_id')
+        session_data = None
+
         if project_id:
-            result = execute_query(
-                """
-                SELECT session_data FROM analysis_sessions
-                WHERE user_id = ? AND project_id = ?
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (user_id, project_id)
-            )
-            # project_id 세션 없으면 전체 최신으로 폴백
-            if not result:
-                result = execute_query(
-                    """
-                    SELECT session_data FROM analysis_sessions
-                    WHERE user_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """,
-                    (user_id,)
-                )
-        else:
+            session_data = load_project_session(user_id, project_id)
+
+        # project_id 세션 없으면 전체 최신으로 폴백 (LIMIT 1, 병합 없음)
+        if not session_data:
             result = execute_query(
                 """
                 SELECT session_data FROM analysis_sessions
@@ -178,10 +164,11 @@ def restore_work_session():
                 """,
                 (user_id,)
             )
+            if result and result[0]:
+                raw = result[0]['session_data']
+                session_data = json.loads(raw) if isinstance(raw, str) else raw
 
-        if result and result[0]:
-            raw = result[0]['session_data']
-            session_data = json.loads(raw) if isinstance(raw, str) else raw
+        if session_data:
             print(f"[복원] DB에서 데이터 로드 완료: {len(session_data)}개 키")
 
             # 프로젝트 정보는 빈 값이어도 덮어쓰기 (복원 우선)
