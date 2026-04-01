@@ -4,7 +4,6 @@ JavaScript를 사용하여 localStorage에 세션 저장
 """
 
 import streamlit as st
-import streamlit.components.v1 as components
 from typing import Optional
 import json
 
@@ -19,13 +18,14 @@ def save_session_to_browser(session_token: str):
     if not session_token:
         return
 
-    # JavaScript로 localStorage에 저장 (즉시 실행)
-    save_script = f"""
-    <script>
-        localStorage.setItem('pms_session_token', '{session_token}');
-    </script>
-    """
-    components.html(save_script, height=0, width=0)
+    # st_javascript로 저장 — components.html은 iframe(별도 포트)에서 실행돼
+    # 메인 페이지 localStorage와 분리되므로 반드시 st_javascript 사용
+    try:
+        from streamlit_javascript import st_javascript
+        safe_token = session_token.replace("'", "\\'")
+        st_javascript(f"localStorage.setItem('pms_session_token', '{safe_token}'); 1")
+    except Exception as e:
+        print(f"[BrowserSession] localStorage 저장 오류: {e}")
 
 
 def load_session_from_browser() -> Optional[str]:
@@ -64,12 +64,11 @@ def clear_session_from_browser():
     """
     브라우저 localStorage에서 세션 토큰을 삭제합니다.
     """
-    clear_script = """
-    <script>
-        localStorage.removeItem('pms_session_token');
-    </script>
-    """
-    components.html(clear_script, height=0, width=0)
+    try:
+        from streamlit_javascript import st_javascript
+        st_javascript("localStorage.removeItem('pms_session_token'); 1")
+    except Exception as e:
+        print(f"[BrowserSession] localStorage 삭제 오류: {e}")
 
 
 def init_browser_session():
