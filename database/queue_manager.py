@@ -14,26 +14,45 @@ def _client():
     return get_supabase_client()
 
 
-STALE_MINUTES = 30  # 이 시간 이상 processing 상태인 행은 비정상 종료로 간주
+STALE_MINUTES = 30         # processing 상태 최대 허용 시간
+STALE_WAITING_MINUTES = 10  # waiting 상태 최대 허용 시간 (브라우저 종료 등 비정상 대기 정리)
 
 
 def cleanup_stale() -> int:
-    """비정상 종료로 잔류한 processing 행을 삭제합니다.
-    started_at 기준 STALE_MINUTES 이상 경과한 행 대상.
-    반환값: 삭제된 행 수."""
+    """비정상 종료로 잔류한 processing/waiting 행을 삭제합니다.
+    - processing: started_at 기준 STALE_MINUTES 이상 경과
+    - waiting: entered_at 기준 STALE_WAITING_MINUTES 이상 경과
+    반환값: 삭제된 총 행 수."""
     from datetime import datetime, timezone, timedelta
     client = _client()
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=STALE_MINUTES)).isoformat()
+    now = datetime.now(timezone.utc)
+    removed = 0
+
+    # processing 행 정리
+    cutoff_proc = (now - timedelta(minutes=STALE_MINUTES)).isoformat()
     try:
         result = client.table('analysis_queue').delete() \
-            .eq('status', 'processing').lt('started_at', cutoff).execute()
-        removed = len(result.data) if result.data else 0
-        if removed:
-            print(f"[Queue] stale processing 행 {removed}개 정리 완료")
-        return removed
+            .eq('status', 'processing').lt('started_at', cutoff_proc).execute()
+        n = len(result.data) if result.data else 0
+        if n:
+            print(f"[Queue] stale processing 행 {n}개 정리 완료")
+        removed += n
     except Exception as e:
-        print(f"[Queue] cleanup_stale 오류: {e}")
-        return 0
+        print(f"[Queue] cleanup_stale(processing) 오류: {e}")
+
+    # waiting 행 정리 (브라우저 종료 등으로 대기만 남은 경우)
+    cutoff_wait = (now - timedelta(minutes=STALE_WAITING_MINUTES)).isoformat()
+    try:
+        result2 = client.table('analysis_queue').delete() \
+            .eq('status', 'waiting').lt('entered_at', cutoff_wait).execute()
+        n2 = len(result2.data) if result2.data else 0
+        if n2:
+            print(f"[Queue] stale waiting 행 {n2}개 정리 완료")
+        removed += n2
+    except Exception as e:
+        print(f"[Queue] cleanup_stale(waiting) 오류: {e}")
+
+    return removed
 
 
 def enter_queue(user_id: int, project_id: Optional[int] = None, team_id: Optional[int] = None) -> None:
@@ -59,6 +78,36 @@ def start_processing(user_id: int) -> None:
         'status': 'processing',
         'started_at': datetime.now(timezone.utc).isoformat(),
     }).eq('user_id', user_id).execute()
+
+
+def try_start_processing(user_id: int, team_id: Optional[int] = None) -> bool:
+    """processing 전환 후 즉시 팀 슬롯 재검증. 슬롯 초과 시 waiting으로 롤백.
+    반환값: True = 처리 가능, False = 슬롯 초과(대기 재시도 필요).
+    Race condition 방어용: can_process()와 start_processing() 사이 간격을 제거."""
+    from datetime import datetime, timezone
+    client = _client()
+
+    # 1. 먼저 processing으로 전환
+    client.table('analysis_queue').update({
+        'status': 'processing',
+        'started_at': datetime.now(timezone.utc).isoformat(),
+    }).eq('user_id', user_id).execute()
+
+    # 2. 즉시 재검증: 팀 내 processing 수 확인
+    proc_qb = client.table('analysis_queue').select('id', count='exact').eq('status', 'processing')
+    if team_id is not None:
+        proc_qb = proc_qb.eq('team_id', team_id)
+    processing_count = proc_qb.execute().count or 0
+
+    if processing_count > MAX_CONCURRENT:
+        # 슬롯 초과 → waiting으로 롤백
+        client.table('analysis_queue').update({
+            'status': 'waiting',
+            'started_at': None,
+        }).eq('user_id', user_id).execute()
+        return False
+
+    return True
 
 
 def exit_queue(user_id: int) -> None:

@@ -2260,7 +2260,7 @@ with tab_project:
             try:
                 from database.queue_manager import (
                     enter_queue, can_process, get_queue_info,
-                    start_processing, exit_queue as _pq_exit,
+                    try_start_processing, exit_queue as _pq_exit,
                 )
                 if _pq_uid:
                     enter_queue(_pq_uid, _pq_pid, _pq_tid)
@@ -2282,9 +2282,15 @@ with tab_project:
             else:
                 if _pq_uid:
                     try:
-                        start_processing(_pq_uid)
+                        _pq_can_go = try_start_processing(_pq_uid, _pq_tid)
                     except Exception as _pqe:
                         print(f'[Queue] start_processing 오류: {_pqe}')
+
+                if not _pq_can_go:
+                    # Race condition: 동시 진입으로 슬롯 초과 감지 → 대기 후 재시도
+                    st.warning("⏳ 파일 파싱 대기 중 (잠시 후 자동 시작됩니다...)")
+                    time.sleep(3)
+                    st.rerun()
 
                 _parse_ok = False
                 try:
