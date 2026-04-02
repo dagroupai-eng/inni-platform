@@ -3169,11 +3169,8 @@ with tab_run:
             elif block_id in skipped_blocks:
                 # 건너뛴 블록
                 status_badge = "⏭️ 건너뜀"
-            elif st.session_state.cot_session and idx == st.session_state.cot_current_index + 1:
-                # 다음 실행 대상
-                status_badge = "🟡 대기"
             else:
-                # 준비 상태
+                # 준비 상태 (다음 실행 대상 포함)
                 status_badge = "⚪ 준비"
             is_collapsed = status_badge in ["✅ 완료", "⏭️ 건너뜀"]
             expander = st.expander(f"{idx}. {block_name} · {status_badge}", expanded=(not is_collapsed))
@@ -3370,8 +3367,19 @@ with tab_run:
                             except Exception as _rerun_fail_err:
                                 print(f"[AnalysisSteps] rerun failed 업데이트 실패: {_rerun_fail_err}")
                             st.error(f"재분석 실패: {step_result.get('error', '알 수 없는 오류')}")
-                elif status_badge == "🟡 대기":
-                    st.info("다음 실행 대상 블록입니다. 아래 버튼을 눌러 분석을 진행하세요.")
+                elif (status_badge == "⚪ 준비"
+                      and st.session_state.cot_session
+                      and idx == st.session_state.cot_current_index + 1):
+                    # 다음 실행 대상 블록: 바로 실행 가능한 버튼 표시
+                    _inline_running = st.session_state.get('cot_running_block') is not None
+                    if st.button(
+                        f"▶️ {idx}단계 분석 시작",
+                        key=f"run_inline_{block_id}",
+                        type="primary",
+                        disabled=_inline_running,
+                        use_container_width=True,
+                    ):
+                        st.session_state["_inline_run_triggered"] = True
 
     if st.session_state.cot_session and st.session_state.cot_current_index < len(st.session_state.cot_plan):
         # 인덱스 유효성 검증 및 자동 조정
@@ -3475,7 +3483,8 @@ with tab_run:
             st.info(f"{next_block_name} 블록을 건너뛰었습니다.")
             st.rerun()
 
-        if run_clicked:
+        inline_run = st.session_state.pop("_inline_run_triggered", False)
+        if run_clicked or inline_run:
             analyzer = get_cot_analyzer()
             if analyzer is None:
                 st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
