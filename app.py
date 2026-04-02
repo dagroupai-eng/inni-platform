@@ -165,6 +165,17 @@ def show_main_app():
             try:
                 from auth.session_init import restore_analysis_progress, apply_restored_progress, reset_analysis_state_selective
 
+                # pending_restore 세팅: 1시간 이내 분석 데이터가 있고 현재 세션에 없을 때
+                if 'pending_restore' not in st.session_state:
+                    _has_current = bool(
+                        st.session_state.get('cot_results') or
+                        st.session_state.get('analysis_results')
+                    )
+                    if not _has_current:
+                        _restored = restore_analysis_progress()
+                        if _restored:
+                            st.session_state['pending_restore'] = _restored
+
                 # 복원 대기 중인 상태가 있으면 알림 표시
                 if 'pending_restore' in st.session_state and st.session_state.pending_restore:
                     restored_progress = st.session_state.pending_restore

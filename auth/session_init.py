@@ -118,20 +118,15 @@ def restore_work_session():
         del st.session_state['page_just_reset']
         return
 
-    # 복원 키가 있어도, 실제 데이터가 없으면 다시 복원
+    # current_project_id가 있으면 복원 완료 상태로 간주 (재복원 금지)
+    # 주의: has_data로 판단하면 {}(빈 dict) falsy 때문에 저장 직후 rerun 시 오복원 발생
     if restore_key in st.session_state:
-        has_data = any([
-            st.session_state.get('project_name'),
-            st.session_state.get('location'),
-            st.session_state.get('analysis_results'),
-            st.session_state.get('cot_results')
-        ])
-        if has_data:
-            print(f"[복원] 이미 복원됨 (데이터 확인 완료), 스킵: {page_name}")
+        if st.session_state.get('current_project_id'):
+            print(f"[복원] 이미 복원됨 (project_id 확인), 스킵: {page_name}")
             return
-        else:
-            print(f"[복원] 복원 키 존재하지만 데이터 없음, 재복원: {page_name}")
-            del st.session_state[restore_key]
+        # project_id도 없으면 재복원 시도 (예: 브라우저 완전 새로고침 직후)
+        print(f"[복원] project_id 없음, 재복원 시도: {page_name}")
+        del st.session_state[restore_key]
 
     # 복원 시작 - 플래그 설정
     st.session_state[restoring_key] = True
@@ -152,7 +147,24 @@ def restore_work_session():
 
         if project_id:
             session_data = load_project_session(user_id, project_id)
-        # project_id 없을 때만 전체 최신으로 폴백 (새 프로젝트로 이동 시 이전 데이터 복원 방지)
+        else:
+            # project_id 없을 때 (브라우저 탭 닫고 재오픈 등): 가장 최근 세션으로 폴백
+            try:
+                from database.db_manager import execute_query as _eq
+                import json as _json
+                _rows = _eq(
+                    "SELECT project_id, session_data FROM analysis_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+                    (user_id,)
+                )
+                if _rows:
+                    _pid_fb = _rows[0]["project_id"]
+                    _raw_fb = _rows[0]["session_data"]
+                    session_data = _json.loads(_raw_fb) if isinstance(_raw_fb, str) else _raw_fb
+                    if _pid_fb:
+                        st.session_state['current_project_id'] = _pid_fb
+                        print(f"[복원] project_id 폴백 복원: {_pid_fb}")
+            except Exception as _fb_err:
+                print(f"[복원] 폴백 복원 오류: {_fb_err}")
 
         if session_data:
             print(f"[복원] DB에서 데이터 로드 완료: {len(session_data)}개 키")
