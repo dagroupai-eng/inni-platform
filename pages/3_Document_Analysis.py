@@ -2523,8 +2523,12 @@ with tab_blocks:
                 with col1:
                     block_name = block.get('name', '이름 없음')
 
+                    # 관리자 예시 블록 태그
+                    if block.get('_is_admin_block'):
+                        if not block_name.startswith('[예시]'):
+                            block_name = f"[예시] {block_name}"
                     # 사용자 블록에 [개인]/[팀] 태그 추가
-                    if is_custom_block or block.get('_db_id'):
+                    elif is_custom_block or block.get('_db_id'):
                         visibility = block.get('_visibility', block.get('visibility', ''))
                         if visibility in ['personal', 'PERSONAL']:
                             if not block_name.startswith('[개인]'):
@@ -2575,15 +2579,18 @@ with tab_blocks:
             block = block_lookup.get(block_id)
             block_name = block.get('name', '알 수 없음') if block else "알 수 없음"
 
-            # 사용자 블록에 [개인]/[팀] 태그 추가
+            # 블록 태그 추가
             if block:
-                is_custom = block.get('created_by') == 'user' or str(block_id).startswith('custom_') or block.get('_db_id')
-                if is_custom:
-                    visibility = block.get('_visibility', block.get('visibility', ''))
-                    if visibility in ['personal', 'PERSONAL'] and not block_name.startswith('[개인]'):
-                        block_name = f"[개인] {block_name}"
-                    elif visibility in ['team', 'TEAM'] and not block_name.startswith('[팀]'):
-                        block_name = f"[팀] {block_name}"
+                if block.get('_is_admin_block') and not block_name.startswith('[예시]'):
+                    block_name = f"[예시] {block_name}"
+                else:
+                    is_custom = block.get('created_by') == 'user' or str(block_id).startswith('custom_') or block.get('_db_id')
+                    if is_custom:
+                        visibility = block.get('_visibility', block.get('visibility', ''))
+                        if visibility in ['personal', 'PERSONAL'] and not block_name.startswith('[개인]'):
+                            block_name = f"[개인] {block_name}"
+                        elif visibility in ['team', 'TEAM'] and not block_name.startswith('[팀]'):
+                            block_name = f"[팀] {block_name}"
 
             block_description = block.get('description', '') if block else ""
             block_category = resolve_block_category(block) if block else "기타"

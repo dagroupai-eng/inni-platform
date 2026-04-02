@@ -346,8 +346,32 @@ def get_accessible_blocks(user_id: int, team_id: Optional[int] = None) -> List[D
         except Exception as e:
             print(f"[BlockManager] 팀 블록 조회 오류: {e}")
 
-    # 중복 제거하며 병합
-    all_blocks = own_blocks + public_blocks + team_blocks
+    # 관리자(role='admin') 블록: 본인이 아닌 관리자가 만든 블록은 모든 유저에게 공개
+    admin_blocks = []
+    try:
+        from database.supabase_client import get_supabase_client
+        _supabase = get_supabase_client()
+        # 1단계: admin 유저 ID 목록 (본인 제외)
+        admin_res = _supabase.table('users').select('id').eq('role', 'admin').execute()
+        admin_ids = [u['id'] for u in (admin_res.data or []) if u['id'] != user_id]
+        # 2단계: 해당 admin들의 블록 전부 가져오기
+        for admin_id in admin_ids:
+            a_res = _supabase.table('blocks').select('*').eq('owner_id', admin_id).execute()
+            for row in (a_res.data or []):
+                block = dict(row)
+                block['_is_admin_block'] = True
+                try:
+                    block["block_data"] = json.loads(block["block_data"]) if isinstance(block["block_data"], str) else block["block_data"]
+                    _swt = block.get("shared_with_teams")
+                    block["shared_with_teams"] = _swt if isinstance(_swt, list) else (json.loads(_swt) if isinstance(_swt, str) and _swt else [])
+                except json.JSONDecodeError:
+                    pass
+                admin_blocks.append(block)
+    except Exception as e:
+        print(f"[BlockManager] 관리자 블록 조회 오류: {e}")
+
+    # 중복 제거하며 병합 (admin 블록을 맨 앞에 배치)
+    all_blocks = admin_blocks + own_blocks + public_blocks + team_blocks
     seen_ids = set()
     unique_blocks = []
     for block in all_blocks:

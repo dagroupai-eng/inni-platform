@@ -125,6 +125,7 @@ def load_blocks(include_user_blocks: bool = True) -> List[Dict[str, Any]]:
                         block_data["_db_id"] = db_block.get("id")
                         block_data["_owner_id"] = db_block.get("owner_id")
                         block_data["_visibility"] = db_block.get("visibility")
+                        block_data["_is_admin_block"] = db_block.get("_is_admin_block", False)
                         blocks.append(block_data)
         except ImportError:
             pass  # 인증 모듈이 없으면 시스템 블록만 사용
