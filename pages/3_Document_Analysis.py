@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import re
 import json
+import time
 import hashlib
 from typing import Optional, Dict, List, Any, Tuple
 from collections import Counter
@@ -3198,7 +3199,16 @@ with tab_run:
         # 멈춤 처리
         if stop_clicked:
             st.session_state.cot_running_block = None
-            st.warning(f"{next_block_name} 블록 분석을 중단했습니다. 페이지를 새로고침합니다.")
+            st.session_state['_queue_waiting'] = False
+            # 대기열에서 제거
+            try:
+                from database.queue_manager import exit_queue
+                _stop_uid = st.session_state.get('user_id')
+                if _stop_uid:
+                    exit_queue(_stop_uid)
+            except Exception as _sq_err:
+                print(f"[Queue] stop exit_queue 오류: {_sq_err}")
+            st.warning(f"{next_block_name} 블록 분析을 중단했습니다. 페이지를 새로고침합니다.")
             # analysis_runs 취소 처리
             _run_id = st.session_state.get("current_analysis_run_id")
             if _run_id and not st.session_state.get(f"_run_finalized_{_run_id}"):
@@ -3247,139 +3257,187 @@ with tab_run:
             st.info(f"{next_block_name} 블록을 건너뛰었습니다.")
             st.rerun()
 
-        if run_clicked:
-            analyzer = get_cot_analyzer()
-            if analyzer is None:
-                st.error("분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.")
-                st.stop()
-            progress_placeholder = st.empty()
-            st.session_state.cot_running_block = next_block_id
-            # analysis_steps 상태 업데이트(있으면)
+        queue_waiting = st.session_state.get('_queue_waiting', False)
+        if run_clicked or queue_waiting:
+            _q_uid = st.session_state.get('user_id')
+            _q_pid = st.session_state.get('current_project_id')
+
+            # 최초 버튼 클릭 시만 대기열 진입 (queue_waiting 재진입 시는 스킵)
+            if run_clicked and not queue_waiting:
+                try:
+                    from database.queue_manager import enter_queue
+                    if _q_uid:
+                        enter_queue(_q_uid, _q_pid)
+                except Exception as _qe:
+                    print(f'[Queue] enter_queue 오류: {_qe}')
+
+            # 내 차례 확인
+            _can_go = True
             try:
-                from database.analysis_steps_manager import set_step_status, save_step_payloads
-                step_map = st.session_state.get("analysis_step_id_map", {}) or {}
-                sid = step_map.get(next_block_id)
-                if sid:
-                    set_step_status(sid, "running")
-                    _inputs = {
-                        "feedback": st.session_state.get("cot_feedback_inputs", {}).get(next_block_id, ""),
-                        "spatial_layers": st.session_state.get("block_spatial_selection", {}).get(next_block_id, []),
-                    }
-                    save_step_payloads(sid, inputs=_inputs, outputs=None)
-            except Exception as _run_db_err:
-                print(f"[AnalysisSteps] running 업데이트 실패: {_run_db_err}")
+                from database.queue_manager import can_process, get_queue_info, start_processing, exit_queue as _q_exit
+                if _q_uid:
+                    _can_go = can_process(_q_uid)
+            except Exception as _qe:
+                print(f'[Queue] can_process 오류: {_qe}')
 
-            def step_progress(message: str) -> None:
-                st.session_state.cot_progress_messages.append(message)
-                if len(st.session_state.cot_progress_messages) > 50:
-                    st.session_state.cot_progress_messages = st.session_state.cot_progress_messages[-50:]
-                progress_placeholder.info(message)
-
-            # 사용자 피드백
-            user_feedback = st.session_state.cot_feedback_inputs.get(next_block_id, "").strip()
-            combined_feedback = user_feedback or None
-
-            # 블록별 RAG 컨텍스트 주입
-            doc_rag_system = st.session_state.get('doc_rag_system')
-            if doc_rag_system and next_block:
+            if not _can_go:
+                # 대기 중 → 3초 후 자동 재확인
                 try:
-                    from rag_helper import get_block_relevant_context
-                    block_context = get_block_relevant_context(next_block, doc_rag_system, top_k=8)
-                    if block_context:
-                        # 원본 전체 텍스트는 보존하고 블록 전용 컨텍스트를 주입
-                        original_file_text = st.session_state.cot_session["project_info"].get("file_text", "")
-                        st.session_state.cot_session["project_info"]["_original_file_text"] = original_file_text
-                        st.session_state.cot_session["project_info"]["file_text"] = block_context
-                        print(f"[RAG] {next_block_id}: 블록 컨텍스트 주입 ({len(block_context)}자 / 전체 {len(original_file_text)}자)")
-                except Exception as _rag_inject_err:
-                    print(f"[RAG] 컨텍스트 주입 실패 (전체 문서로 폴백): {_rag_inject_err}")
-
-            try:
-                with st.spinner("분석 실행 중..."):
-                    step_result = analyzer.run_cot_step(
-                        next_block_id,
-                        next_block,
-                        st.session_state.cot_session,
-                        progress_callback=step_progress,
-                        step_index=st.session_state.cot_current_index + 1,
-                        feedback=combined_feedback
-                    )
-            finally:
-                st.session_state.cot_running_block = None
-                # 블록별 컨텍스트 주입 후 원본 텍스트 복원
-                if st.session_state.cot_session and "project_info" in st.session_state.cot_session:
-                    original = st.session_state.cot_session["project_info"].pop("_original_file_text", None)
-                    if original is not None:
-                        st.session_state.cot_session["project_info"]["file_text"] = original
-
-            if step_result.get('success'):
-                st.session_state.cot_session = step_result['cot_session']
-                st.session_state.cot_results[next_block_id] = step_result['analysis']
-                analysis_result = step_result['analysis']
-                st.session_state.analysis_results[next_block_id] = analysis_result
-
-                # Citations 저장
-                if step_result.get('all_citations'):
-                    st.session_state.cot_citations[next_block_id] = step_result['all_citations']
-
-                # Phase 3: 출처 검증
-                _run_rag = st.session_state.get('doc_rag_system')
-                if _run_rag and analysis_result:
-                    try:
-                        from rag_helper import verify_analysis
-                        _verifications = verify_analysis(analysis_result, _run_rag, max_claims=6)
-                        if _verifications:
-                            st.session_state.cot_verifications[next_block_id] = _verifications
-                    except Exception as _ver_err:
-                        print(f"[Verify] 출처 검증 실패: {_ver_err}")
-
-                # analysis_steps 출력 저장(있으면)
-                try:
-                    from database.analysis_steps_manager import set_step_status, save_step_payloads
-                    step_map = st.session_state.get("analysis_step_id_map", {}) or {}
-                    sid = step_map.get(next_block_id)
-                    if sid:
-                        outp = {
-                            "analysis": analysis_result,
-                            "citations": st.session_state.get("cot_citations", {}).get(next_block_id),
-                            "verifications": st.session_state.get("cot_verifications", {}).get(next_block_id),
-                        }
-                        save_step_payloads(sid, inputs=None, outputs=outp)
-                        set_step_status(sid, "completed")
-                except Exception as _save_step_err:
-                    print(f"[AnalysisSteps] step 저장 실패: {_save_step_err}")
-
-                # 자동 저장
-                project_info = {
-                    "project_name": st.session_state.get('project_name', ''),
-                    "location": st.session_state.get('location', '')
-                }
-                save_analysis_result(next_block_id, analysis_result, project_info)
-
-                st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
-                st.session_state.cot_current_index += 1
-
-                # 분석 진행 상태 실시간 저장
-                try:
-                    from auth.session_init import save_analysis_progress, save_work_session
-                    save_analysis_progress(force=True)  # 즉시 저장
-                    save_work_session()
-                except Exception as e:
-                    print(f"세션 저장 오류: {e}")
-
-                st.success(f"{next_block_name} 블록 분석이 완료되었습니다.")
+                    _q_info = get_queue_info(_q_uid) if _q_uid else {}
+                except Exception:
+                    _q_info = {}
+                _q_pos = _q_info.get('position', '?')
+                st.session_state['_queue_waiting'] = True
+                st.warning(f'⏳ 다른 사용자가 분析 중입니다. 현재 **{_q_pos}번째 대기 중**입니다. 잠시 후 자동 재확인합니다...')
+                time.sleep(3)
                 st.rerun()
             else:
-                # 실패 상태 저장(있으면)
+                # 내 차례 → processing 전환 후 분析 실행
+                st.session_state['_queue_waiting'] = False
                 try:
-                    from database.analysis_steps_manager import set_step_status
-                    step_map = st.session_state.get("analysis_step_id_map", {}) or {}
+                    if _q_uid:
+                        start_processing(_q_uid)
+                except Exception as _qe:
+                    print(f'[Queue] start_processing 오류: {_qe}')
+
+                analyzer = get_cot_analyzer()
+                if analyzer is None:
+                    st.error('분析기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.')
+                    st.stop()
+                progress_placeholder = st.empty()
+                st.session_state.cot_running_block = next_block_id
+                # analysis_steps 상태 업데이트(있으면)
+                try:
+                    from database.analysis_steps_manager import set_step_status, save_step_payloads
+                    step_map = st.session_state.get('analysis_step_id_map', {}) or {}
                     sid = step_map.get(next_block_id)
                     if sid:
-                        set_step_status(sid, "failed", error=str(step_result.get("error", ""))[:800])
-                except Exception as _fail_step_err:
-                    print(f"[AnalysisSteps] failed 업데이트 실패: {_fail_step_err}")
-                st.error(f"{next_block_name} 블록 분석 실패: {step_result.get('error', '알 수 없는 오류')}")
+                        set_step_status(sid, 'running')
+                        _inputs = {
+                            'feedback': st.session_state.get('cot_feedback_inputs', {}).get(next_block_id, ''),
+                            'spatial_layers': st.session_state.get('block_spatial_selection', {}).get(next_block_id, []),
+                        }
+                        save_step_payloads(sid, inputs=_inputs, outputs=None)
+                except Exception as _run_db_err:
+                    print(f'[AnalysisSteps] running 업데이트 실패: {_run_db_err}')
+
+                def step_progress(message: str) -> None:
+                    st.session_state.cot_progress_messages.append(message)
+                    if len(st.session_state.cot_progress_messages) > 50:
+                        st.session_state.cot_progress_messages = st.session_state.cot_progress_messages[-50:]
+                    progress_placeholder.info(message)
+
+                # 사용자 피드백
+                user_feedback = st.session_state.cot_feedback_inputs.get(next_block_id, '').strip()
+                combined_feedback = user_feedback or None
+
+                # 블록별 RAG 컨텍스트 주입
+                doc_rag_system = st.session_state.get('doc_rag_system')
+                if doc_rag_system and next_block:
+                    try:
+                        from rag_helper import get_block_relevant_context
+                        block_context = get_block_relevant_context(next_block, doc_rag_system, top_k=8)
+                        if block_context:
+                            # 원본 전체 텍스트는 보존하고 블록 전용 컨텍스트를 주입
+                            original_file_text = st.session_state.cot_session['project_info'].get('file_text', '')
+                            st.session_state.cot_session['project_info']['_original_file_text'] = original_file_text
+                            st.session_state.cot_session['project_info']['file_text'] = block_context
+                            print(f'[RAG] {next_block_id}: 블록 컨텍스트 주입 ({len(block_context)}자 / 전체 {len(original_file_text)}자)')
+                    except Exception as _rag_inject_err:
+                        print(f'[RAG] 컨텍스트 주입 실패 (전체 문서로 폴백): {_rag_inject_err}')
+
+                try:
+                    with st.spinner('분析 실행 중...'):
+                        step_result = analyzer.run_cot_step(
+                            next_block_id,
+                            next_block,
+                            st.session_state.cot_session,
+                            progress_callback=step_progress,
+                            step_index=st.session_state.cot_current_index + 1,
+                            feedback=combined_feedback
+                        )
+                finally:
+                    st.session_state.cot_running_block = None
+                    # 대기열에서 제거 (완료/중단/오류 모두)
+                    try:
+                        if _q_uid:
+                            _q_exit(_q_uid)
+                    except Exception as _qe:
+                        print(f'[Queue] exit_queue 오류: {_qe}')
+                    # 블록별 컨텍스트 주입 후 원본 텍스트 복원
+                    if st.session_state.cot_session and 'project_info' in st.session_state.cot_session:
+                        original = st.session_state.cot_session['project_info'].pop('_original_file_text', None)
+                        if original is not None:
+                            st.session_state.cot_session['project_info']['file_text'] = original
+
+                if step_result.get('success'):
+                    st.session_state.cot_session = step_result['cot_session']
+                    st.session_state.cot_results[next_block_id] = step_result['analysis']
+                    analysis_result = step_result['analysis']
+                    st.session_state.analysis_results[next_block_id] = analysis_result
+
+                    # Citations 저장
+                    if step_result.get('all_citations'):
+                        st.session_state.cot_citations[next_block_id] = step_result['all_citations']
+
+                    # Phase 3: 출처 검증
+                    _run_rag = st.session_state.get('doc_rag_system')
+                    if _run_rag and analysis_result:
+                        try:
+                            from rag_helper import verify_analysis
+                            _verifications = verify_analysis(analysis_result, _run_rag, max_claims=6)
+                            if _verifications:
+                                st.session_state.cot_verifications[next_block_id] = _verifications
+                        except Exception as _ver_err:
+                            print(f'[Verify] 출처 검증 실패: {_ver_err}')
+
+                    # analysis_steps 출력 저장(있으면)
+                    try:
+                        from database.analysis_steps_manager import set_step_status, save_step_payloads
+                        step_map = st.session_state.get('analysis_step_id_map', {}) or {}
+                        sid = step_map.get(next_block_id)
+                        if sid:
+                            outp = {
+                                'analysis': analysis_result,
+                                'citations': st.session_state.get('cot_citations', {}).get(next_block_id),
+                                'verifications': st.session_state.get('cot_verifications', {}).get(next_block_id),
+                            }
+                            save_step_payloads(sid, inputs=None, outputs=outp)
+                            set_step_status(sid, 'completed')
+                    except Exception as _save_step_err:
+                        print(f'[AnalysisSteps] step 저장 실패: {_save_step_err}')
+
+                    # 자동 저장
+                    project_info = {
+                        'project_name': st.session_state.get('project_name', ''),
+                        'location': st.session_state.get('location', '')
+                    }
+                    save_analysis_result(next_block_id, analysis_result, project_info)
+
+                    st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
+                    st.session_state.cot_current_index += 1
+
+                    # 분析 진행 상태 실시간 저장
+                    try:
+                        from auth.session_init import save_analysis_progress, save_work_session
+                        save_analysis_progress(force=True)  # 즉시 저장
+                        save_work_session()
+                    except Exception as e:
+                        print(f'세션 저장 오류: {e}')
+
+                    st.success(f'{next_block_name} 블록 분析이 완료되었습니다.')
+                    st.rerun()
+                else:
+                    # 실패 상태 저장(있으면)
+                    try:
+                        from database.analysis_steps_manager import set_step_status
+                        step_map = st.session_state.get('analysis_step_id_map', {}) or {}
+                        sid = step_map.get(next_block_id)
+                        if sid:
+                            set_step_status(sid, 'failed', error=str(step_result.get('error', ''))[:800])
+                    except Exception as _fail_step_err:
+                        print(f'[AnalysisSteps] failed 업데이트 실패: {_fail_step_err}')
+                    st.error(f'{next_block_name} 블록 분析 실패: {step_result.get("error", "알 수 없는 오류")}')
 
     if not active_plan:
         st.info("분석 세션을 준비하면 단계별 진행 정보를 확인할 수 있습니다.")

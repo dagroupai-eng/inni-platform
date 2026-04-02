@@ -22,19 +22,8 @@
   - 기존 기능은 `analysis_sessions` UPSERT로 통합 (`auth/session_init.py`)
   - `analysis_sessions`에 UNIQUE(user_id, project_id) 제약 추가 완료
 
-- [ ] **2-3. analysis_queue 테이블 생성** (Queue 시스템 구현 전 필수)
-  - Supabase SQL Editor에서 아래 실행:
-  ```sql
-  CREATE TABLE analysis_queue (
-    id SERIAL PRIMARY KEY,
-    user_id INT NOT NULL UNIQUE,
-    project_id INT,
-    status TEXT NOT NULL DEFAULT 'waiting',
-    position INT,
-    entered_at TIMESTAMPTZ DEFAULT NOW(),
-    started_at TIMESTAMPTZ
-  );
-  ```
+- [x] **2-3. analysis_queue 테이블 생성** ✅
+  - Supabase에서 `[]` 응답 확인 → 테이블 존재, 빈 상태 정상
 
 ---
 
@@ -63,17 +52,17 @@
 
 | # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
 |---|------|-----------|------------|------|
-| B-1 | 프로젝트 생성/조회 | `auth/project_manager.py` | `projects` | [x] 1개 프로젝트 확인 (location은 아직 미설정) |
-| B-2 | 작업 세션 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [x] UPSERT 구조 전환 완료 — pdf_text/preprocessed_text/reference_combined_text 저장 제외 (대역폭 절감) |
-| B-3 | 분석 진행 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [ ] **재확인 필요** — analysis_progress 테이블 삭제로 analysis_sessions로 전환됨. 복원 배너 동작 확인 필요 |
+| B-1 | 프로젝트 생성/조회 | `auth/project_manager.py` | `projects` | [x] projects 2개 확인. ~~status에 타임스탬프 저장 버그~~ → Supabase 직접 수정 완료 (in_progress) |
+| B-2 | 작업 세션 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [x] analysis_sessions 2행(project=6,7) UPSERT 정상 |
+| B-3 | 분析 진행 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [x] 분析 실행 → session 저장 → 재접속 복원 동작 확인 완료 |
 
 ### C. 파일 업로드 / Storage
 
 | # | 기능 | 관련 파일 | 연동 | 확인 |
 |---|------|-----------|------|------|
-| C-1 | 파일 업로드 | `auth/file_storage.py` | Storage `project-files` 버킷 | [ ] 실 업로드 후 확인 필요 |
-| C-2 | 파일 다운로드 | `auth/file_storage.py` | Storage `project-files` 버킷 | [ ] |
-| C-3 | 파일 삭제 (DB+Storage 동시) | `auth/file_storage.py` | `project_files` 테이블 + Storage | [ ] |
+| C-1 | 파일 업로드 | `auth/file_storage.py` | Storage `project-files` 버킷 | [제외] 버킷 존재 확인(private). 실 테스트 생략 결정 |
+| C-2 | 파일 다운로드 | `auth/file_storage.py` | Storage `project-files` 버킷 | [제외] |
+| C-3 | 파일 삭제 (DB+Storage 동시) | `auth/file_storage.py` | `project_files` 테이블 + Storage | [제외] |
 
 ### D. 블록 생성
 
@@ -87,24 +76,24 @@
 
 | # | 기능 | 관련 파일 | 연동 | 확인 |
 |---|------|-----------|------|------|
-| E-1 | 필지 클릭 → 폴리곤 표시 | `pages/2_Mapping.py` | VWorld WFS API (DB 없음) | [ ] |
+| E-1 | 필지 클릭 → 폴리곤 표시 | `pages/2_Mapping.py` | VWorld WFS API (DB 없음) | [x] 서버 IP 등록 후 정상 동작 확인 |
 | E-2 | 필지 선택 → projects.location 저장 | `pages/2_Mapping.py` | `projects` 테이블 | [x] Supabase projects 테이블에 location 저장 확인 |
 
 ### F. 문서 분석
 
 | # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
 |---|------|-----------|------------|------|
-| F-1 | PDF/DOCX 업로드 → 텍스트 추출 | `file_analyzer.py` | (로컬 처리) | [ ] |
-| F-2 | 분석 세션 준비 | `pages/3_Document_Analysis.py` | `analysis_runs`, `analysis_steps` | [x] analysis_runs 1행(project_id=6, status=completed) 확인 |
-| F-3 | 블록별 분석 실행 → step 상태 업데이트 | `database/analysis_steps_manager.py` | `analysis_steps` | [x] analysis_steps 2행(step_id=1,2, status=completed, started_at/finished_at 기록) 확인 |
-| F-4 | 분석 완료 → run finalize | `database/analysis_steps_manager.py` | `analysis_runs.finished_at` | [x] finished_at 값 정상 기록 확인 |
+| F-1 | PDF/DOCX 업로드 → 텍스트 추출 | `file_analyzer.py` | (로컬 처리) | [x] 파일 업로드 후 분析 실행 확인 완료 |
+| F-2 | 분析 세션 준비 | `pages/3_Document_Analysis.py` | `analysis_runs`, `analysis_steps` | [x] analysis_runs 총 6행(completed×5, cancelled×1) 확인 |
+| F-3 | 블록별 분析 실행 → step 상태 업데이트 | `database/analysis_steps_manager.py` | `analysis_steps` | [x] started_at/finished_at 정상. run id=5 stuck→cancelled 처리 완료 |
+| F-4 | 분析 완료 → run finalize | `database/analysis_steps_manager.py` | `analysis_runs.finished_at` | [x] run id=6 completed, finished_at=2026-04-02T04:39:57 정상 |
 
 ### G. 관리자
 
 | # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
 |---|------|-----------|------------|------|
 | G-1 | 사용자 목록 조회 | `pages/6_Admin.py` | `users`, `teams` | [x] users 24명, teams 6개 정상 |
-| G-2 | 사용자 생성/수정/삭제 | `pages/6_Admin.py` | `users` | [ ] 실 동작 확인 필요 |
+| G-2 | 사용자 생성/수정/삭제 | `pages/6_Admin.py` | `users` | [x] 실 동작 확인 완료 |
 
 ---
 
@@ -202,14 +191,14 @@
 - `analysis_progress` 테이블 삭제 후 `analysis_sessions`로 전환됨
 - 확인 방법: 분석 세션 준비 → 중간 이탈 → 재접속 시 복원 배너 뜨는지 (사이드바 "세션 관리")
 - `restore_analysis_progress()`가 `analysis_sessions`에서 1시간 이내 데이터를 올바르게 읽는지 확인
-- [ ] 확인 완료
+- [x] 확인 완료
 
 ### ② 페이지 초기화 버그 수정 확인
 - 분석 진행 → "현재 작업 저장" → "페이지 초기화" → 프로젝트 "열기"
 - 기대 동작:
   - 초기화 후 프로젝트가 선택 해제되어 있는지 확인 (Bug B)
   - "열기" 후 최신 분석 결과가 복원되는지 확인 (Bug A)
-- [ ] 확인 완료
+- [x] 확인 완료
 
 ### ③ F-2 → F-3 → F-4: 분석 실행 1회 end-to-end 확인
 - 실제 PDF/DOCX 파일로 분석 1회 완전히 돌린 후 Supabase에서 직접 확인:
@@ -219,13 +208,13 @@
   1. Supabase Dashboard → 좌측 Table Editor
   2. `analysis_runs` 테이블 선택 → 최신 행의 `finished_at` 컬럼에 값이 있는지 확인
   3. `analysis_steps` 테이블 선택 → 해당 `run_id`로 필터 → 각 행의 `status` / `started_at` / `finished_at` 확인
-- [ ] 확인 완료
+- [x] 확인 완료
 
 ---
 
 ## 배포 마무리
 
-- [ ] **8. 기능 테스트** → 위 Supabase 연동 기능별 확인 표 참고 (B-3, C-1~C-3, E-1, F-1, G-2 미확인)
+- [x] **8. 기능 테스트** ✅ — 전 항목 확인 완료 (C-1~C-3 파일 Storage 테스트 제외 결정)
 
 - [ ] **9. 0119 브랜치 정리**
   - master로 머지 완료됐으므로 0119 브랜치 삭제 여부 결정
