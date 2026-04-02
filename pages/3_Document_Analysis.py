@@ -2178,29 +2178,31 @@ with tab_project:
     if st.session_state.get("_map_parcel_loaded") and st.session_state.get("location"):
         st.caption("📍 지도(필지 선택) 페이지에서 선택한 필지 주소가 자동으로 입력되었습니다.")
 
+    # key= 만 사용 (value= 와 key= 동시 사용 시 rerun에서 session_state 덮어쓰기 버그 발생)
+    # session_state 초기값이 없으면 빈 문자열로 미리 세팅
+    for _fk in ("project_name", "location", "project_goals", "additional_info"):
+        if _fk not in st.session_state:
+            st.session_state[_fk] = ""
+
     with st.form("project_info_form"):
         st.text_input(
             "프로젝트명",
-            value=st.session_state.get("project_name", ""),
             placeholder="예: 삼척 스포츠아카데미",
             key="project_name"
         )
         st.text_input(
             "위치/지역",
-            value=st.session_state.get("location", ""),
             placeholder="예: 강원도 삼척시 도계읍 일대 (또는 지도 페이지에서 필지 선택 시 자동 입력)",
             key="location"
         )
         st.text_area(
             "프로젝트 목표",
-            value=st.session_state.get("project_goals", ""),
             placeholder="예: 국제 스포츠 아카데미 조성, 지역 경제 활성화, 교육·훈련 통합 프로그램 구축 등",
             height=80,
             key="project_goals"
         )
         st.text_area(
             "추가 정보",
-            value=st.session_state.get("additional_info", ""),
             placeholder="특별한 제약조건이나 참고 사항이 있다면 입력하세요.",
             height=80,
             key="additional_info"
@@ -2236,12 +2238,23 @@ with tab_project:
     if not _has_file_text and _has_analysis:
         st.info("분석을 진행하려면 파일을 다시 업로드해주세요. (파일 텍스트는 대역폭 절감을 위해 저장되지 않습니다)")
 
-    uploaded_file = st.file_uploader(
-        "파일을 업로드하세요",
-        type=['pdf', 'docx', 'xlsx', 'xls', 'csv', 'txt', 'json', 'png', 'jpg', 'jpeg', 'webp'],
-        help="도시 프로젝트 관련 문서를 업로드하세요 (PDF, Word, Excel, CSV, 텍스트, JSON 지원)"
-    )
-    
+    _MAX_FILES = 5
+    if '_processed_file_hashes' not in st.session_state:
+        st.session_state['_processed_file_hashes'] = []
+
+    _processed_count = len(st.session_state['_processed_file_hashes'])
+
+    if _processed_count >= _MAX_FILES:
+        st.warning(f"이번 세션에서 최대 {_MAX_FILES}개 파일까지 분석할 수 있습니다. (현재 {_processed_count}개 완료)")
+        uploaded_file = None
+    else:
+        st.caption(f"파일 분석 {_processed_count}/{_MAX_FILES}개 사용")
+        uploaded_file = st.file_uploader(
+            "파일을 업로드하세요",
+            type=['pdf', 'docx', 'xlsx', 'xls', 'png', 'jpg', 'jpeg', 'webp'],
+            help="도시 프로젝트 관련 문서를 업로드하세요 (PDF, Word, Excel 지원)"
+        )
+
     if uploaded_file is not None:
         st.success(f"파일 업로드 완료: {uploaded_file.name}")
 
@@ -2307,13 +2320,13 @@ with tab_project:
                             else:
                                 client = genai.Client(api_key=api_key)
                                 prompt = (
-                                    "이 이미지를 '도시/건축 프로젝트 분析' 관점에서 읽고, "
+                                    "이 이미지를 '도시/건축 프로젝트 분석' 관점에서 읽고, "
                                     "보이는 핵심 요소(텍스트/도면/표/지도/다이어그램)를 구조화해 한국어로 요약해줘.\n\n"
                                     "출력 형식:\n"
                                     "1) 한줄 요약\n"
                                     "2) 관찰된 요소(불릿)\n"
                                     "3) 이미지 내 텍스트(OCR 느낌으로 최대한)\n"
-                                    "4) 분析에 유용한 키워드(10개)\n"
+                                    "4) 분석에 유용한 키워드(10개)\n"
                                 )
                                 with st.spinner("🖼️ 이미지 내용 읽는 중(Gemini Vision)..."):
                                     resp = client.models.generate_content(
@@ -2349,9 +2362,9 @@ with tab_project:
                             st.error(f"이미지 읽기 실패: {_img_err}")
 
                     else:
-                        # 메모리에서 직접 파일 분析 (임시 파일 생성 없음)
+                        # 메모리에서 직접 파일 분석 (임시 파일 생성 없음)
                         file_analyzer = UniversalFileAnalyzer()
-                        with st.spinner(f"{file_extension.upper()} 파일 분析 중..."):
+                        with st.spinner(f"{file_extension.upper()} 파일 분석 중..."):
                             analysis_result = file_analyzer.analyze_file_from_bytes(
                                 file_bytes,
                                 file_extension,
@@ -2359,12 +2372,12 @@ with tab_project:
                             )
 
                         if analysis_result['success']:
-                            st.success(f"{file_extension.upper()} 파일 분析 완료!")
+                            st.success(f"{file_extension.upper()} 파일 분석 완료!")
                             file_size_mb = len(file_bytes) / (1024 * 1024)
                             st.info(f"파일 정보: {file_size_mb:.2f}MB, {analysis_result['word_count']}단어, {analysis_result['char_count']}문자")
                             if analysis_result.get('truncated'):
                                 orig = analysis_result.get('original_char_count', 0)
-                                st.warning(f"파일이 너무 커서 앞부분 {analysis_result['char_count']:,}자만 분析에 사용됩니다. (원본: {orig:,}자)")
+                                st.warning(f"파일이 너무 커서 앞부분 {analysis_result['char_count']:,}자만 분석에 사용됩니다. (원본: {orig:,}자)")
                             if analysis_result['file_type'] == 'excel':
                                 st.info(f"Excel 시트: {', '.join(analysis_result['sheet_names'])} ({analysis_result['sheet_count']}개 시트)")
                             elif analysis_result['file_type'] == 'csv':
@@ -2429,7 +2442,7 @@ with tab_project:
 
                             _parse_ok = True
                         else:
-                            st.error(f"{file_extension.upper()} 파일 분析에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
+                            st.error(f"{file_extension.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
 
                 finally:
                     try:
@@ -2440,13 +2453,15 @@ with tab_project:
 
                 if _parse_ok:
                     st.session_state['_parsed_file_hash'] = file_hash
+                    if file_hash not in st.session_state['_processed_file_hashes']:
+                        st.session_state['_processed_file_hashes'].append(file_hash)
 
         else:
             # 이미 파싱된 파일 → 재파싱 스킵, UI만 표시
             _cached = st.session_state.get('file_analysis', {})
             if _cached.get('success'):
                 if _cached.get('file_type') == 'image':
-                    st.success("이미지 읽기 완료! 추출된 텍스트를 분析에 사용합니다.")
+                    st.success("이미지 읽기 완료! 추출된 텍스트를 분석에 사용합니다.")
                     with st.expander("이미지 읽기 결과(미리보기)"):
                         st.text(_cached.get('preview', ''))
                 else:
@@ -2455,9 +2470,9 @@ with tab_project:
                     with st.expander(f"{file_extension.upper()} 내용 미리보기"):
                         st.text(_cached.get('preview', ''))
 
-        # 파일 분析 완료 확인 버튼
+        # 파일 분석 완료 확인 버튼
         if st.session_state.get('pdf_uploaded') and st.session_state.get('_parsed_file_hash') == file_hash:
-            if st.button("✅ 파일 분析 완료 확인", use_container_width=True, type="primary", key="confirm_file_upload"):
+            if st.button("✅ 파일 분석 완료 확인", use_container_width=True, type="primary", key="confirm_file_upload"):
                 try:
                     from auth.project_manager import save_project_from_session
                     from auth.session_init import save_analysis_progress
@@ -2472,7 +2487,7 @@ with tab_project:
                     st.rerun()
                 except Exception as e:
                     st.warning(f"저장 중 오류: {e}")
-                    st.success("파일 분析이 확인되었습니다. '분析 블록 선택' 탭으로 이동하세요.")
+                    st.success("파일 분석이 확인되었습니다. '분석 블록 선택' 탭으로 이동하세요.")
 
     # 입력값 최신화
     project_name = st.session_state.get("project_name", "")
@@ -2545,12 +2560,14 @@ with tab_blocks:
                 
                 with col2:
                     is_selected = block_id in st.session_state['selected_blocks']
-                    # 카테고리와 인덱스를 포함하여 고유한 key 생성
                     unique_key = f"select_{category}_{block_idx}_{block_id}"
+                    # value= 제거: key= 와 동시 사용 시 double rerun → 탭 리셋 버그
+                    # 최초 렌더 시에만 selected_blocks 기준으로 초기값 세팅
+                    if unique_key not in st.session_state:
+                        st.session_state[unique_key] = is_selected
                     checkbox_value = st.checkbox(
                         "선택",
                         key=unique_key,
-                        value=is_selected
                     )
                     
                     if checkbox_value and not is_selected:
@@ -3267,7 +3284,7 @@ with tab_run:
         # 멈춤 처리
         if stop_clicked:
             st.session_state.cot_running_block = None
-            st.warning(f"{next_block_name} 블록 분析을 중단했습니다. 페이지를 새로고침합니다.")
+            st.warning(f"{next_block_name} 블록 분석을 중단했습니다. 페이지를 새로고침합니다.")
             # analysis_runs 취소 처리
             _run_id = st.session_state.get("current_analysis_run_id")
             if _run_id and not st.session_state.get(f"_run_finalized_{_run_id}"):
@@ -3319,7 +3336,7 @@ with tab_run:
         if run_clicked:
             analyzer = get_cot_analyzer()
             if analyzer is None:
-                st.error('분析기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.')
+                st.error('분석기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.')
                 st.stop()
             progress_placeholder = st.empty()
             st.session_state.cot_running_block = next_block_id
@@ -3364,7 +3381,7 @@ with tab_run:
                     print(f'[RAG] 컨텍스트 주입 실패 (전체 문서로 폴백): {_rag_inject_err}')
 
             try:
-                with st.spinner('분析 실행 중...'):
+                with st.spinner('분석 실행 중...'):
                     step_result = analyzer.run_cot_step(
                         next_block_id,
                         next_block,
@@ -3428,7 +3445,7 @@ with tab_run:
                 st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
                 st.session_state.cot_current_index += 1
 
-                # 분析 진행 상태 실시간 저장
+                # 분석 진행 상태 실시간 저장
                 try:
                     from auth.session_init import save_analysis_progress, save_work_session
                     save_analysis_progress(force=True)  # 즉시 저장
@@ -3436,7 +3453,7 @@ with tab_run:
                 except Exception as e:
                     print(f'세션 저장 오류: {e}')
 
-                st.success(f'{next_block_name} 블록 분析이 완료되었습니다.')
+                st.success(f'{next_block_name} 블록 분석이 완료되었습니다.')
                 st.rerun()
             else:
                 # 실패 상태 저장(있으면)
@@ -3448,7 +3465,7 @@ with tab_run:
                         set_step_status(sid, 'failed', error=str(step_result.get('error', ''))[:800])
                 except Exception as _fail_step_err:
                     print(f'[AnalysisSteps] failed 업데이트 실패: {_fail_step_err}')
-                st.error(f'{next_block_name} 블록 분析 실패: {step_result.get("error", "알 수 없는 오류")}')
+                st.error(f'{next_block_name} 블록 분석 실패: {step_result.get("error", "알 수 없는 오류")}')
 
     if not active_plan:
         st.info("분석 세션을 준비하면 단계별 진행 정보를 확인할 수 있습니다.")
@@ -3511,7 +3528,7 @@ with tab_run:
                                 if bid in st.session_state.get('cot_citations', {}):
                                     del st.session_state.cot_citations[bid]
                             # previous_results 정리: 재시작 블록부터의 누적 컨텍스트 제거
-                            # (이전 분석 결과가 재분析에 영향을 주지 않도록)
+                            # (이전 분석 결과가 재분석에 영향을 주지 않도록)
                             if st.session_state.cot_session and isinstance(
                                 st.session_state.cot_session.get('previous_results'), dict
                             ):
