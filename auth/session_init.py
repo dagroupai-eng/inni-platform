@@ -169,7 +169,6 @@ def restore_work_session():
         if session_data:
             print(f"[복원] DB에서 데이터 로드 완료: {len(session_data)}개 키")
 
-            # 프로젝트 정보는 빈 값이어도 덮어쓰기 (복원 우선)
             # pdf_text, preprocessed_text는 저장하지 않으므로 복원 목록에서도 제외
             project_info_keys = [
                 'project_name', 'location', 'latitude', 'longitude',
@@ -177,6 +176,8 @@ def restore_work_session():
                 'file_analysis', 'file_storage_path', 'document_summary',
                 'site_fields', 'downloaded_geo_data',
             ]
+            # 빈 문자열 복원 금지 키: DB에 "" 저장된 경우 session_state를 덮어쓰지 않음
+            _no_restore_empty = {'project_name', 'location', 'project_goals', 'additional_info'}
 
             # 분석 결과는 항상 복원 (중요!)
             analysis_keys = [
@@ -189,10 +190,14 @@ def restore_work_session():
             restored_count = 0
             for key, value in session_data.items():
                 if key in project_info_keys:
-                    if value is not None:
-                        st.session_state[key] = value
-                        restored_count += 1
-                        print(f"[복원] 프로젝트 정보 복원: {key}")
+                    if value is None:
+                        continue
+                    # 빈 문자열은 의미 있는 데이터가 아닐 수 있으므로 복원 스킵
+                    if key in _no_restore_empty and not value:
+                        continue
+                    st.session_state[key] = value
+                    restored_count += 1
+                    print(f"[복원] 프로젝트 정보 복원: {key}")
                 elif key in analysis_keys:
                     if value is not None and value not in [[], {}, ""]:
                         st.session_state[key] = value
@@ -207,15 +212,35 @@ def restore_work_session():
         else:
             print("[복원] DB에 저장된 세션 없음")
 
+        # session_data에 project_name이 없거나 비어있으면 projects 테이블에서 fallback
+        _final_pid = st.session_state.get('current_project_id')
+        if _final_pid and not st.session_state.get('project_name'):
+            try:
+                from database.db_manager import execute_query as _peq
+                _prows = _peq(
+                    "SELECT name, location FROM projects WHERE id = ? AND user_id = ?",
+                    (_final_pid, user_id)
+                )
+                if _prows:
+                    _pname = _prows[0].get('name') or ''
+                    _ploc = _prows[0].get('location') or ''
+                    if _pname and _pname != '새 프로젝트':
+                        st.session_state['project_name'] = _pname
+                        print(f"[복원] project_name → projects 테이블 fallback: {_pname}")
+                    if _ploc and not st.session_state.get('location'):
+                        st.session_state['location'] = _ploc
+                        print(f"[복원] location → projects 테이블 fallback: {_ploc}")
+            except Exception as _pe:
+                print(f"[복원] projects fallback 오류: {_pe}")
+
+    except Exception as e:
+        print(f"작업 세션 복원 오류: {e}")
+    finally:
+        # 예외 발생 여부와 무관하게 항상 복원 완료 플래그 설정 (재복원 방지)
         st.session_state[restore_key] = True
         if restoring_key in st.session_state:
             del st.session_state[restoring_key]
         print(f"[복원] 복원 프로세스 완료")
-    except Exception as e:
-        print(f"작업 세션 복원 오류: {e}")
-        restoring_key = 'work_session_restoring'
-        if restoring_key in st.session_state:
-            del st.session_state[restoring_key]
 
 
 def save_work_session():
