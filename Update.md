@@ -35,7 +35,7 @@
 
 ---
 
-#### [ ] 1단계: 재파싱 가드 추가 (필수 선행)
+#### [x] 1단계: 재파싱 가드 추가 ✅
 
 파일 `pages/3_Document_Analysis.py` 수정
 
@@ -58,7 +58,7 @@ if uploaded_file is not None:
 
 ---
 
-#### [ ] 2단계: 파싱 Queue 추가
+#### [x] 2단계: 파싱 Queue 추가 ✅
 
 파일 `pages/3_Document_Analysis.py` 수정 — 1단계 가드 블록 바깥에서 Queue 처리
 
@@ -86,7 +86,7 @@ if uploaded_file is not None:
 
 ---
 
-#### [ ] 3단계: 블록 실행 Queue 제거
+#### [x] 3단계: 블록 실행 Queue 제거 ✅
 
 파일 `pages/3_Document_Analysis.py` 수정
 
