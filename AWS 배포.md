@@ -348,8 +348,10 @@ sudo journalctl -u streamlit -n 50
 
 - SSH 키 위치: (여기에 기록)
 
-## 향후 구현 예정
+## 분석 대기열 시스템 ✅ 구현 완료
 
-- **분석 대기열 시스템**: 동시 분석 요청 시 Supabase queue 테이블로 순서 관리
-  - 동시 분석 인원 제한 → $12 플랜으로 안정적 운영 가능
-  - 유저에게 대기 순서 실시간 표시 (st.rerun() polling 방식)
+- **파싱 Queue**: 파일 업로드 → 파싱 시점에 Queue 적용 (블록 실행에는 Queue 없음)
+- **팀별 독립 슬롯**: `analysis_queue.team_id` 기준으로 팀마다 `MAX_CONCURRENT=2` 독립 운영
+  - TeamA 2명 파싱 중이어도 TeamB는 별도 슬롯으로 대기 없이 처리 가능
+- **재파싱 방지**: 같은 파일 재업로드 시 파싱 스킵 (`_parsed_file_hash` 가드)
+- **대기 표시**: 슬롯 초과 시 유저에게 대기 순서 표시 (3초 polling)

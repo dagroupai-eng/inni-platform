@@ -97,10 +97,21 @@ if uploaded_file is not None:
 - `stop_clicked` 핸들러에서 `exit_queue()` + `_queue_waiting` 초기화 제거
 
 파일 `database/queue_manager.py`
-- `MAX_CONCURRENT` 값 재확인 (파싱 기준: 2~3 적정)
+- `MAX_CONCURRENT = 2` (팀별 독립 적용)
+
+---
+
+#### [x] 4단계: 팀별 독립 Queue ✅
+
+- Supabase `analysis_queue` 테이블에 `team_id integer` 컬럼 추가
+- `queue_manager.py`: `enter_queue`, `can_process`, `get_queue_info`에 `team_id` 파라미터 추가
+  - `can_process`: 팀 내 processing 수만 카운트 → 팀 간 슬롯 간섭 없음
+  - `get_queue_info`: 팀 내 대기 순서만 계산
+- `3_Document_Analysis.py`: `_pq_tid = _pq_user.get('team_id')` 추출 후 세 함수에 전달
+- 효과: TeamA 서버 2명 파싱 중이어도 TeamB 유저는 독립 처리
 
 ---
 
 ### 기타
 
-- [ ] `AWS 배포.md` "향후 구현 예정" 항목 → Queue 구현 완료로 업데이트
+- [x] `AWS 배포.md` "향후 구현 예정" 항목 → Queue 구현 완료로 업데이트

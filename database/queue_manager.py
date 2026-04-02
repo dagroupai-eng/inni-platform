@@ -36,7 +36,7 @@ def cleanup_stale() -> int:
         return 0
 
 
-def enter_queue(user_id: int, project_id: Optional[int] = None) -> None:
+def enter_queue(user_id: int, project_id: Optional[int] = None, team_id: Optional[int] = None) -> None:
     """대기열 진입. 이미 있으면 무시. 진입 전 stale 행 자동 정리."""
     cleanup_stale()
     client = _client()
@@ -46,6 +46,7 @@ def enter_queue(user_id: int, project_id: Optional[int] = None) -> None:
     client.table('analysis_queue').insert({
         'user_id': user_id,
         'project_id': project_id,
+        'team_id': team_id,
         'status': 'waiting',
     }).execute()
 
@@ -65,12 +66,15 @@ def exit_queue(user_id: int) -> None:
     _client().table('analysis_queue').delete().eq('user_id', user_id).execute()
 
 
-def can_process(user_id: int) -> bool:
-    """내 차례이고 슬롯이 있으면 True."""
+def can_process(user_id: int, team_id: Optional[int] = None) -> bool:
+    """내 차례이고 팀 슬롯이 있으면 True. team_id가 있으면 팀 단위로 제한."""
     client = _client()
 
-    # 현재 processing 수
-    proc = client.table('analysis_queue').select('id', count='exact').eq('status', 'processing').execute()
+    # 현재 팀 내 processing 수
+    proc_qb = client.table('analysis_queue').select('id', count='exact').eq('status', 'processing')
+    if team_id is not None:
+        proc_qb = proc_qb.eq('team_id', team_id)
+    proc = proc_qb.execute()
     processing_count = proc.count or 0
 
     if processing_count >= MAX_CONCURRENT:
@@ -87,17 +91,20 @@ def can_process(user_id: int) -> bool:
 
     my_entered_at = my_row['entered_at']
 
-    # 나보다 먼저 들어온 waiting 행 수
-    ahead = client.table('analysis_queue').select('id', count='exact') \
-        .eq('status', 'waiting').lt('entered_at', my_entered_at).execute()
+    # 나보다 먼저 들어온 팀 내 waiting 행 수
+    ahead_qb = client.table('analysis_queue').select('id', count='exact') \
+        .eq('status', 'waiting').lt('entered_at', my_entered_at)
+    if team_id is not None:
+        ahead_qb = ahead_qb.eq('team_id', team_id)
+    ahead = ahead_qb.execute()
     ahead_count = ahead.count or 0
 
     available_slots = MAX_CONCURRENT - processing_count
     return ahead_count < available_slots
 
 
-def get_queue_info(user_id: int) -> dict:
-    """내 대기 상태 반환: {in_queue, status, position}."""
+def get_queue_info(user_id: int, team_id: Optional[int] = None) -> dict:
+    """내 대기 상태 반환: {in_queue, status, position}. team_id 기준 대기 순서."""
     client = _client()
     my = client.table('analysis_queue').select('status', 'entered_at').eq('user_id', user_id).execute()
     if not my.data:
@@ -107,8 +114,11 @@ def get_queue_info(user_id: int) -> dict:
     if my_row['status'] == 'processing':
         return {'in_queue': True, 'status': 'processing', 'position': 0}
 
-    ahead = client.table('analysis_queue').select('id', count='exact') \
-        .eq('status', 'waiting').lt('entered_at', my_row['entered_at']).execute()
+    ahead_qb = client.table('analysis_queue').select('id', count='exact') \
+        .eq('status', 'waiting').lt('entered_at', my_row['entered_at'])
+    if team_id is not None:
+        ahead_qb = ahead_qb.eq('team_id', team_id)
+    ahead = ahead_qb.execute()
     ahead_count = ahead.count or 0
 
     return {

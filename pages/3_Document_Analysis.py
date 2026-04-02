@@ -2252,7 +2252,9 @@ with tab_project:
 
         if not already_parsed:
             # ── 파싱 Queue 진입 ──────────────────────────────────────────────
-            _pq_uid = (st.session_state.get('pms_current_user') or {}).get('id')
+            _pq_user = st.session_state.get('pms_current_user') or {}
+            _pq_uid = _pq_user.get('id')
+            _pq_tid = _pq_user.get('team_id')
             _pq_pid = st.session_state.get('current_project_id')
             _pq_can_go = True
             try:
@@ -2261,14 +2263,14 @@ with tab_project:
                     start_processing, exit_queue as _pq_exit,
                 )
                 if _pq_uid:
-                    enter_queue(_pq_uid, _pq_pid)
-                    _pq_can_go = can_process(_pq_uid)
+                    enter_queue(_pq_uid, _pq_pid, _pq_tid)
+                    _pq_can_go = can_process(_pq_uid, _pq_tid)
             except Exception as _pqe:
                 print(f'[Queue] 파싱 Queue 오류: {_pqe}')
 
             if not _pq_can_go:
                 try:
-                    _pq_info = get_queue_info(_pq_uid) if _pq_uid else {}
+                    _pq_info = get_queue_info(_pq_uid, _pq_tid) if _pq_uid else {}
                 except Exception:
                     _pq_info = {}
                 st.warning(
