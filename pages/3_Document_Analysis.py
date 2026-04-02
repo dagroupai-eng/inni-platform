@@ -2942,6 +2942,7 @@ with tab_run:
                     st.session_state.cot_plan = []
                     st.session_state.cot_current_index = 0
                     st.session_state.cot_results = {}
+                    st.session_state.analysis_results = {}  # 상태 배지가 바로 ⚪ 준비로 바뀌도록 early clear
                     st.session_state.cot_progress_messages = []
                     st.session_state.cot_history = []
                     st.session_state.cot_citations = {}
@@ -3018,6 +3019,14 @@ with tab_run:
                     st.session_state.analysis_results = {}
                     st.session_state.cot_citations = {}
                     st.session_state.cot_feedback_inputs = {}
+                    # 새 run의 step ID들이 재로드되도록 가드 초기화
+                    st.session_state.pop("_analysis_steps_loaded_for_project", None)
+                    # DB에 새 상태 저장 (restore_work_session이 old 상태를 복원하지 않도록)
+                    try:
+                        from auth.session_init import save_work_session
+                        save_work_session()
+                    except Exception as _prep_save_err:
+                        print(f"[준비] 세션 저장 오류: {_prep_save_err}")
                     st.success("단계별 분석 세션이 준비되었습니다. 순서대로 블록을 실행하세요.")
                     st.rerun()
                 except Exception as e:

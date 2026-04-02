@@ -259,6 +259,9 @@ def save_work_session():
             return
 
         project_id = st.session_state.get('current_project_id')
+        if not project_id:
+            print("[저장] current_project_id 없음, 저장 스킵")
+            return
 
         session_data = {}
 
