@@ -2241,30 +2241,39 @@ with tab_project:
     _MAX_FILES = 5
     if '_processed_file_hashes' not in st.session_state:
         st.session_state['_processed_file_hashes'] = []
+    if 'uploaded_files_list' not in st.session_state:
+        st.session_state['uploaded_files_list'] = []
 
     _processed_count = len(st.session_state['_processed_file_hashes'])
 
     if _processed_count >= _MAX_FILES:
         st.warning(f"이번 세션에서 최대 {_MAX_FILES}개 파일까지 분석할 수 있습니다. (현재 {_processed_count}개 완료)")
-        uploaded_file = None
+        uploaded_files = []
     else:
+        _remaining = _MAX_FILES - _processed_count
         st.caption(f"파일 분석 {_processed_count}/{_MAX_FILES}개 사용")
-        uploaded_file = st.file_uploader(
-            "파일을 업로드하세요",
+        uploaded_files = st.file_uploader(
+            "파일을 업로드하세요 (여러 파일 동시 선택 가능)",
             type=['pdf', 'docx', 'xlsx', 'xls', 'png', 'jpg', 'jpeg', 'webp'],
+            accept_multiple_files=True,
             help="도시 프로젝트 관련 문서를 업로드하세요 (PDF, Word, Excel 지원)"
         )
+        if isinstance(uploaded_files, list) and len(uploaded_files) > _remaining:
+            st.warning(f"최대 {_remaining}개 파일만 추가 처리됩니다.")
+            uploaded_files = uploaded_files[:_remaining]
 
-    if uploaded_file is not None:
-        st.success(f"파일 업로드 완료: {uploaded_file.name}")
+    if uploaded_files:
+        # 새로 처리해야 할 파일 목록 (아직 파싱 안 된 것)
+        new_files = []
+        for _uf in uploaded_files:
+            _fb = _uf.getvalue()
+            _fh = f"{_uf.name}_{len(_fb)}"
+            _fext = _uf.name.split('.')[-1].lower()
+            if _fh not in st.session_state['_processed_file_hashes']:
+                new_files.append((_uf, _fb, _fh, _fext))
 
-        file_extension = uploaded_file.name.split('.')[-1].lower()
-        file_bytes = uploaded_file.getvalue()
-        file_hash = f"{uploaded_file.name}_{len(file_bytes)}"
-        already_parsed = st.session_state.get('_parsed_file_hash') == file_hash
-
-        if not already_parsed:
-            # ── 파싱 Queue 진입 ──────────────────────────────────────────────
+        if new_files:
+            # ── 파싱 Queue 진입 (배치 전체에 대해 1회) ─────────────────────
             _pq_user = st.session_state.get('pms_current_user') or {}
             _pq_uid = _pq_user.get('id')
             _pq_server = _pq_user.get('server')
@@ -2305,144 +2314,147 @@ with tab_project:
                     time.sleep(3)
                     st.rerun()
 
-                _parse_ok = False
                 try:
-                    # 이미지 파일: Gemini Vision으로 내용 읽기 → 텍스트 컨텍스트로 저장
-                    if file_extension in ["png", "jpg", "jpeg", "webp"]:
-                        try:
-                            from google import genai
-                            from google.genai import types
-                            from pdf_analyzer import _get_gemini_api_key
+                    for (_uf, _fb, _fh, _fext) in new_files:
+                        st.success(f"파일 업로드 완료: {_uf.name}")
+                        _parse_ok = False
 
-                            api_key = _get_gemini_api_key()
-                            if not api_key:
-                                st.error("이미지 읽기를 위해 `GEMINI_API_KEY`가 필요합니다. (설정/환경변수 또는 UI 키)")
-                            else:
-                                client = genai.Client(api_key=api_key)
-                                prompt = (
-                                    "이 이미지를 '도시/건축 프로젝트 분석' 관점에서 읽고, "
-                                    "보이는 핵심 요소(텍스트/도면/표/지도/다이어그램)를 구조화해 한국어로 요약해줘.\n\n"
-                                    "출력 형식:\n"
-                                    "1) 한줄 요약\n"
-                                    "2) 관찰된 요소(불릿)\n"
-                                    "3) 이미지 내 텍스트(OCR 느낌으로 최대한)\n"
-                                    "4) 분석에 유용한 키워드(10개)\n"
-                                )
-                                with st.spinner("🖼️ 이미지 내용 읽는 중(Gemini Vision)..."):
-                                    resp = client.models.generate_content(
-                                        model="gemini-2.5-flash",
-                                        contents=[
-                                            types.Content(
-                                                role="user",
-                                                parts=[
-                                                    types.Part.from_text(prompt),
-                                                    types.Part.from_bytes(data=file_bytes, mime_type=uploaded_file.type or "image/png"),
-                                                ],
-                                            )
-                                        ],
-                                    )
-                                text = (getattr(resp, "text", None) or "").strip()
-                                if text:
-                                    st.session_state["pdf_text"] = text
-                                    st.session_state["pdf_uploaded"] = True
-                                    st.session_state["file_type"] = "image"
-                                    st.session_state["file_analysis"] = {
-                                        "success": True,
-                                        "file_type": "image",
-                                        "text": text,
-                                        "char_count": len(text),
-                                        "word_count": len(text.split()),
-                                        "preview": text[:500] + "..." if len(text) > 500 else text,
-                                    }
-                                    st.session_state["uploaded_file"] = uploaded_file
-                                    _parse_ok = True
-                                else:
-                                    st.error("이미지 읽기 결과가 비어 있습니다.")
-                        except Exception as _img_err:
-                            st.error(f"이미지 읽기 실패: {_img_err}")
-
-                    else:
-                        # 메모리에서 직접 파일 분석 (임시 파일 생성 없음)
-                        file_analyzer = UniversalFileAnalyzer()
-                        with st.spinner(f"{file_extension.upper()} 파일 분석 중..."):
-                            analysis_result = file_analyzer.analyze_file_from_bytes(
-                                file_bytes,
-                                file_extension,
-                                uploaded_file.name
-                            )
-
-                        if analysis_result['success']:
-                            st.success(f"{file_extension.upper()} 파일 분석 완료!")
-                            file_size_mb = len(file_bytes) / (1024 * 1024)
-                            st.info(f"파일 정보: {file_size_mb:.2f}MB, {analysis_result['word_count']}단어, {analysis_result['char_count']}문자")
-                            if analysis_result.get('truncated'):
-                                orig = analysis_result.get('original_char_count', 0)
-                                st.warning(f"파일이 너무 커서 앞부분 {analysis_result['char_count']:,}자만 분석에 사용됩니다. (원본: {orig:,}자)")
-                            if analysis_result['file_type'] == 'excel':
-                                st.info(f"Excel 시트: {', '.join(analysis_result['sheet_names'])} ({analysis_result['sheet_count']}개 시트)")
-                            elif analysis_result['file_type'] == 'csv':
-                                enc = analysis_result.get('encoding', 'utf-8')
-                                st.info(f"CSV 데이터: {analysis_result['shape'][0]}행 × {analysis_result['shape'][1]}열 | 인코딩: {enc}")
-                            elif analysis_result['file_type'] == 'pdf':
-                                method = analysis_result.get('method', 'pymupdf')
-                                quality = analysis_result.get('quality_score', '-')
-                                st.info(f"PDF 추출 방법: {method} | 품질 점수: {quality}/100")
-                                if analysis_result.get('is_scanned'):
-                                    st.warning("스캔된 PDF로 감지되었습니다. Gemini API 키가 있으면 자동으로 OCR 처리됩니다.")
-                            elif analysis_result['file_type'] == 'docx':
-                                h = analysis_result.get('heading_count', 0)
-                                t = analysis_result.get('table_count', 0)
-                                st.info(f"Word 문서: 헤딩 {h}개, 표 {t}개")
-                            elif analysis_result['file_type'] == 'json':
-                                if analysis_result.get('summarized'):
-                                    st.info("JSON 파일이 크기가 커서 구조 요약 모드로 변환되었습니다. (키 목록 + 샘플 항목)")
-
-                            # 세션에 저장
-                            st.session_state['pdf_text'] = analysis_result['text']
-                            st.session_state['pdf_uploaded'] = True
-                            st.session_state['file_type'] = analysis_result['file_type']
-                            st.session_state['file_analysis'] = analysis_result
-                            st.session_state['uploaded_file'] = uploaded_file
-
-                            # ── Supabase Storage 업로드 ────────────────────────────────────────
+                        # 이미지 파일: Gemini Vision으로 내용 읽기
+                        if _fext in ["png", "jpg", "jpeg", "webp"]:
                             try:
-                                from auth.file_storage import upload_project_file, save_file_meta
-                                from auth.project_manager import get_or_create_current_project
-                                _uid_fs = st.session_state.pms_current_user.get('id') if st.session_state.get('pms_current_user') else None
-                                if _uid_fs:
-                                    _pid_fs = get_or_create_current_project(_uid_fs)
-                                    _storage_path = upload_project_file(
-                                        user_id=_uid_fs,
-                                        project_id=_pid_fs,
-                                        filename=uploaded_file.name,
-                                        file_bytes=file_bytes,
+                                from google import genai
+                                from google.genai import types
+                                from pdf_analyzer import _get_gemini_api_key
+
+                                api_key = _get_gemini_api_key()
+                                if not api_key:
+                                    st.error(f"[{_uf.name}] 이미지 읽기를 위해 `GEMINI_API_KEY`가 필요합니다.")
+                                else:
+                                    client = genai.Client(api_key=api_key)
+                                    prompt = (
+                                        "이 이미지를 '도시/건축 프로젝트 분석' 관점에서 읽고, "
+                                        "보이는 핵심 요소(텍스트/도면/표/지도/다이어그램)를 구조화해 한국어로 요약해줘.\n\n"
+                                        "출력 형식:\n"
+                                        "1) 한줄 요약\n"
+                                        "2) 관찰된 요소(불릿)\n"
+                                        "3) 이미지 내 텍스트(OCR 느낌으로 최대한)\n"
+                                        "4) 분석에 유용한 키워드(10개)\n"
                                     )
-                                    if _storage_path:
-                                        st.session_state['file_storage_path'] = _storage_path
-                                        save_file_meta(
-                                            project_id=_pid_fs,
-                                            user_id=_uid_fs,
-                                            filename=uploaded_file.name,
-                                            file_type=analysis_result['file_type'],
-                                            storage_path=_storage_path,
-                                            char_count=analysis_result.get('char_count', 0),
-                                            file_size_bytes=len(file_bytes),
-                                            file_meta={
-                                                'quality_score': analysis_result.get('quality_score'),
-                                                'method': analysis_result.get('method'),
-                                            },
+                                    with st.spinner(f"이미지 내용 읽는 중(Gemini Vision)... [{_uf.name}]"):
+                                        resp = client.models.generate_content(
+                                            model="gemini-2.5-flash",
+                                            contents=[
+                                                types.Content(
+                                                    role="user",
+                                                    parts=[
+                                                        types.Part.from_text(prompt),
+                                                        types.Part.from_bytes(data=_fb, mime_type=_uf.type or "image/png"),
+                                                    ],
+                                                )
+                                            ],
                                         )
-                                        st.caption("☁️ 파일이 저장소에 업로드되었습니다.")
-                            except Exception as _fs_err:
-                                print(f"[FileStorage] 업로드 오류: {_fs_err}")
+                                    text = (getattr(resp, "text", None) or "").strip()
+                                    if text:
+                                        _img_analysis = {
+                                            "success": True,
+                                            "file_type": "image",
+                                            "text": text,
+                                            "char_count": len(text),
+                                            "word_count": len(text.split()),
+                                            "preview": text[:500] + "..." if len(text) > 500 else text,
+                                        }
+                                        st.session_state['uploaded_files_list'].append({
+                                            'name': _uf.name,
+                                            'text': text,
+                                            'file_type': 'image',
+                                            'analysis': _img_analysis,
+                                            'hash': _fh,
+                                        })
+                                        with st.expander(f"이미지 읽기 결과(미리보기) [{_uf.name}]"):
+                                            st.text(_img_analysis['preview'])
+                                        _parse_ok = True
+                                    else:
+                                        st.error(f"[{_uf.name}] 이미지 읽기 결과가 비어 있습니다.")
+                            except Exception as _img_err:
+                                st.error(f"[{_uf.name}] 이미지 읽기 실패: {_img_err}")
 
-                            # 텍스트 미리보기
-                            with st.expander(f"{file_extension.upper()} 내용 미리보기"):
-                                st.text(analysis_result['preview'])
-
-                            _parse_ok = True
                         else:
-                            st.error(f"{file_extension.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
+                            # 메모리에서 직접 파일 분석
+                            file_analyzer = UniversalFileAnalyzer()
+                            with st.spinner(f"{_fext.upper()} 파일 분석 중... [{_uf.name}]"):
+                                analysis_result = file_analyzer.analyze_file_from_bytes(
+                                    _fb, _fext, _uf.name
+                                )
+
+                            if analysis_result['success']:
+                                st.success(f"{_fext.upper()} 파일 분석 완료! [{_uf.name}]")
+                                file_size_mb = len(_fb) / (1024 * 1024)
+                                st.info(f"[{_uf.name}] {file_size_mb:.2f}MB, {analysis_result['word_count']}단어, {analysis_result['char_count']}문자")
+                                if analysis_result.get('truncated'):
+                                    orig = analysis_result.get('original_char_count', 0)
+                                    st.warning(f"[{_uf.name}] 파일이 너무 커서 앞부분 {analysis_result['char_count']:,}자만 분석에 사용됩니다. (원본: {orig:,}자)")
+                                if analysis_result['file_type'] == 'excel':
+                                    st.info(f"Excel 시트: {', '.join(analysis_result['sheet_names'])} ({analysis_result['sheet_count']}개 시트)")
+                                elif analysis_result['file_type'] == 'pdf':
+                                    method = analysis_result.get('method', 'pymupdf')
+                                    quality = analysis_result.get('quality_score', '-')
+                                    st.info(f"PDF 추출 방법: {method} | 품질 점수: {quality}/100")
+                                    if analysis_result.get('is_scanned'):
+                                        st.warning(f"[{_uf.name}] 스캔된 PDF로 감지되었습니다. Gemini API 키가 있으면 자동으로 OCR 처리됩니다.")
+                                elif analysis_result['file_type'] == 'docx':
+                                    h = analysis_result.get('heading_count', 0)
+                                    t = analysis_result.get('table_count', 0)
+                                    st.info(f"Word 문서: 헤딩 {h}개, 표 {t}개")
+
+                                st.session_state['uploaded_files_list'].append({
+                                    'name': _uf.name,
+                                    'text': analysis_result['text'],
+                                    'file_type': analysis_result['file_type'],
+                                    'analysis': analysis_result,
+                                    'hash': _fh,
+                                })
+
+                                # ── Supabase Storage 업로드 ────────────────────────────────
+                                try:
+                                    from auth.file_storage import upload_project_file, save_file_meta
+                                    from auth.project_manager import get_or_create_current_project
+                                    _uid_fs = st.session_state.pms_current_user.get('id') if st.session_state.get('pms_current_user') else None
+                                    if _uid_fs:
+                                        _pid_fs = get_or_create_current_project(_uid_fs)
+                                        _storage_path = upload_project_file(
+                                            user_id=_uid_fs,
+                                            project_id=_pid_fs,
+                                            filename=_uf.name,
+                                            file_bytes=_fb,
+                                        )
+                                        if _storage_path:
+                                            save_file_meta(
+                                                project_id=_pid_fs,
+                                                user_id=_uid_fs,
+                                                filename=_uf.name,
+                                                file_type=analysis_result['file_type'],
+                                                storage_path=_storage_path,
+                                                char_count=analysis_result.get('char_count', 0),
+                                                file_size_bytes=len(_fb),
+                                                file_meta={
+                                                    'quality_score': analysis_result.get('quality_score'),
+                                                    'method': analysis_result.get('method'),
+                                                },
+                                            )
+                                            st.caption(f"☁️ [{_uf.name}] 파일이 저장소에 업로드되었습니다.")
+                                except Exception as _fs_err:
+                                    print(f"[FileStorage] 업로드 오류: {_fs_err}")
+
+                                with st.expander(f"{_fext.upper()} 내용 미리보기 [{_uf.name}]"):
+                                    st.text(analysis_result['preview'])
+
+                                _parse_ok = True
+                            else:
+                                st.error(f"[{_uf.name}] {_fext.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
+
+                        if _parse_ok:
+                            if _fh not in st.session_state['_processed_file_hashes']:
+                                st.session_state['_processed_file_hashes'].append(_fh)
 
                 finally:
                     try:
@@ -2451,27 +2463,41 @@ with tab_project:
                     except Exception as _pqe:
                         print(f'[Queue] exit_queue 오류: {_pqe}')
 
-                if _parse_ok:
-                    st.session_state['_parsed_file_hash'] = file_hash
-                    if file_hash not in st.session_state['_processed_file_hashes']:
-                        st.session_state['_processed_file_hashes'].append(file_hash)
+        # 이미 파싱된 파일 → 캐시된 UI 표시 (새로 처리된 것 제외)
+        _new_hashes = {_fh for (_, _, _fh, _) in new_files}
+        for _uf in uploaded_files:
+            _fb = _uf.getvalue()
+            _fh = f"{_uf.name}_{len(_fb)}"
+            _fext = _uf.name.split('.')[-1].lower()
+            if _fh in st.session_state['_processed_file_hashes'] and _fh not in _new_hashes:
+                _cached_entry = next(
+                    (e for e in st.session_state['uploaded_files_list'] if e['hash'] == _fh), None
+                )
+                if _cached_entry:
+                    _cached = _cached_entry.get('analysis', {})
+                    if _cached.get('file_type') == 'image':
+                        st.success(f"[{_uf.name}] 이미지 읽기 완료!")
+                        with st.expander(f"이미지 읽기 결과(미리보기) [{_uf.name}]"):
+                            st.text(_cached.get('preview', ''))
+                    else:
+                        file_size_mb = len(_fb) / (1024 * 1024)
+                        st.info(f"[{_uf.name}] {file_size_mb:.2f}MB, {_cached.get('word_count', 0)}단어, {_cached.get('char_count', 0)}문자")
+                        with st.expander(f"{_fext.upper()} 내용 미리보기 [{_uf.name}]"):
+                            st.text(_cached.get('preview', ''))
 
-        else:
-            # 이미 파싱된 파일 → 재파싱 스킵, UI만 표시
-            _cached = st.session_state.get('file_analysis', {})
-            if _cached.get('success'):
-                if _cached.get('file_type') == 'image':
-                    st.success("이미지 읽기 완료! 추출된 텍스트를 분석에 사용합니다.")
-                    with st.expander("이미지 읽기 결과(미리보기)"):
-                        st.text(_cached.get('preview', ''))
-                else:
-                    file_size_mb = len(file_bytes) / (1024 * 1024)
-                    st.info(f"파일 정보: {file_size_mb:.2f}MB, {_cached.get('word_count', 0)}단어, {_cached.get('char_count', 0)}문자")
-                    with st.expander(f"{file_extension.upper()} 내용 미리보기"):
-                        st.text(_cached.get('preview', ''))
+        # 모든 파일 텍스트 결합 → pdf_text
+        _files_list = st.session_state.get('uploaded_files_list', [])
+        if _files_list:
+            combined_text = "\n\n---\n\n".join(
+                f"[파일: {d['name']}]\n{d['text']}" for d in _files_list
+            )
+            st.session_state['pdf_text'] = combined_text
+            st.session_state['pdf_uploaded'] = True
+            st.session_state['file_analysis'] = _files_list[-1]['analysis']
+            st.session_state['file_type'] = _files_list[-1]['file_type']
 
         # 파일 분석 완료 확인 버튼
-        if st.session_state.get('pdf_uploaded') and st.session_state.get('_parsed_file_hash') == file_hash:
+        if st.session_state.get('pdf_uploaded') and st.session_state.get('uploaded_files_list'):
             if st.button("✅ 파일 분석 완료 확인", use_container_width=True, type="primary", key="confirm_file_upload"):
                 try:
                     from auth.project_manager import save_project_from_session
