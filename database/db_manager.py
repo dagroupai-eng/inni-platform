@@ -399,6 +399,7 @@ def _get_conflict_column(table: str) -> str:
         'api_keys': 'user_id,key_name',
         'user_settings': 'user_id',
         'analysis_progress': 'user_id,project_id',
+        'analysis_sessions': 'user_id,project_id',
         'users': 'personal_number',
     }
     return conflict_map.get(table, 'id')

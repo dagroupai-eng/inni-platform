@@ -158,9 +158,10 @@ def restore_work_session():
             print(f"[복원] DB에서 데이터 로드 완료: {len(session_data)}개 키")
 
             # 프로젝트 정보는 빈 값이어도 덮어쓰기 (복원 우선)
+            # pdf_text, preprocessed_text는 저장하지 않으므로 복원 목록에서도 제외
             project_info_keys = [
                 'project_name', 'location', 'latitude', 'longitude',
-                'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded',
+                'project_goals', 'additional_info', 'pdf_uploaded',
                 'file_analysis', 'file_storage_path', 'document_summary',
                 'site_fields', 'downloaded_geo_data',
             ]
@@ -225,12 +226,14 @@ def save_work_session():
         session_data = {}
 
         # 일반 직렬화 키
+        # pdf_text, preprocessed_text, reference_combined_text 제외: 대역폭 절감 (23명 동시 사용 고려)
+        # 해당 필드는 파일 재업로드 시 재생성됨
         save_keys = [
             'project_name', 'location', 'latitude', 'longitude',
-            'project_goals', 'additional_info', 'pdf_text', 'pdf_uploaded',
+            'project_goals', 'additional_info', 'pdf_uploaded',
             'analysis_results', 'selected_blocks', 'cot_results',
-            'cot_history', 'preprocessed_text', 'preprocessing_meta',
-            'reference_documents', 'reference_combined_text',
+            'cot_history', 'preprocessing_meta',
+            'reference_documents',
             'cot_session', 'cot_plan', 'cot_current_index',
             'cot_running_block', 'cot_progress_messages',
             'cot_feedback_inputs', 'skipped_blocks', 'cot_citations',
@@ -272,7 +275,7 @@ def save_work_session():
         if session_data:
             execute_query(
                 """
-                INSERT INTO analysis_sessions (user_id, project_id, session_data, created_at)
+                INSERT OR REPLACE INTO analysis_sessions (user_id, project_id, session_data, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
                 (
@@ -290,6 +293,19 @@ def save_work_session():
                     (datetime.now().isoformat(), project_id, user_id),
                     commit=True,
                 )
+            # analysis_steps도 최신 cot_results로 동기화
+            # (_load_latest_steps_into_session이 steps 데이터를 덮어쓰므로 일치시켜야 함)
+            try:
+                step_id_map = st.session_state.get("analysis_step_id_map") or {}
+                cr = session_data.get("cot_results") or {}
+                if step_id_map and cr:
+                    from database.analysis_steps_manager import save_step_payloads
+                    for _bid, _result in cr.items():
+                        _sid = step_id_map.get(_bid)
+                        if _sid:
+                            save_step_payloads(_sid, outputs={"analysis": _result})
+            except Exception as _sync_err:
+                print(f"[저장] analysis_steps 동기화 오류: {_sync_err}")
             st.session_state['_save_status'] = 'saved'
             st.session_state['_last_saved_at'] = datetime.now().isoformat()
         else:
@@ -327,10 +343,8 @@ def auto_save_trigger():
 
 def save_analysis_progress(force: bool = False):
     """
-    분석 진행 상태 즉시 저장 (2초 간격)
-
-    Args:
-        force: True이면 간격 제한 무시하고 즉시 저장
+    분석 진행 상태 저장 — analysis_sessions UPSERT로 위임 (analysis_progress 테이블 제거됨).
+    force=True이면 throttle 없이 즉시 저장.
     """
     import time
     current_time = time.time()
@@ -338,71 +352,17 @@ def save_analysis_progress(force: bool = False):
     if 'last_analysis_save_time' not in st.session_state:
         st.session_state.last_analysis_save_time = 0
 
-    # 마지막 저장 후 2초 이상 경과한 경우에만 저장 (force=True이면 무시)
     if not force and current_time - st.session_state.last_analysis_save_time < 2:
         return
 
-    # 로그인 확인
-    if 'pms_current_user' not in st.session_state:
-        return
-
-    try:
-        from database.db_manager import execute_query
-        from datetime import datetime
-        import json
-
-        user_id = st.session_state.pms_current_user.get('id')
-        if not user_id:
-            return
-
-        # 분석 진행 상태만 수집
-        progress_data = {}
-
-        progress_keys = [
-            'cot_session', 'cot_plan', 'cot_current_index',
-            'cot_results', 'cot_running_block', 'cot_progress_messages',
-            'cot_feedback_inputs', 'skipped_blocks', 'cot_citations',
-            'cot_history', 'analysis_results', 'selected_blocks'
-        ]
-
-        for key in progress_keys:
-            if key in st.session_state:
-                value = st.session_state[key]
-                try:
-                    json.dumps(value)
-                    progress_data[key] = value
-                except (TypeError, ValueError):
-                    pass
-
-        if progress_data:
-            # 저장 시간 기록
-            progress_data['_saved_at'] = datetime.now().isoformat()
-
-            # 기존 분석 진행 상태 업데이트 또는 삽입
-            project_id = st.session_state.get('current_project_id')
-            execute_query(
-                """
-                INSERT OR REPLACE INTO analysis_progress
-                (user_id, project_id, progress_data, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (user_id, project_id, json.dumps(progress_data, ensure_ascii=False), datetime.now().isoformat()),
-                commit=True
-            )
-
-        st.session_state.last_analysis_save_time = current_time
-    except Exception as e:
-        print(f"분석 진행 저장 오류: {e}")
+    save_work_session()
+    st.session_state.last_analysis_save_time = current_time
 
 
 def restore_analysis_progress() -> Optional[dict]:
     """
-    중단된 분석 진행 상태 복원 (1시간 이내)
-
-    Returns:
-        복원 가능한 진행 상태가 있으면 dict 반환, 없으면 None
+    중단된 분석 진행 상태 복원 (1시간 이내) — analysis_sessions에서 조회.
     """
-    # 로그인 확인
     if 'pms_current_user' not in st.session_state:
         return None
 
@@ -415,16 +375,14 @@ def restore_analysis_progress() -> Optional[dict]:
         if not user_id:
             return None
 
-        # 1시간 이내의 분석 진행 상태 조회 (현재 프로젝트 기준)
         one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
         project_id = st.session_state.get('current_project_id')
 
         if project_id:
             result = execute_query(
                 """
-                SELECT progress_data, updated_at FROM analysis_progress
-                WHERE user_id = ? AND project_id = ? AND updated_at > ?
-                ORDER BY updated_at DESC
+                SELECT session_data, created_at FROM analysis_sessions
+                WHERE user_id = ? AND project_id = ? AND created_at > ?
                 LIMIT 1
                 """,
                 (user_id, project_id, one_hour_ago)
@@ -432,23 +390,21 @@ def restore_analysis_progress() -> Optional[dict]:
         else:
             result = execute_query(
                 """
-                SELECT progress_data, updated_at FROM analysis_progress
-                WHERE user_id = ? AND updated_at > ?
-                ORDER BY updated_at DESC
+                SELECT session_data, created_at FROM analysis_sessions
+                WHERE user_id = ? AND created_at > ?
                 LIMIT 1
                 """,
                 (user_id, one_hour_ago)
             )
 
         if result and result[0]:
-            raw = result[0]['progress_data']
-            progress_data = json.loads(raw) if isinstance(raw, str) else raw
-            updated_at = result[0]['updated_at']
+            raw = result[0]['session_data']
+            session_data = json.loads(raw) if isinstance(raw, str) else raw
+            updated_at = result[0]['created_at']
 
-            # 분석 결과가 있는지 확인
-            if progress_data.get('cot_results') or progress_data.get('cot_session'):
-                progress_data['_restored_from'] = updated_at
-                return progress_data
+            if session_data and (session_data.get('cot_results') or session_data.get('cot_session')):
+                session_data['_restored_from'] = updated_at
+                return session_data
 
         return None
     except Exception as e:

@@ -87,6 +87,11 @@ def _load_latest_steps_into_session(user_id: int, project_id: int) -> None:
 
         st.session_state[last_loaded_key] = project_id
         st.session_state["current_analysis_run_id"] = run_id
+        # step_id_map 복원 (이후 save_work_session에서 analysis_steps 동기화에 사용)
+        st.session_state["analysis_step_id_map"] = {
+            s.get("block_id"): s.get("id")
+            for s in steps if s.get("block_id") and s.get("id")
+        }
 
         # plan/selected_blocks 복원
         ordered_block_ids = [s.get("block_id") for s in steps if s.get("block_id")]
@@ -2220,49 +2225,19 @@ with tab_project:
     st.markdown("---")
     st.header("파일 업로드")
 
-    # ── Supabase에 저장된 파일 목록/다운로드 ────────────────────────────────
-    try:
-        from auth.file_storage import get_project_files, download_project_file
-        _pid_files = st.session_state.get("current_project_id")
-        if _pid_files:
-            saved_files = get_project_files(_pid_files)
-            if saved_files:
-                with st.expander("☁️ 저장된 업로드 파일", expanded=False):
-                    st.caption("이 프로젝트에 저장된 파일 목록입니다. 필요 시 다시 다운로드할 수 있습니다.")
-                    for f in saved_files[:20]:
-                        fname = f.get("filename", "file")
-                        spath = f.get("storage_path")
-                        fsize = f.get("file_size_bytes") or 0
-                        cols = st.columns([3, 1, 1])
-                        with cols[0]:
-                            st.write(f"**{fname}**")
-                            st.caption(f"type={f.get('file_type')}, size={(fsize/1024/1024):.2f}MB")
-                        with cols[1]:
-                            if st.button("⬇️ 가져오기", key=f"pull_file_{f.get('id')}"):
-                                if spath:
-                                    data = download_project_file(spath)
-                                    if data:
-                                        st.session_state["pdf_uploaded"] = True
-                                        st.session_state["file_storage_path"] = spath
-                                        st.info("파일 바이너리를 내려받았습니다. 아래에서 다시 분석하거나 다운로드하세요.")
-                                else:
-                                    st.warning("storage_path가 없습니다.")
-                        with cols[2]:
-                            if spath:
-                                data = None
-                                try:
-                                    data = download_project_file(spath)
-                                except Exception:
-                                    data = None
-                                st.download_button(
-                                    "다운로드",
-                                    data=data,
-                                    file_name=fname,
-                                    key=f"dl_file_{f.get('id')}",
-                                )
-    except Exception as _files_err:
-        print(f"[FileStorage] 저장 파일 목록 UI 오류: {_files_err}")
-    
+    # 프로젝트 로드 후 파일 텍스트가 없으면 재업로드 안내
+    _has_file_text = bool(
+        st.session_state.get("pdf_text") or
+        st.session_state.get("preprocessed_text") or
+        st.session_state.get("reference_combined_text")
+    )
+    _has_analysis = bool(
+        st.session_state.get("analysis_results") or
+        st.session_state.get("cot_results")
+    )
+    if not _has_file_text and _has_analysis:
+        st.info("분석을 진행하려면 파일을 다시 업로드해주세요. (파일 텍스트는 대역폭 절감을 위해 저장되지 않습니다)")
+
     uploaded_file = st.file_uploader(
         "파일을 업로드하세요",
         type=['pdf', 'docx', 'xlsx', 'xls', 'csv', 'txt', 'json', 'png', 'jpg', 'jpeg', 'webp'],
@@ -2747,7 +2722,8 @@ with tab_run:
 
     with col2:
         st.markdown("**파일 정보**")
-        if has_file:
+        _file_text_loaded = bool(st.session_state.get('pdf_text'))
+        if has_file and _file_text_loaded:
             file_analysis = st.session_state.get('file_analysis', {})
             file_name = "N/A"
             if st.session_state.get('uploaded_file'):
@@ -2758,6 +2734,8 @@ with tab_run:
             st.write(f"• 파일 유형: {file_analysis.get('file_type', 'N/A')}")
             st.write(f"• 텍스트 길이: {file_analysis.get('char_count', 0)}자")
             st.write(f"• 단어 수: {file_analysis.get('word_count', 0)}단어")
+        elif has_file and not _file_text_loaded:
+            st.warning("파일을 다시 업로드해주세요. 업로드 없이 실행하면 기본 정보만으로 분석됩니다.")
         else:
             st.write("• 파일 없음 (기본 정보만 사용)")
         reference_docs = st.session_state.get('reference_documents', [])

@@ -17,6 +17,25 @@
   - `blocks.block_id` UNIQUE 제약 추가
   - `analysis_progress` UNIQUE 제약: `user_id` 단독 → `(user_id, project_id)` 복합으로 변경 (프로젝트별 진행 상태 분리)
 
+- [x] **2-2. analysis_progress 테이블 제거** ✅
+  - `analysis_progress` 테이블 Supabase에서 DROP 완료
+  - 기존 기능은 `analysis_sessions` UPSERT로 통합 (`auth/session_init.py`)
+  - `analysis_sessions`에 UNIQUE(user_id, project_id) 제약 추가 완료
+
+- [ ] **2-3. analysis_queue 테이블 생성** (Queue 시스템 구현 전 필수)
+  - Supabase SQL Editor에서 아래 실행:
+  ```sql
+  CREATE TABLE analysis_queue (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE,
+    project_id INT,
+    status TEXT NOT NULL DEFAULT 'waiting',
+    position INT,
+    entered_at TIMESTAMPTZ DEFAULT NOW(),
+    started_at TIMESTAMPTZ
+  );
+  ```
+
 ---
 
 ## Supabase 연동 기능별 동작 확인
@@ -45,8 +64,8 @@
 | # | 기능 | 관련 파일 | 연동 테이블 | 확인 |
 |---|------|-----------|------------|------|
 | B-1 | 프로젝트 생성/조회 | `auth/project_manager.py` | `projects` | [x] 1개 프로젝트 확인 (location은 아직 미설정) |
-| B-2 | 작업 세션 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [x] 저장 확인 (10행+) — autosave가 빈 project_name으로 덮어쓰는 버그 수정 완료 |
-| B-3 | 분석 진행 저장/복원 | `auth/session_init.py` | `analysis_progress` | [x] 1행 저장 확인 — project_id=None 버그 수정 완료 (session_init.py INSERT에 project_id 추가) |
+| B-2 | 작업 세션 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [x] UPSERT 구조 전환 완료 — pdf_text/preprocessed_text/reference_combined_text 저장 제외 (대역폭 절감) |
+| B-3 | 분석 진행 저장/복원 | `auth/session_init.py` | `analysis_sessions` | [ ] **재확인 필요** — analysis_progress 테이블 삭제로 analysis_sessions로 전환됨. 복원 배너 동작 확인 필요 |
 
 ### C. 파일 업로드 / Storage
 
@@ -149,67 +168,43 @@
   - `dict.copy()` → `copy.deepcopy()` (중첩 dict 복원 버그)
   - 하드코딩된 Gemini provider 목록 체크 → `PROVIDER_CONFIG` 동적 조회로 전환
 
+- [x] **6-추가-8. analysis_sessions UPSERT 전환 + 대역폭 절감** ✅
+  - `analysis_sessions` INSERT → INSERT OR REPLACE (UPSERT) 전환 — 1행 유지 보장
+  - `analysis_progress` 테이블 제거 → `save/restore_analysis_progress()` 모두 `analysis_sessions`로 위임
+  - `load_project_session()` 불필요 코드 제거 (LIMIT 20 → LIMIT 1, `_fill_keys` 병합 로직 삭제)
+  - `pdf_text`, `preprocessed_text`, `reference_combined_text` save_keys에서 제외 (23명 동시 사용 고려)
+  - 프로젝트 로드 후 파일 재업로드 안내 메시지 추가 (파일 업로드 탭, 분석 실행 탭)
+  - "☁️ 저장된 업로드 파일" expander 제거
+
 - [ ] **7. 분석 대기열(Queue) 시스템 구현**
 
-  ### 설계: analysis_progress 테이블 재활용
-  - 기존 `analysis_progress` (id, user_id, project_id, progress_data jsonb) 활용
-  - `progress_data` 안에 queue 상태 저장:
-    ```json
-    {
-      "queue_status": "waiting|processing|done",
-      "position": 2,
-      "entered_at": "ISO시간",
-      "started_at": "ISO시간"
-    }
-    ```
-  - 장점: 신규 테이블 불필요, user_id UNIQUE로 1인 1슬롯 보장
+  ### 설계: analysis_queue 전용 테이블 사용 (analysis_progress 삭제됨)
+  - 신규 테이블 `analysis_queue` 사용 (2-3 항목에서 생성)
   - 동시 분석 제한: processing 상태 row 수 ≤ 2
 
-  ### ⚠️ 주의: restore_analysis_progress 충돌 방지
-  - `analysis_progress.progress_data`는 기존 분석 복원 로직도 읽음
-  - `restore_analysis_progress()`는 `cot_results` / `cot_session` 키 존재 여부로 복원 판단
-  - **queue_status 키는 별도 네임스페이스(`_queue` 하위 키)에 넣거나,
-    row 자체를 queue 전용 / progress 전용으로 구분하는 flag 컬럼을 추가해야 함**
-  - 권장 방식: `progress_data` 안에 `"_queue": {...}` 서브키로 격리
-    ```json
-    {
-      "_queue": {
-        "status": "waiting",
-        "position": 2,
-        "entered_at": "..."
-      },
-      "cot_results": {...},
-      ...
-    }
-    ```
-  - `restore_analysis_progress()`는 `_queue` 키를 무시하도록 수정 필요
-
   ### 구현 항목
+  - [ ] Supabase에 `analysis_queue` 테이블 생성 (→ 2-3 항목 참고)
   - [ ] `database/queue_manager.py` 생성
-    - `enter_queue(user_id)` — 대기열 진입 (analysis_progress upsert)
-    - `exit_queue(user_id)` — 대기열 제거 (`_queue` 키 삭제)
+    - `enter_queue(user_id, project_id)` — 대기열 진입 (upsert)
+    - `exit_queue(user_id)` — 대기열 제거 (delete)
     - `get_position(user_id)` — 내 대기 순서 반환
     - `get_processing_count()` — processing 수 조회
     - `can_process(user_id)` — 내 차례 여부 (processing < 2)
   - [ ] `pages/3_Document_Analysis.py` 수정
     - 🚀 버튼 클릭 시 → `enter_queue()` → 슬롯 여유 있으면 바로 시작, 없으면 대기 UI
     - 분석 완료/중단(`finally` 블록) 시 → `exit_queue()`
-  - [ ] `auth/session_init.py` 수정
-    - `restore_analysis_progress()`: `_queue` 키 있어도 복원 판단에서 제외
 
 ---
 
 ## 우선 확인 항목 (Queue 구현 전 필수)
 
-> Queue 구현 시작 전에 아래 두 가지를 반드시 먼저 확인한다.
-
-### ① B-3: 분석 진행 복원 동작 확인 (Queue 충돌 지점)
-- `analysis_progress` 테이블에 실제로 저장/복원이 되는지 확인
+### ① B-3: 분석 진행 복원 동작 확인 (변경됨)
+- `analysis_progress` 테이블 삭제 후 `analysis_sessions`로 전환됨
 - 확인 방법: 분석 세션 준비 → 중간 이탈 → 재접속 시 복원 배너 뜨는지 (사이드바 "세션 관리")
-- `restore_analysis_progress()`가 project_id 필터로 올바른 행을 읽는지 확인
+- `restore_analysis_progress()`가 `analysis_sessions`에서 1시간 이내 데이터를 올바르게 읽는지 확인
 - [ ] 확인 완료
 
-### ② 페이지 초기화 버그 수정 확인 (금번 수정)
+### ② 페이지 초기화 버그 수정 확인
 - 분석 진행 → "현재 작업 저장" → "페이지 초기화" → 프로젝트 "열기"
 - 기대 동작:
   - 초기화 후 프로젝트가 선택 해제되어 있는지 확인 (Bug B)
@@ -230,7 +225,7 @@
 
 ## 배포 마무리
 
-- [ ] **8. 기능 테스트** → 위 Supabase 연동 기능별 확인 표 참고 (C-1~C-3, E-1, F-1, G-2 미확인)
+- [ ] **8. 기능 테스트** → 위 Supabase 연동 기능별 확인 표 참고 (B-3, C-1~C-3, E-1, F-1, G-2 미확인)
 
 - [ ] **9. 0119 브랜치 정리**
   - master로 머지 완료됐으므로 0119 브랜치 삭제 여부 결정
