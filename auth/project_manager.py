@@ -105,13 +105,14 @@ def delete_project(user_id: int, project_id: int) -> bool:
 
 
 def load_project_session(user_id: int, project_id: int) -> Optional[dict]:
-    """프로젝트의 최신 세션 데이터를 반환한다. (user_id, project_id)당 1행 UPSERT 구조."""
+    """프로젝트의 최신 세션 데이터를 반환한다."""
     try:
         from database.db_manager import execute_query
         rows = execute_query(
             """
             SELECT session_data FROM analysis_sessions
             WHERE user_id = ? AND project_id = ?
+            ORDER BY created_at DESC
             LIMIT 1
             """,
             (user_id, project_id),

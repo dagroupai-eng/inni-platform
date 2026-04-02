@@ -93,11 +93,13 @@ def _load_latest_steps_into_session(user_id: int, project_id: int) -> None:
             for s in steps if s.get("block_id") and s.get("id")
         }
 
-        # plan/selected_blocks 복원
+        # plan/selected_blocks 복원 — session_state에 이미 복원된 값이 있으면 덮어쓰지 않음
         ordered_block_ids = [s.get("block_id") for s in steps if s.get("block_id")]
         if ordered_block_ids:
-            st.session_state["selected_blocks"] = ordered_block_ids
-            st.session_state["cot_plan"] = ordered_block_ids
+            if not st.session_state.get("selected_blocks"):
+                st.session_state["selected_blocks"] = ordered_block_ids
+            if not st.session_state.get("cot_plan"):
+                st.session_state["cot_plan"] = ordered_block_ids
 
         # outputs에서 결과 복원
         restored_results = {}

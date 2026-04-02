@@ -284,7 +284,7 @@ def save_work_session():
         _SIZE_LIMIT = 500 * 1024  # 500 KB
 
         # 빈 문자열로 저장 금지: 이전 유효값을 덮어쓰지 않도록 보호
-        _no_empty_keys = {'project_name', 'project_goals', 'additional_info'}
+        _no_empty_keys = {'project_name', 'location', 'project_goals', 'additional_info'}
 
         for key in save_keys:
             if key in st.session_state:
@@ -310,19 +310,32 @@ def save_work_session():
                     pass
 
         if session_data:
-            execute_query(
-                """
-                INSERT OR REPLACE INTO analysis_sessions (user_id, project_id, session_data, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    user_id,
-                    project_id,
-                    json.dumps(session_data, ensure_ascii=False),
-                    datetime.now().isoformat(),
-                ),
-                commit=True,
+            # UNIQUE(user_id, project_id) constraint 유무와 무관하게 동작하는 수동 upsert:
+            # 기존 행이 있으면 UPDATE, 없으면 INSERT
+            from database.supabase_client import get_supabase_client as _gsc
+            _client = _gsc()
+            _now = datetime.now().isoformat()
+            _sd_json = json.dumps(session_data, ensure_ascii=False)
+            _existing = (
+                _client.table('analysis_sessions')
+                .select('id')
+                .eq('user_id', user_id)
+                .eq('project_id', project_id)
+                .limit(1)
+                .execute()
             )
+            if _existing.data:
+                _client.table('analysis_sessions').update({
+                    'session_data': json.loads(_sd_json),
+                    'created_at': _now,
+                }).eq('user_id', user_id).eq('project_id', project_id).execute()
+            else:
+                _client.table('analysis_sessions').insert({
+                    'user_id': user_id,
+                    'project_id': project_id,
+                    'session_data': json.loads(_sd_json),
+                    'created_at': _now,
+                }).execute()
             # projects.updated_at 갱신
             if project_id:
                 execute_query(

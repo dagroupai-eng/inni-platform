@@ -99,6 +99,10 @@ CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(user_id, updated_at 
 ALTER TABLE analysis_sessions
     ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON analysis_sessions(project_id);
+-- UNIQUE constraint: (user_id, project_id) 당 1행 보장 (UPSERT 정상 동작에 필요)
+-- 이미 중복 행이 없는 경우에만 실행 가능
+ALTER TABLE analysis_sessions
+    ADD CONSTRAINT IF NOT EXISTS uq_sessions_user_project UNIQUE (user_id, project_id);
 
 -- analysis_progress 에 project_id 추가
 ALTER TABLE analysis_progress

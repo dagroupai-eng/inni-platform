@@ -160,17 +160,18 @@ def save_step_payloads(
     inputs: Optional[Dict[str, Any]] = None,
     outputs: Optional[Dict[str, Any]] = None,
 ) -> bool:
+    """inputs/outputs 중 None이 아닌 필드만 업데이트 (기존 데이터 보호)."""
     try:
-        from database.db_manager import execute_query
-        execute_query(
-            "UPDATE analysis_steps SET inputs = ?, outputs = ? WHERE id = ?",
-            (
-                json.dumps(inputs or {}, ensure_ascii=False),
-                json.dumps(outputs or {}, ensure_ascii=False),
-                step_id,
-            ),
-            commit=True,
-        )
+        update_data: Dict[str, Any] = {}
+        if inputs is not None:
+            update_data['inputs'] = inputs
+        if outputs is not None:
+            update_data['outputs'] = outputs
+        if not update_data:
+            return True
+        from database.supabase_client import get_supabase_client
+        client = get_supabase_client()
+        client.table('analysis_steps').update(update_data).eq('id', step_id).execute()
         return True
     except Exception as e:
         print(f"[AnalysisSteps] save_step_payloads 오류: {e}")
