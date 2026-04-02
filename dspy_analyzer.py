@@ -973,11 +973,11 @@ class EnhancedArchAnalyzer:
                     'max_tokens': max_tokens,
                     'temperature': temperature
                 }
-                extra_body = {
-                    # Gemini 검색 연동을 기본 활성화 (grounded response 기대)
-                    'tools': [{'google_search': {}}]
-                }
-                print("   Google Search Grounding: enabled (tools.google_search)")
+                # google_search grounding 제거:
+                # Gemini는 tools + response_mime_type=application/json 동시 사용 불가
+                # DSPy가 일부 블록에서 JSON 응답 모드를 사용하면 400 에러 발생
+                extra_body = {}
+                print("   Google Search Grounding: disabled (tools/JSON 응답 모드 충돌 방지)")
                 
                 # Gemini 2.5 및 3 모델의 Thinking Config 지원
                 # gemini-2.5-pro, gemini-2.5-flash, gemini-3-pro-preview 모델 감지
