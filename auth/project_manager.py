@@ -356,7 +356,6 @@ def render_sidebar_project_manager():
         return
 
     # current_project_id가 목록에 없으면 첫 번째로 교정
-    # current_project_id가 목록에 없으면 첫 번째로 교정
     ids = [p["id"] for p in projects]
     if current_pid not in ids:
         current_pid = ids[0]
