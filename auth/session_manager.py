@@ -46,6 +46,7 @@ def _save_session_supabase(user_id: int, token: str, session_data: dict):
             'display_name': session_data.get('display_name'),
             'role': session_data.get('role'),
             'team_id': session_data.get('team_id'),
+            'server': session_data.get('server'),
             'expires_at': session_data.get('expires_at'),
         }
 

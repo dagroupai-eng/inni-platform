@@ -687,9 +687,11 @@ def _fetch_nearby_buildings(lon: float, lat: float, radius_m: int = 500) -> list
     # EPSG:4326 → ymin,xmin,ymax,xmax
     bbox = f"{lat-d},{lon-d},{lat+d},{lon+d},EPSG:4326"
 
+    # 반경에 비례해 maxFeatures 조정 (최대 1000, 최소 200)
+    max_features = min(1000, max(200, radius_m // 2))
     params = {
         "key": key, "bbox": bbox,
-        "maxFeatures": "200", "resultType": "results",
+        "maxFeatures": str(max_features), "resultType": "results",
         "srsName": "EPSG:4326", "output": "application/json",
     }
     dom = _domain()
@@ -1657,7 +1659,7 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
             st.session_state.site_fields.update(bld_fields)
     st.session_state["selected_parcels_raw"] = parcels
 
-    # ── 주변 건물 정보 (getBuildingUseWFS 500m 반경) ──────────────────────
+    # ── 주변 건물 정보 (getBuildingUseWFS, 반경은 nearby_radius 인수 기준) ──────────────────────
     # 대표 필지 좌표 기준으로 조회
     rep = next((p for p in parcels if p.get("lon") and p.get("lat")), None)
     if rep:
@@ -1672,7 +1674,7 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
             if uses:
                 top = ", ".join(f"{nm}({cnt}동)" for nm, cnt in uses.most_common(5))
                 st.session_state.site_fields["nearby_building_uses"] = top
-            st.session_state.site_fields["nearby_buildings_summary"] = _build_nearby_md(nearby)
+            st.session_state.site_fields["nearby_buildings_summary"] = _build_nearby_md(nearby, radius_m=nearby_radius)
 
     # 필지 polygon → GeoJSON → downloaded_geo_data (3_Document_Analysis의 공간 데이터 연동용)
     parcel_features = []
@@ -1726,12 +1728,12 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
         print(f"[Mapping] 자동 저장 오류: {_as_err}")
 
 
-def _build_nearby_md(buildings: list) -> str:
+def _build_nearby_md(buildings: list, radius_m: int = 500) -> str:
     """주변 건물 목록 → 분석용 마크다운"""
     if not buildings:
         return ""
     from collections import Counter
-    lines = [f"### 주변 건물 현황 (반경 500m, {len(buildings)}동)", ""]
+    lines = [f"### 주변 건물 현황 (반경 {radius_m}m, {len(buildings)}동)", ""]
     uses = Counter(b.get("main_prpos_code_nm","기타") for b in buildings)
     lines += ["**용도별 분포**"]
     for nm, cnt in uses.most_common():

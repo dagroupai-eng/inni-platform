@@ -86,7 +86,8 @@
       "Bash(python:*)",
       "Bash(chcp 65001)",
       "Bash(git branch:*)",
-      "Bash(python3 /c/Users/dA/inni-platform/scripts/replace_run_clicked.py)"
+      "Bash(python3 /c/Users/dA/inni-platform/scripts/replace_run_clicked.py)",
+      "Bash(SUPABASE_URL=\"https://fkqdkwplddvowghdgssl.supabase.co\" SUPABASE_SERVICE_ROLE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrcWRrd3BsZGR2b3dnaGRnc3NsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTQ2NDYwOCwiZXhwIjoyMDg3MDQwNjA4fQ.t4-HWuYKZ00h6OBbDVXdTFyvIqK-0urbW00up_KYb8s\" /c/Users/dA/miniconda3/envs/da_AI_env/python.exe:*)"
     ]
   }
 }

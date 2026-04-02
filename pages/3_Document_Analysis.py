@@ -2254,7 +2254,7 @@ with tab_project:
             # ── 파싱 Queue 진입 ──────────────────────────────────────────────
             _pq_user = st.session_state.get('pms_current_user') or {}
             _pq_uid = _pq_user.get('id')
-            _pq_tid = _pq_user.get('team_id')
+            _pq_server = _pq_user.get('server')
             _pq_pid = st.session_state.get('current_project_id')
             _pq_can_go = True
             try:
@@ -2263,14 +2263,14 @@ with tab_project:
                     try_start_processing, exit_queue as _pq_exit,
                 )
                 if _pq_uid:
-                    enter_queue(_pq_uid, _pq_pid, _pq_tid)
-                    _pq_can_go = can_process(_pq_uid, _pq_tid)
+                    enter_queue(_pq_uid, _pq_pid, _pq_server)
+                    _pq_can_go = can_process(_pq_uid, _pq_server)
             except Exception as _pqe:
                 print(f'[Queue] 파싱 Queue 오류: {_pqe}')
 
             if not _pq_can_go:
                 try:
-                    _pq_info = get_queue_info(_pq_uid, _pq_tid) if _pq_uid else {}
+                    _pq_info = get_queue_info(_pq_uid, _pq_server) if _pq_uid else {}
                 except Exception:
                     _pq_info = {}
                 st.warning(
@@ -2282,7 +2282,7 @@ with tab_project:
             else:
                 if _pq_uid:
                     try:
-                        _pq_can_go = try_start_processing(_pq_uid, _pq_tid)
+                        _pq_can_go = try_start_processing(_pq_uid, _pq_server)
                     except Exception as _pqe:
                         print(f'[Queue] start_processing 오류: {_pqe}')
 

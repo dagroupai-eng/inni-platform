@@ -75,6 +75,7 @@ def restore_login_session():
                 'display_name': user.get('display_name'),
                 'role': user.get('role'),
                 'team_id': user.get('team_id'),
+                'server': user.get('server'),
             }
             print(f"[Session] localStorage에서 세션 복원: {user.get('display_name')}")
 

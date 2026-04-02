@@ -80,7 +80,8 @@ def login(personal_number: str, auto_create: bool = False) -> tuple[bool, str]:
         extra_data={
             "display_name": user.get("display_name"),
             "role": user.get("role"),
-            "team_id": user.get("team_id")
+            "team_id": user.get("team_id"),
+            "server": user.get("server"),
         }
     )
 
