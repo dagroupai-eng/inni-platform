@@ -14,8 +14,31 @@ def _client():
     return get_supabase_client()
 
 
+STALE_MINUTES = 30  # 이 시간 이상 processing 상태인 행은 비정상 종료로 간주
+
+
+def cleanup_stale() -> int:
+    """비정상 종료로 잔류한 processing 행을 삭제합니다.
+    started_at 기준 STALE_MINUTES 이상 경과한 행 대상.
+    반환값: 삭제된 행 수."""
+    from datetime import datetime, timezone, timedelta
+    client = _client()
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=STALE_MINUTES)).isoformat()
+    try:
+        result = client.table('analysis_queue').delete() \
+            .eq('status', 'processing').lt('started_at', cutoff).execute()
+        removed = len(result.data) if result.data else 0
+        if removed:
+            print(f"[Queue] stale processing 행 {removed}개 정리 완료")
+        return removed
+    except Exception as e:
+        print(f"[Queue] cleanup_stale 오류: {e}")
+        return 0
+
+
 def enter_queue(user_id: int, project_id: Optional[int] = None) -> None:
-    """대기열 진입. 이미 있으면 무시."""
+    """대기열 진입. 이미 있으면 무시. 진입 전 stale 행 자동 정리."""
+    cleanup_stale()
     client = _client()
     existing = client.table('analysis_queue').select('id').eq('user_id', user_id).execute()
     if existing.data:
