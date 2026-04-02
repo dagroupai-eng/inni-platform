@@ -2169,58 +2169,53 @@ additional_info = st.session_state.get("additional_info", "")
 
 with tab_project:
     st.header("프로젝트 기본 정보 입력")
-    st.caption("프로젝트 기본 정보는 이 탭에서 별도로 관리됩니다. 입력값은 자동 저장됩니다.")
+    st.caption("입력 후 '입력 완료' 버튼을 눌러야 저장됩니다.")
 
-    # 디버그 정보 (개발 중 확인용) - 숨김 처리
-    # with st.expander("🔍 세션 상태 확인 (디버그)", expanded=False):
-    #     st.caption("현재 세션에 저장된 프로젝트 정보를 확인할 수 있습니다.")
-    #     debug_info = {
-    #         "프로젝트명": st.session_state.get('project_name', '(없음)'),
-    #         "위치": st.session_state.get('location', '(없음)'),
-    #         "위도": st.session_state.get('latitude', '(없음)'),
-    #         "경도": st.session_state.get('longitude', '(없음)'),
-    #         "프로젝트 목표": st.session_state.get('project_goals', '(없음)')[:50] + "..." if len(st.session_state.get('project_goals', '')) > 50 else st.session_state.get('project_goals', '(없음)'),
-    #     }
-    #     for key, value in debug_info.items():
-    #         st.text(f"{key}: {value}")
-    #
-    #     # DB 저장 확인
-    #     if 'pms_current_user' in st.session_state:
-    #         user_id = st.session_state.pms_current_user.get('id')
-    #         st.text(f"사용자 ID: {user_id}")
-    #     else:
-    #         st.warning("로그인 정보 없음")
-
-    st.text_input(
-        "프로젝트명",
-        value=st.session_state.get("project_name", ""),
-        placeholder="예: 삼척 스포츠아카데미",
-        key="project_name"
-    )
-    # 지도에서 필지 선택 시 자동 주입된 경우 안내
+    # 지도에서 필지 선택 시 자동 주입된 경우 안내 (form 외부에서 표시)
     if st.session_state.get("_map_parcel_loaded") and st.session_state.get("location"):
         st.caption("📍 지도(필지 선택) 페이지에서 선택한 필지 주소가 자동으로 입력되었습니다.")
-    st.text_input(
-        "위치/지역",
-        value=st.session_state.get("location", ""),
-        placeholder="예: 강원도 삼척시 도계읍 일대 (또는 지도 페이지에서 필지 선택 시 자동 입력)",
-        key="location"
-    )
-    
-    st.text_area(
-        "프로젝트 목표",
-        value=st.session_state.get("project_goals", ""),
-        placeholder="예: 국제 스포츠 아카데미 조성, 지역 경제 활성화, 교육·훈련 통합 프로그램 구축 등",
-        height=80,
-        key="project_goals"
-    )
-    st.text_area(
-        "추가 정보",
-        value=st.session_state.get("additional_info", ""),
-        placeholder="특별한 제약조건이나 참고 사항이 있다면 입력하세요.",
-        height=80,
-        key="additional_info"
-    )
+
+    with st.form("project_info_form"):
+        st.text_input(
+            "프로젝트명",
+            value=st.session_state.get("project_name", ""),
+            placeholder="예: 삼척 스포츠아카데미",
+            key="project_name"
+        )
+        st.text_input(
+            "위치/지역",
+            value=st.session_state.get("location", ""),
+            placeholder="예: 강원도 삼척시 도계읍 일대 (또는 지도 페이지에서 필지 선택 시 자동 입력)",
+            key="location"
+        )
+        st.text_area(
+            "프로젝트 목표",
+            value=st.session_state.get("project_goals", ""),
+            placeholder="예: 국제 스포츠 아카데미 조성, 지역 경제 활성화, 교육·훈련 통합 프로그램 구축 등",
+            height=80,
+            key="project_goals"
+        )
+        st.text_area(
+            "추가 정보",
+            value=st.session_state.get("additional_info", ""),
+            placeholder="특별한 제약조건이나 참고 사항이 있다면 입력하세요.",
+            height=80,
+            key="additional_info"
+        )
+        _info_submitted = st.form_submit_button(
+            "✅ 프로젝트 정보 입력 완료",
+            use_container_width=True,
+            type="primary",
+        )
+
+    if _info_submitted:
+        # session_state는 form submit 시 Streamlit이 자동 업데이트함
+        # 입력값 최신화 (form 제출 직후 반영)
+        project_name = st.session_state.get("project_name", "")
+        location = st.session_state.get("location", "")
+        project_goals = st.session_state.get("project_goals", "")
+        additional_info = st.session_state.get("additional_info", "")
+        st.success("프로젝트 정보가 저장되었습니다. '파일 업로드' 또는 '분석 블록 선택' 탭으로 이동하세요.")
 
     st.markdown("---")
     st.header("파일 업로드")
