@@ -2244,157 +2244,212 @@ with tab_project:
     
     if uploaded_file is not None:
         st.success(f"파일 업로드 완료: {uploaded_file.name}")
-        
-        # 파일 확장자 확인
+
         file_extension = uploaded_file.name.split('.')[-1].lower()
         file_bytes = uploaded_file.getvalue()
+        file_hash = f"{uploaded_file.name}_{len(file_bytes)}"
+        already_parsed = st.session_state.get('_parsed_file_hash') == file_hash
 
-        # 이미지 파일: Gemini Vision으로 내용 읽기 → 텍스트 컨텍스트로 저장
-        if file_extension in ["png", "jpg", "jpeg", "webp"]:
+        if not already_parsed:
+            # ── 파싱 Queue 진입 ──────────────────────────────────────────────
+            _pq_uid = (st.session_state.get('pms_current_user') or {}).get('id')
+            _pq_pid = st.session_state.get('current_project_id')
+            _pq_can_go = True
             try:
-                from google import genai
-                from google.genai import types
-                from pdf_analyzer import _get_gemini_api_key
+                from database.queue_manager import (
+                    enter_queue, can_process, get_queue_info,
+                    start_processing, exit_queue as _pq_exit,
+                )
+                if _pq_uid:
+                    enter_queue(_pq_uid, _pq_pid)
+                    _pq_can_go = can_process(_pq_uid)
+            except Exception as _pqe:
+                print(f'[Queue] 파싱 Queue 오류: {_pqe}')
 
-                api_key = _get_gemini_api_key()
-                if not api_key:
-                    st.error("이미지 읽기를 위해 `GEMINI_API_KEY`가 필요합니다. (설정/환경변수 또는 UI 키)")
-                else:
-                    client = genai.Client(api_key=api_key)
-                    prompt = (
-                        "이 이미지를 '도시/건축 프로젝트 분석' 관점에서 읽고, "
-                        "보이는 핵심 요소(텍스트/도면/표/지도/다이어그램)를 구조화해 한국어로 요약해줘.\n\n"
-                        "출력 형식:\n"
-                        "1) 한줄 요약\n"
-                        "2) 관찰된 요소(불릿)\n"
-                        "3) 이미지 내 텍스트(OCR 느낌으로 최대한)\n"
-                        "4) 분석에 유용한 키워드(10개)\n"
-                    )
-                    with st.spinner("🖼️ 이미지 내용 읽는 중(Gemini Vision)..."):
-                        resp = client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=[
-                                types.Content(
-                                    role="user",
-                                    parts=[
-                                        types.Part.from_text(prompt),
-                                        types.Part.from_bytes(data=file_bytes, mime_type=uploaded_file.type or "image/png"),
-                                    ],
+            if not _pq_can_go:
+                try:
+                    _pq_info = get_queue_info(_pq_uid) if _pq_uid else {}
+                except Exception:
+                    _pq_info = {}
+                st.warning(
+                    f"⏳ 파일 파싱 대기 중 ({_pq_info.get('position', '?')}번째). "
+                    "잠시 후 자동 시작됩니다..."
+                )
+                time.sleep(3)
+                st.rerun()
+            else:
+                if _pq_uid:
+                    try:
+                        start_processing(_pq_uid)
+                    except Exception as _pqe:
+                        print(f'[Queue] start_processing 오류: {_pqe}')
+
+                _parse_ok = False
+                try:
+                    # 이미지 파일: Gemini Vision으로 내용 읽기 → 텍스트 컨텍스트로 저장
+                    if file_extension in ["png", "jpg", "jpeg", "webp"]:
+                        try:
+                            from google import genai
+                            from google.genai import types
+                            from pdf_analyzer import _get_gemini_api_key
+
+                            api_key = _get_gemini_api_key()
+                            if not api_key:
+                                st.error("이미지 읽기를 위해 `GEMINI_API_KEY`가 필요합니다. (설정/환경변수 또는 UI 키)")
+                            else:
+                                client = genai.Client(api_key=api_key)
+                                prompt = (
+                                    "이 이미지를 '도시/건축 프로젝트 분析' 관점에서 읽고, "
+                                    "보이는 핵심 요소(텍스트/도면/표/지도/다이어그램)를 구조화해 한국어로 요약해줘.\n\n"
+                                    "출력 형식:\n"
+                                    "1) 한줄 요약\n"
+                                    "2) 관찰된 요소(불릿)\n"
+                                    "3) 이미지 내 텍스트(OCR 느낌으로 최대한)\n"
+                                    "4) 분析에 유용한 키워드(10개)\n"
                                 )
-                            ],
-                        )
-                    text = (getattr(resp, "text", None) or "").strip()
-                    if text:
-                        # 기존 변수명을 유지: pdf_text에 이미지 설명을 넣어 이후 블록 분석에 바로 사용 가능
-                        st.session_state["pdf_text"] = text
-                        st.session_state["pdf_uploaded"] = True
-                        st.session_state["file_type"] = "image"
-                        st.session_state["file_analysis"] = {
-                            "success": True,
-                            "file_type": "image",
-                            "text": text,
-                            "char_count": len(text),
-                            "word_count": len(text.split()),
-                            "preview": text[:500] + "..." if len(text) > 500 else text,
-                        }
-                        st.session_state["uploaded_file"] = uploaded_file
-                        st.success("이미지 읽기 완료! 추출된 텍스트를 분석에 사용합니다.")
-                        with st.expander("이미지 읽기 결과(미리보기)"):
-                            st.text(st.session_state["file_analysis"]["preview"])
+                                with st.spinner("🖼️ 이미지 내용 읽는 중(Gemini Vision)..."):
+                                    resp = client.models.generate_content(
+                                        model="gemini-2.5-flash",
+                                        contents=[
+                                            types.Content(
+                                                role="user",
+                                                parts=[
+                                                    types.Part.from_text(prompt),
+                                                    types.Part.from_bytes(data=file_bytes, mime_type=uploaded_file.type or "image/png"),
+                                                ],
+                                            )
+                                        ],
+                                    )
+                                text = (getattr(resp, "text", None) or "").strip()
+                                if text:
+                                    st.session_state["pdf_text"] = text
+                                    st.session_state["pdf_uploaded"] = True
+                                    st.session_state["file_type"] = "image"
+                                    st.session_state["file_analysis"] = {
+                                        "success": True,
+                                        "file_type": "image",
+                                        "text": text,
+                                        "char_count": len(text),
+                                        "word_count": len(text.split()),
+                                        "preview": text[:500] + "..." if len(text) > 500 else text,
+                                    }
+                                    st.session_state["uploaded_file"] = uploaded_file
+                                    _parse_ok = True
+                                else:
+                                    st.error("이미지 읽기 결과가 비어 있습니다.")
+                        except Exception as _img_err:
+                            st.error(f"이미지 읽기 실패: {_img_err}")
 
-                        # Storage 업로드는 기존 로직 그대로 수행하도록 아래로 계속 진행
                     else:
-                        st.error("이미지 읽기 결과가 비어 있습니다.")
-            except Exception as _img_err:
-                st.error(f"이미지 읽기 실패: {_img_err}")
-            # 이미지인 경우도 Storage 업로드/메타 저장을 위해 아래 로직은 계속 진행
-        
-        # 메모리에서 직접 파일 분석 (임시 파일 생성 없음)
-        file_analyzer = UniversalFileAnalyzer()
-        
-        # 파일 분석 (메모리 기반)
-        with st.spinner(f"{file_extension.upper()} 파일 분석 중..."):
-            analysis_result = file_analyzer.analyze_file_from_bytes(
-                file_bytes, 
-                file_extension, 
-                uploaded_file.name
-            )
-            
-        if analysis_result['success']:
-            st.success(f"{file_extension.upper()} 파일 분석 완료!")
-            
-            # 파일 정보 표시 (파일 크기는 업로드된 파일에서 직접 계산)
-            file_size_mb = len(uploaded_file.getvalue()) / (1024 * 1024)
-            st.info(f"파일 정보: {file_size_mb:.2f}MB, {analysis_result['word_count']}단어, {analysis_result['char_count']}문자")
-            if analysis_result.get('truncated'):
-                orig = analysis_result.get('original_char_count', 0)
-                st.warning(f"파일이 너무 커서 앞부분 {analysis_result['char_count']:,}자만 분석에 사용됩니다. (원본: {orig:,}자)")
-            
-            # 파일 형식별 특별 정보 표시
-            if analysis_result['file_type'] == 'excel':
-                st.info(f"Excel 시트: {', '.join(analysis_result['sheet_names'])} ({analysis_result['sheet_count']}개 시트)")
-            elif analysis_result['file_type'] == 'csv':
-                enc = analysis_result.get('encoding', 'utf-8')
-                st.info(f"CSV 데이터: {analysis_result['shape'][0]}행 × {analysis_result['shape'][1]}열 | 인코딩: {enc}")
-            elif analysis_result['file_type'] == 'pdf':
-                method = analysis_result.get('method', 'pymupdf')
-                quality = analysis_result.get('quality_score', '-')
-                st.info(f"PDF 추출 방법: {method} | 품질 점수: {quality}/100")
-                if analysis_result.get('is_scanned'):
-                    st.warning("스캔된 PDF로 감지되었습니다. Gemini API 키가 있으면 자동으로 OCR 처리됩니다.")
-            elif analysis_result['file_type'] == 'docx':
-                h = analysis_result.get('heading_count', 0)
-                t = analysis_result.get('table_count', 0)
-                st.info(f"Word 문서: 헤딩 {h}개, 표 {t}개")
-            elif analysis_result['file_type'] == 'json':
-                if analysis_result.get('summarized'):
-                    st.info("JSON 파일이 크기가 커서 구조 요약 모드로 변환되었습니다. (키 목록 + 샘플 항목)")
-            
-            # 세션에 저장
-            st.session_state['pdf_text'] = analysis_result['text']  # 기존 변수명 유지
-            st.session_state['pdf_uploaded'] = True
-            st.session_state['file_type'] = analysis_result['file_type']
-            st.session_state['file_analysis'] = analysis_result
-            st.session_state['uploaded_file'] = uploaded_file  # 파일 객체 저장
+                        # 메모리에서 직접 파일 분析 (임시 파일 생성 없음)
+                        file_analyzer = UniversalFileAnalyzer()
+                        with st.spinner(f"{file_extension.upper()} 파일 분析 중..."):
+                            analysis_result = file_analyzer.analyze_file_from_bytes(
+                                file_bytes,
+                                file_extension,
+                                uploaded_file.name
+                            )
 
-            # ── Supabase Storage 업로드 ────────────────────────────────────────
-            try:
-                from auth.file_storage import upload_project_file, save_file_meta
-                from auth.project_manager import get_or_create_current_project
-                _uid_fs = st.session_state.pms_current_user.get('id') if st.session_state.get('pms_current_user') else None
-                if _uid_fs:
-                    _pid_fs = get_or_create_current_project(_uid_fs)
-                    _storage_path = upload_project_file(
-                        user_id=_uid_fs,
-                        project_id=_pid_fs,
-                        filename=uploaded_file.name,
-                        file_bytes=file_bytes,
-                    )
-                    if _storage_path:
-                        st.session_state['file_storage_path'] = _storage_path
-                        save_file_meta(
-                            project_id=_pid_fs,
-                            user_id=_uid_fs,
-                            filename=uploaded_file.name,
-                            file_type=analysis_result['file_type'],
-                            storage_path=_storage_path,
-                            char_count=analysis_result.get('char_count', 0),
-                            file_size_bytes=len(file_bytes),
-                            file_meta={
-                                'quality_score': analysis_result.get('quality_score'),
-                                'method': analysis_result.get('method'),
-                            },
-                        )
-                        st.caption(f"☁️ 파일이 저장소에 업로드되었습니다.")
-            except Exception as _fs_err:
-                print(f"[FileStorage] 업로드 오류: {_fs_err}")
+                        if analysis_result['success']:
+                            st.success(f"{file_extension.upper()} 파일 분析 완료!")
+                            file_size_mb = len(file_bytes) / (1024 * 1024)
+                            st.info(f"파일 정보: {file_size_mb:.2f}MB, {analysis_result['word_count']}단어, {analysis_result['char_count']}문자")
+                            if analysis_result.get('truncated'):
+                                orig = analysis_result.get('original_char_count', 0)
+                                st.warning(f"파일이 너무 커서 앞부분 {analysis_result['char_count']:,}자만 분析에 사용됩니다. (원본: {orig:,}자)")
+                            if analysis_result['file_type'] == 'excel':
+                                st.info(f"Excel 시트: {', '.join(analysis_result['sheet_names'])} ({analysis_result['sheet_count']}개 시트)")
+                            elif analysis_result['file_type'] == 'csv':
+                                enc = analysis_result.get('encoding', 'utf-8')
+                                st.info(f"CSV 데이터: {analysis_result['shape'][0]}행 × {analysis_result['shape'][1]}열 | 인코딩: {enc}")
+                            elif analysis_result['file_type'] == 'pdf':
+                                method = analysis_result.get('method', 'pymupdf')
+                                quality = analysis_result.get('quality_score', '-')
+                                st.info(f"PDF 추출 방법: {method} | 품질 점수: {quality}/100")
+                                if analysis_result.get('is_scanned'):
+                                    st.warning("스캔된 PDF로 감지되었습니다. Gemini API 키가 있으면 자동으로 OCR 처리됩니다.")
+                            elif analysis_result['file_type'] == 'docx':
+                                h = analysis_result.get('heading_count', 0)
+                                t = analysis_result.get('table_count', 0)
+                                st.info(f"Word 문서: 헤딩 {h}개, 표 {t}개")
+                            elif analysis_result['file_type'] == 'json':
+                                if analysis_result.get('summarized'):
+                                    st.info("JSON 파일이 크기가 커서 구조 요약 모드로 변환되었습니다. (키 목록 + 샘플 항목)")
 
-            # 텍스트 미리보기
-            with st.expander(f"{file_extension.upper()} 내용 미리보기"):
-                st.text(analysis_result['preview'])
+                            # 세션에 저장
+                            st.session_state['pdf_text'] = analysis_result['text']
+                            st.session_state['pdf_uploaded'] = True
+                            st.session_state['file_type'] = analysis_result['file_type']
+                            st.session_state['file_analysis'] = analysis_result
+                            st.session_state['uploaded_file'] = uploaded_file
 
-            # 파일 업로드 확인 버튼
-            if st.button("✅ 파일 분석 완료 확인", use_container_width=True, type="primary", key="confirm_file_upload"):
+                            # ── Supabase Storage 업로드 ────────────────────────────────────────
+                            try:
+                                from auth.file_storage import upload_project_file, save_file_meta
+                                from auth.project_manager import get_or_create_current_project
+                                _uid_fs = st.session_state.pms_current_user.get('id') if st.session_state.get('pms_current_user') else None
+                                if _uid_fs:
+                                    _pid_fs = get_or_create_current_project(_uid_fs)
+                                    _storage_path = upload_project_file(
+                                        user_id=_uid_fs,
+                                        project_id=_pid_fs,
+                                        filename=uploaded_file.name,
+                                        file_bytes=file_bytes,
+                                    )
+                                    if _storage_path:
+                                        st.session_state['file_storage_path'] = _storage_path
+                                        save_file_meta(
+                                            project_id=_pid_fs,
+                                            user_id=_uid_fs,
+                                            filename=uploaded_file.name,
+                                            file_type=analysis_result['file_type'],
+                                            storage_path=_storage_path,
+                                            char_count=analysis_result.get('char_count', 0),
+                                            file_size_bytes=len(file_bytes),
+                                            file_meta={
+                                                'quality_score': analysis_result.get('quality_score'),
+                                                'method': analysis_result.get('method'),
+                                            },
+                                        )
+                                        st.caption("☁️ 파일이 저장소에 업로드되었습니다.")
+                            except Exception as _fs_err:
+                                print(f"[FileStorage] 업로드 오류: {_fs_err}")
+
+                            # 텍스트 미리보기
+                            with st.expander(f"{file_extension.upper()} 내용 미리보기"):
+                                st.text(analysis_result['preview'])
+
+                            _parse_ok = True
+                        else:
+                            st.error(f"{file_extension.upper()} 파일 분析에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
+
+                finally:
+                    try:
+                        if _pq_uid:
+                            _pq_exit(_pq_uid)
+                    except Exception as _pqe:
+                        print(f'[Queue] exit_queue 오류: {_pqe}')
+
+                if _parse_ok:
+                    st.session_state['_parsed_file_hash'] = file_hash
+
+        else:
+            # 이미 파싱된 파일 → 재파싱 스킵, UI만 표시
+            _cached = st.session_state.get('file_analysis', {})
+            if _cached.get('success'):
+                if _cached.get('file_type') == 'image':
+                    st.success("이미지 읽기 완료! 추출된 텍스트를 분析에 사용합니다.")
+                    with st.expander("이미지 읽기 결과(미리보기)"):
+                        st.text(_cached.get('preview', ''))
+                else:
+                    file_size_mb = len(file_bytes) / (1024 * 1024)
+                    st.info(f"파일 정보: {file_size_mb:.2f}MB, {_cached.get('word_count', 0)}단어, {_cached.get('char_count', 0)}문자")
+                    with st.expander(f"{file_extension.upper()} 내용 미리보기"):
+                        st.text(_cached.get('preview', ''))
+
+        # 파일 분析 완료 확인 버튼
+        if st.session_state.get('pdf_uploaded') and st.session_state.get('_parsed_file_hash') == file_hash:
+            if st.button("✅ 파일 분析 완료 확인", use_container_width=True, type="primary", key="confirm_file_upload"):
                 try:
                     from auth.project_manager import save_project_from_session
                     from auth.session_init import save_analysis_progress
@@ -2409,9 +2464,7 @@ with tab_project:
                     st.rerun()
                 except Exception as e:
                     st.warning(f"저장 중 오류: {e}")
-                    st.success("파일 분석이 확인되었습니다. '분석 블록 선택' 탭으로 이동하세요.")
-        else:
-            st.error(f"{file_extension.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
+                    st.success("파일 분析이 확인되었습니다. '분析 블록 선택' 탭으로 이동하세요.")
 
     # 입력값 최신화
     project_name = st.session_state.get("project_name", "")
@@ -3199,15 +3252,6 @@ with tab_run:
         # 멈춤 처리
         if stop_clicked:
             st.session_state.cot_running_block = None
-            st.session_state['_queue_waiting'] = False
-            # 대기열에서 제거
-            try:
-                from database.queue_manager import exit_queue
-                _stop_uid = st.session_state.get('user_id')
-                if _stop_uid:
-                    exit_queue(_stop_uid)
-            except Exception as _sq_err:
-                print(f"[Queue] stop exit_queue 오류: {_sq_err}")
             st.warning(f"{next_block_name} 블록 분析을 중단했습니다. 페이지를 새로고침합니다.")
             # analysis_runs 취소 처리
             _run_id = st.session_state.get("current_analysis_run_id")
@@ -3257,187 +3301,139 @@ with tab_run:
             st.info(f"{next_block_name} 블록을 건너뛰었습니다.")
             st.rerun()
 
-        queue_waiting = st.session_state.get('_queue_waiting', False)
-        if run_clicked or queue_waiting:
-            _q_uid = st.session_state.get('user_id')
-            _q_pid = st.session_state.get('current_project_id')
-
-            # 최초 버튼 클릭 시만 대기열 진입 (queue_waiting 재진입 시는 스킵)
-            if run_clicked and not queue_waiting:
-                try:
-                    from database.queue_manager import enter_queue
-                    if _q_uid:
-                        enter_queue(_q_uid, _q_pid)
-                except Exception as _qe:
-                    print(f'[Queue] enter_queue 오류: {_qe}')
-
-            # 내 차례 확인
-            _can_go = True
+        if run_clicked:
+            analyzer = get_cot_analyzer()
+            if analyzer is None:
+                st.error('분析기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.')
+                st.stop()
+            progress_placeholder = st.empty()
+            st.session_state.cot_running_block = next_block_id
+            # analysis_steps 상태 업데이트(있으면)
             try:
-                from database.queue_manager import can_process, get_queue_info, start_processing, exit_queue as _q_exit
-                if _q_uid:
-                    _can_go = can_process(_q_uid)
-            except Exception as _qe:
-                print(f'[Queue] can_process 오류: {_qe}')
+                from database.analysis_steps_manager import set_step_status, save_step_payloads
+                step_map = st.session_state.get('analysis_step_id_map', {}) or {}
+                sid = step_map.get(next_block_id)
+                if sid:
+                    set_step_status(sid, 'running')
+                    _inputs = {
+                        'feedback': st.session_state.get('cot_feedback_inputs', {}).get(next_block_id, ''),
+                        'spatial_layers': st.session_state.get('block_spatial_selection', {}).get(next_block_id, []),
+                    }
+                    save_step_payloads(sid, inputs=_inputs, outputs=None)
+            except Exception as _run_db_err:
+                print(f'[AnalysisSteps] running 업데이트 실패: {_run_db_err}')
 
-            if not _can_go:
-                # 대기 중 → 3초 후 자동 재확인
-                try:
-                    _q_info = get_queue_info(_q_uid) if _q_uid else {}
-                except Exception:
-                    _q_info = {}
-                _q_pos = _q_info.get('position', '?')
-                st.session_state['_queue_waiting'] = True
-                st.warning(f'⏳ 다른 사용자가 분析 중입니다. 현재 **{_q_pos}번째 대기 중**입니다. 잠시 후 자동 재확인합니다...')
-                time.sleep(3)
-                st.rerun()
-            else:
-                # 내 차례 → processing 전환 후 분析 실행
-                st.session_state['_queue_waiting'] = False
-                try:
-                    if _q_uid:
-                        start_processing(_q_uid)
-                except Exception as _qe:
-                    print(f'[Queue] start_processing 오류: {_qe}')
+            def step_progress(message: str) -> None:
+                st.session_state.cot_progress_messages.append(message)
+                if len(st.session_state.cot_progress_messages) > 50:
+                    st.session_state.cot_progress_messages = st.session_state.cot_progress_messages[-50:]
+                progress_placeholder.info(message)
 
-                analyzer = get_cot_analyzer()
-                if analyzer is None:
-                    st.error('분析기를 초기화할 수 없습니다. 위의 오류 메시지를 확인하세요.')
-                    st.stop()
-                progress_placeholder = st.empty()
-                st.session_state.cot_running_block = next_block_id
-                # analysis_steps 상태 업데이트(있으면)
+            # 사용자 피드백
+            user_feedback = st.session_state.cot_feedback_inputs.get(next_block_id, '').strip()
+            combined_feedback = user_feedback or None
+
+            # 블록별 RAG 컨텍스트 주입
+            doc_rag_system = st.session_state.get('doc_rag_system')
+            if doc_rag_system and next_block:
+                try:
+                    from rag_helper import get_block_relevant_context
+                    block_context = get_block_relevant_context(next_block, doc_rag_system, top_k=8)
+                    if block_context:
+                        # 원본 전체 텍스트는 보존하고 블록 전용 컨텍스트를 주입
+                        original_file_text = st.session_state.cot_session['project_info'].get('file_text', '')
+                        st.session_state.cot_session['project_info']['_original_file_text'] = original_file_text
+                        st.session_state.cot_session['project_info']['file_text'] = block_context
+                        print(f'[RAG] {next_block_id}: 블록 컨텍스트 주입 ({len(block_context)}자 / 전체 {len(original_file_text)}자)')
+                except Exception as _rag_inject_err:
+                    print(f'[RAG] 컨텍스트 주입 실패 (전체 문서로 폴백): {_rag_inject_err}')
+
+            try:
+                with st.spinner('분析 실행 중...'):
+                    step_result = analyzer.run_cot_step(
+                        next_block_id,
+                        next_block,
+                        st.session_state.cot_session,
+                        progress_callback=step_progress,
+                        step_index=st.session_state.cot_current_index + 1,
+                        feedback=combined_feedback
+                    )
+            finally:
+                st.session_state.cot_running_block = None
+                # 블록별 컨텍스트 주입 후 원본 텍스트 복원
+                if st.session_state.cot_session and 'project_info' in st.session_state.cot_session:
+                    original = st.session_state.cot_session['project_info'].pop('_original_file_text', None)
+                    if original is not None:
+                        st.session_state.cot_session['project_info']['file_text'] = original
+
+            if step_result.get('success'):
+                st.session_state.cot_session = step_result['cot_session']
+                st.session_state.cot_results[next_block_id] = step_result['analysis']
+                analysis_result = step_result['analysis']
+                st.session_state.analysis_results[next_block_id] = analysis_result
+
+                # Citations 저장
+                if step_result.get('all_citations'):
+                    st.session_state.cot_citations[next_block_id] = step_result['all_citations']
+
+                # Phase 3: 출처 검증
+                _run_rag = st.session_state.get('doc_rag_system')
+                if _run_rag and analysis_result:
+                    try:
+                        from rag_helper import verify_analysis
+                        _verifications = verify_analysis(analysis_result, _run_rag, max_claims=6)
+                        if _verifications:
+                            st.session_state.cot_verifications[next_block_id] = _verifications
+                    except Exception as _ver_err:
+                        print(f'[Verify] 출처 검증 실패: {_ver_err}')
+
+                # analysis_steps 출력 저장(있으면)
                 try:
                     from database.analysis_steps_manager import set_step_status, save_step_payloads
                     step_map = st.session_state.get('analysis_step_id_map', {}) or {}
                     sid = step_map.get(next_block_id)
                     if sid:
-                        set_step_status(sid, 'running')
-                        _inputs = {
-                            'feedback': st.session_state.get('cot_feedback_inputs', {}).get(next_block_id, ''),
-                            'spatial_layers': st.session_state.get('block_spatial_selection', {}).get(next_block_id, []),
+                        outp = {
+                            'analysis': analysis_result,
+                            'citations': st.session_state.get('cot_citations', {}).get(next_block_id),
+                            'verifications': st.session_state.get('cot_verifications', {}).get(next_block_id),
                         }
-                        save_step_payloads(sid, inputs=_inputs, outputs=None)
-                except Exception as _run_db_err:
-                    print(f'[AnalysisSteps] running 업데이트 실패: {_run_db_err}')
+                        save_step_payloads(sid, inputs=None, outputs=outp)
+                        set_step_status(sid, 'completed')
+                except Exception as _save_step_err:
+                    print(f'[AnalysisSteps] step 저장 실패: {_save_step_err}')
 
-                def step_progress(message: str) -> None:
-                    st.session_state.cot_progress_messages.append(message)
-                    if len(st.session_state.cot_progress_messages) > 50:
-                        st.session_state.cot_progress_messages = st.session_state.cot_progress_messages[-50:]
-                    progress_placeholder.info(message)
+                # 자동 저장
+                project_info = {
+                    'project_name': st.session_state.get('project_name', ''),
+                    'location': st.session_state.get('location', '')
+                }
+                save_analysis_result(next_block_id, analysis_result, project_info)
 
-                # 사용자 피드백
-                user_feedback = st.session_state.cot_feedback_inputs.get(next_block_id, '').strip()
-                combined_feedback = user_feedback or None
+                st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
+                st.session_state.cot_current_index += 1
 
-                # 블록별 RAG 컨텍스트 주입
-                doc_rag_system = st.session_state.get('doc_rag_system')
-                if doc_rag_system and next_block:
-                    try:
-                        from rag_helper import get_block_relevant_context
-                        block_context = get_block_relevant_context(next_block, doc_rag_system, top_k=8)
-                        if block_context:
-                            # 원본 전체 텍스트는 보존하고 블록 전용 컨텍스트를 주입
-                            original_file_text = st.session_state.cot_session['project_info'].get('file_text', '')
-                            st.session_state.cot_session['project_info']['_original_file_text'] = original_file_text
-                            st.session_state.cot_session['project_info']['file_text'] = block_context
-                            print(f'[RAG] {next_block_id}: 블록 컨텍스트 주입 ({len(block_context)}자 / 전체 {len(original_file_text)}자)')
-                    except Exception as _rag_inject_err:
-                        print(f'[RAG] 컨텍스트 주입 실패 (전체 문서로 폴백): {_rag_inject_err}')
-
+                # 분析 진행 상태 실시간 저장
                 try:
-                    with st.spinner('분析 실행 중...'):
-                        step_result = analyzer.run_cot_step(
-                            next_block_id,
-                            next_block,
-                            st.session_state.cot_session,
-                            progress_callback=step_progress,
-                            step_index=st.session_state.cot_current_index + 1,
-                            feedback=combined_feedback
-                        )
-                finally:
-                    st.session_state.cot_running_block = None
-                    # 대기열에서 제거 (완료/중단/오류 모두)
-                    try:
-                        if _q_uid:
-                            _q_exit(_q_uid)
-                    except Exception as _qe:
-                        print(f'[Queue] exit_queue 오류: {_qe}')
-                    # 블록별 컨텍스트 주입 후 원본 텍스트 복원
-                    if st.session_state.cot_session and 'project_info' in st.session_state.cot_session:
-                        original = st.session_state.cot_session['project_info'].pop('_original_file_text', None)
-                        if original is not None:
-                            st.session_state.cot_session['project_info']['file_text'] = original
+                    from auth.session_init import save_analysis_progress, save_work_session
+                    save_analysis_progress(force=True)  # 즉시 저장
+                    save_work_session()
+                except Exception as e:
+                    print(f'세션 저장 오류: {e}')
 
-                if step_result.get('success'):
-                    st.session_state.cot_session = step_result['cot_session']
-                    st.session_state.cot_results[next_block_id] = step_result['analysis']
-                    analysis_result = step_result['analysis']
-                    st.session_state.analysis_results[next_block_id] = analysis_result
-
-                    # Citations 저장
-                    if step_result.get('all_citations'):
-                        st.session_state.cot_citations[next_block_id] = step_result['all_citations']
-
-                    # Phase 3: 출처 검증
-                    _run_rag = st.session_state.get('doc_rag_system')
-                    if _run_rag and analysis_result:
-                        try:
-                            from rag_helper import verify_analysis
-                            _verifications = verify_analysis(analysis_result, _run_rag, max_claims=6)
-                            if _verifications:
-                                st.session_state.cot_verifications[next_block_id] = _verifications
-                        except Exception as _ver_err:
-                            print(f'[Verify] 출처 검증 실패: {_ver_err}')
-
-                    # analysis_steps 출력 저장(있으면)
-                    try:
-                        from database.analysis_steps_manager import set_step_status, save_step_payloads
-                        step_map = st.session_state.get('analysis_step_id_map', {}) or {}
-                        sid = step_map.get(next_block_id)
-                        if sid:
-                            outp = {
-                                'analysis': analysis_result,
-                                'citations': st.session_state.get('cot_citations', {}).get(next_block_id),
-                                'verifications': st.session_state.get('cot_verifications', {}).get(next_block_id),
-                            }
-                            save_step_payloads(sid, inputs=None, outputs=outp)
-                            set_step_status(sid, 'completed')
-                    except Exception as _save_step_err:
-                        print(f'[AnalysisSteps] step 저장 실패: {_save_step_err}')
-
-                    # 자동 저장
-                    project_info = {
-                        'project_name': st.session_state.get('project_name', ''),
-                        'location': st.session_state.get('location', '')
-                    }
-                    save_analysis_result(next_block_id, analysis_result, project_info)
-
-                    st.session_state.cot_history = step_result['cot_session'].get('cot_history', st.session_state.cot_history)
-                    st.session_state.cot_current_index += 1
-
-                    # 분析 진행 상태 실시간 저장
-                    try:
-                        from auth.session_init import save_analysis_progress, save_work_session
-                        save_analysis_progress(force=True)  # 즉시 저장
-                        save_work_session()
-                    except Exception as e:
-                        print(f'세션 저장 오류: {e}')
-
-                    st.success(f'{next_block_name} 블록 분析이 완료되었습니다.')
-                    st.rerun()
-                else:
-                    # 실패 상태 저장(있으면)
-                    try:
-                        from database.analysis_steps_manager import set_step_status
-                        step_map = st.session_state.get('analysis_step_id_map', {}) or {}
-                        sid = step_map.get(next_block_id)
-                        if sid:
-                            set_step_status(sid, 'failed', error=str(step_result.get('error', ''))[:800])
-                    except Exception as _fail_step_err:
-                        print(f'[AnalysisSteps] failed 업데이트 실패: {_fail_step_err}')
-                    st.error(f'{next_block_name} 블록 분析 실패: {step_result.get("error", "알 수 없는 오류")}')
+                st.success(f'{next_block_name} 블록 분析이 완료되었습니다.')
+                st.rerun()
+            else:
+                # 실패 상태 저장(있으면)
+                try:
+                    from database.analysis_steps_manager import set_step_status
+                    step_map = st.session_state.get('analysis_step_id_map', {}) or {}
+                    sid = step_map.get(next_block_id)
+                    if sid:
+                        set_step_status(sid, 'failed', error=str(step_result.get('error', ''))[:800])
+                except Exception as _fail_step_err:
+                    print(f'[AnalysisSteps] failed 업데이트 실패: {_fail_step_err}')
+                st.error(f'{next_block_name} 블록 분析 실패: {step_result.get("error", "알 수 없는 오류")}')
 
     if not active_plan:
         st.info("분석 세션을 준비하면 단계별 진행 정보를 확인할 수 있습니다.")
