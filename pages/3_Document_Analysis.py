@@ -3208,6 +3208,19 @@ with tab_run:
                                     del st.session_state.analysis_results[bid]
                                 if bid in st.session_state.get('cot_citations', {}):
                                     del st.session_state.cot_citations[bid]
+                            # previous_results 정리: 재시작 블록부터의 누적 컨텍스트 제거
+                            # (이전 분석 결과가 재분析에 영향을 주지 않도록)
+                            if st.session_state.cot_session and isinstance(
+                                st.session_state.cot_session.get('previous_results'), dict
+                            ):
+                                for bid in blocks_to_remove:
+                                    st.session_state.cot_session['previous_results'].pop(bid, None)
+                            # DB에 새 cot_current_index 저장 → restore_work_session이 구버전으로 덮어쓰는 것 방지
+                            try:
+                                from auth.session_init import save_work_session
+                                save_work_session()
+                            except Exception as _nav_save_err:
+                                print(f"[🔄] 세션 저장 오류: {_nav_save_err}")
                             st.success(f"'{block_name}'(으)로 이동했습니다.")
                             # st.rerun() 생략 — 버튼 클릭이 이미 rerun을 트리거함
                             # 명시적 rerun을 추가하면 2번 rerun되어 탭이 tab1으로 리셋됨
