@@ -2836,12 +2836,17 @@ with tab_run:
         _file_text_loaded = bool(st.session_state.get('pdf_text'))
         if has_file and _file_text_loaded:
             file_analysis = st.session_state.get('file_analysis', {})
-            file_name = "N/A"
-            if st.session_state.get('uploaded_file'):
-                file_name = st.session_state['uploaded_file'].name
-            elif uploaded_file is not None:
-                file_name = uploaded_file.name
-            st.write(f"• 파일명: {file_name}")
+            _files_list = st.session_state.get('uploaded_files_list', [])
+            if _files_list:
+                _fnames = [f['name'] for f in _files_list]
+                if len(_fnames) == 1:
+                    st.write(f"• 파일명: {_fnames[0]}")
+                else:
+                    st.write(f"• 파일 {len(_fnames)}개: {', '.join(_fnames)}")
+            elif st.session_state.get('uploaded_file'):
+                st.write(f"• 파일명: {st.session_state['uploaded_file'].name}")
+            else:
+                st.write("• 파일명: N/A")
             st.write(f"• 파일 유형: {file_analysis.get('file_type', 'N/A')}")
             st.write(f"• 텍스트 길이: {file_analysis.get('char_count', 0)}자")
             st.write(f"• 단어 수: {file_analysis.get('word_count', 0)}단어")
