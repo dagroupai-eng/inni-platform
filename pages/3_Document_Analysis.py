@@ -2347,7 +2347,7 @@ with tab_project:
                                                 types.Content(
                                                     role="user",
                                                     parts=[
-                                                        types.Part.from_text(prompt),
+                                                        types.Part.from_text(text=prompt),
                                                         types.Part.from_bytes(data=_fb, mime_type=_uf.type or "image/png"),
                                                     ],
                                                 )
