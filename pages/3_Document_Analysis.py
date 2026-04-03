@@ -2267,7 +2267,7 @@ with tab_project:
         new_files = []
         for _uf in uploaded_files:
             _fb = _uf.getvalue()
-            _fh = f"{_uf.name}_{len(_fb)}"
+            _fh = hashlib.md5(_fb).hexdigest()
             _fext = _uf.name.split('.')[-1].lower()
             if _fh not in st.session_state['_processed_file_hashes']:
                 new_files.append((_uf, _fb, _fh, _fext))
@@ -2363,13 +2363,14 @@ with tab_project:
                                             "word_count": len(text.split()),
                                             "preview": text[:500] + "..." if len(text) > 500 else text,
                                         }
-                                        st.session_state['uploaded_files_list'].append({
-                                            'name': _uf.name,
-                                            'text': text,
-                                            'file_type': 'image',
-                                            'analysis': _img_analysis,
-                                            'hash': _fh,
-                                        })
+                                        if _fh not in [e['hash'] for e in st.session_state['uploaded_files_list']]:
+                                            st.session_state['uploaded_files_list'].append({
+                                                'name': _uf.name,
+                                                'text': text,
+                                                'file_type': 'image',
+                                                'analysis': _img_analysis,
+                                                'hash': _fh,
+                                            })
                                         with st.expander(f"이미지 읽기 결과(미리보기) [{_uf.name}]"):
                                             st.text(_img_analysis['preview'])
                                         _parse_ok = True
@@ -2406,13 +2407,14 @@ with tab_project:
                                     t = analysis_result.get('table_count', 0)
                                     st.info(f"Word 문서: 헤딩 {h}개, 표 {t}개")
 
-                                st.session_state['uploaded_files_list'].append({
-                                    'name': _uf.name,
-                                    'text': analysis_result['text'],
-                                    'file_type': analysis_result['file_type'],
-                                    'analysis': analysis_result,
-                                    'hash': _fh,
-                                })
+                                if _fh not in [e['hash'] for e in st.session_state['uploaded_files_list']]:
+                                    st.session_state['uploaded_files_list'].append({
+                                        'name': _uf.name,
+                                        'text': analysis_result['text'],
+                                        'file_type': analysis_result['file_type'],
+                                        'analysis': analysis_result,
+                                        'hash': _fh,
+                                    })
 
                                 # ── Supabase Storage 업로드 ────────────────────────────────
                                 try:
@@ -2467,7 +2469,7 @@ with tab_project:
         _new_hashes = {_fh for (_, _, _fh, _) in new_files}
         for _uf in uploaded_files:
             _fb = _uf.getvalue()
-            _fh = f"{_uf.name}_{len(_fb)}"
+            _fh = hashlib.md5(_fb).hexdigest()
             _fext = _uf.name.split('.')[-1].lower()
             if _fh in st.session_state['_processed_file_hashes'] and _fh not in _new_hashes:
                 _cached_entry = next(
