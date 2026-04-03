@@ -2933,15 +2933,19 @@ with tab_run:
             ('zoning',                    '용도지역/지구'),
             ('land_category',             '지목'),
             ('parcel_count',              '필지 수'),
-            ('official_price_per_m2',     '공시지가'),
+            ('official_price_per_m2',     '공시지가 (가중평균)'),
+            ('indvd_land_price_history',  '공시지가 이력'),
+            ('land_price_change_rate',    '지가변동률'),
             ('land_restrictions',         '용도계획 제한'),
             ('land_ownership',            '소유정보'),
             ('building_height',           '건물 높이'),
+            ('illegal_building',          '위반건축물'),
             ('existing_building_purpose', '기존 건물 용도'),
             ('existing_building_area',    '기존 건물 연면적'),
             ('existing_bcr',              '기존 건폐율'),
             ('existing_vlr',              '기존 용적률'),
             ('existing_floors',           '기존 층수'),
+            ('existing_approve_date',     '기존 건물 사용승인일'),
             ('nearby_buildings_count',    '주변 건물 수'),
             ('nearby_building_uses',      '주변 건물 주요 용도'),
         ]
@@ -2950,9 +2954,99 @@ with tab_run:
             _val = _site_fields.get(_key)
             if _val and str(_val) not in ('True', 'False', ''):
                 _lines.append(f"- {_label}: {_val}")
+        if _site_fields.get('land_api_summary'):
+            _lines.append("")
+            _lines.append(_site_fields['land_api_summary'])
         if _site_fields.get('nearby_buildings_summary'):
             _lines.append("")
             _lines.append(_site_fields['nearby_buildings_summary'])
+
+        # downloaded_geo_data GeoJSON polygon → 형상 텍스트 변환
+        _geo_data = st.session_state.get('downloaded_geo_data', {})
+        _parcel_layer = _geo_data.get('선택 필지 (연속지적도)', {})
+        _features = _parcel_layer.get('geojson', {}).get('features', [])
+        if _features:
+            try:
+                import math as _math
+
+                # 외곽 링(exterior ring)만 수집 — 둘레·형상계수 계산용
+                _exterior_rings = []
+                _all_coords = []
+                for _feat in _features:
+                    _geom = _feat.get('geometry', {})
+                    _gtype = _geom.get('type', '')
+                    _coords = _geom.get('coordinates', [])
+                    if _gtype == 'Polygon' and _coords:
+                        _exterior_rings.append(_coords[0])   # 첫 번째 링 = 외곽
+                        _all_coords.extend(_coords[0])
+                    elif _gtype == 'MultiPolygon':
+                        for _poly in _coords:
+                            if _poly:
+                                _exterior_rings.append(_poly[0])
+                                _all_coords.extend(_poly[0])
+
+                if _all_coords:
+                    _lons = [c[0] for c in _all_coords]
+                    _lats = [c[1] for c in _all_coords]
+                    _avg_lat = (min(_lats) + max(_lats)) / 2
+                    _cos_lat = _math.cos(_math.radians(_avg_lat))
+                    _w_m = (max(_lons) - min(_lons)) * 111000 * _cos_lat
+                    _h_m = (max(_lats) - min(_lats)) * 111000
+
+                    # 둘레(perimeter) 계산 — 외곽 링 좌표 간 거리 합산
+                    _perimeter_m = 0.0
+                    for _ring in _exterior_rings:
+                        for _i in range(len(_ring) - 1):
+                            _dx = (_ring[_i+1][0] - _ring[_i][0]) * 111000 * _cos_lat
+                            _dy = (_ring[_i+1][1] - _ring[_i][1]) * 111000
+                            _perimeter_m += _math.hypot(_dx, _dy)
+
+                    # 면적 (site_fields에서 우선 사용, 없으면 바운딩박스 추정)
+                    _area_m2 = 0.0
+                    try:
+                        _area_str = (_site_fields.get('site_area', '') or '').replace(',', '')
+                        _area_m2 = float(''.join(c for c in _area_str if c.isdigit() or c == '.'))
+                    except Exception:
+                        pass
+                    if not _area_m2 and _w_m > 0 and _h_m > 0:
+                        _area_m2 = _w_m * _h_m  # 최소 추정
+
+                    # 형상계수 (isoperimetric quotient): 4π·A / P²
+                    # 1.0=원, 0.785=정사각형, 낮을수록 불규칙
+                    _shape_factor = 0.0
+                    if _perimeter_m > 0 and _area_m2 > 0:
+                        _shape_factor = (4 * _math.pi * _area_m2) / (_perimeter_m ** 2)
+
+                    if _shape_factor >= 0.75:
+                        _shape_desc = "정형(원·정사각형에 가까움)"
+                    elif _shape_factor >= 0.5:
+                        _shape_desc = "준정형(약간 불규칙)"
+                    elif _shape_factor >= 0.3:
+                        _shape_desc = "부정형(L자·T자 등 가능)"
+                    else:
+                        _shape_desc = "고부정형(매우 불규칙)"
+
+                    if _w_m > 0 and _h_m > 0:
+                        _ratio = _w_m / _h_m
+                        if _ratio > 1.3:
+                            _orient = f"동-서 방향으로 긴 형태 (장단변 비율 {_ratio:.2f}:1)"
+                        elif _ratio < 0.77:
+                            _orient = f"남-북 방향으로 긴 형태 (장단변 비율 {1/_ratio:.2f}:1)"
+                        else:
+                            _orient = f"정방형에 가까운 형태 (장단변 비율 {max(_ratio, 1/_ratio):.2f}:1)"
+
+                        _lines.append("")
+                        _lines.append("### 🗺️ 대상지 형상 (연속지적도 polygon 기반)")
+                        _lines.append(f"- 외접 사각형: 가로(동-서) 약 {_w_m:.0f}m × 세로(남-북) 약 {_h_m:.0f}m")
+                        _lines.append(f"- 장변 방향: {_orient}")
+                        if _perimeter_m > 0:
+                            _lines.append(f"- 실제 둘레: 약 {_perimeter_m:.0f}m")
+                        if _shape_factor > 0:
+                            _lines.append(f"- 형상계수: {_shape_factor:.2f} → {_shape_desc} (1.0=원, 0.785=정사각형)")
+                        _lines.append(f"- 필지 수: {len(_features)}개")
+            except Exception:
+                pass
+
         if len(_lines) > 1:
             project_info_payload['site_context'] = '\n'.join(_lines)
 
