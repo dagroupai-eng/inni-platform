@@ -2545,6 +2545,22 @@ with tab_project:
     project_goals = st.session_state.get("project_goals", "")
     additional_info = st.session_state.get("additional_info", "")
 
+def _toggle_block(block_id, unique_key):
+    """체크박스 on_change 콜백 — 스크립트 실행 전에 session_state를 갱신하여 double rerun 방지."""
+    if st.session_state[unique_key]:
+        if block_id not in st.session_state['selected_blocks']:
+            st.session_state['selected_blocks'].append(block_id)
+    else:
+        if block_id in st.session_state['selected_blocks']:
+            # 분석 세션 진행 중이고 cot_plan에 있는 블록은 제거하지 않음
+            if st.session_state.get('cot_session') and block_id in st.session_state.get('cot_plan', []):
+                print(f"[DEBUG 체크박스] 블록 {block_id} 제거 방지 (cot_plan에 있음)")
+                st.session_state[unique_key] = True  # 체크 상태 유지
+            else:
+                print(f"[DEBUG 체크박스] 블록 {block_id} 제거됨")
+                st.session_state['selected_blocks'].remove(block_id)
+
+
 with tab_blocks:
     st.header("분석 블록 선택")
     
@@ -2611,24 +2627,16 @@ with tab_blocks:
                 with col2:
                     is_selected = block_id in st.session_state['selected_blocks']
                     unique_key = f"select_{category}_{block_idx}_{block_id}"
-                    # value= 제거: key= 와 동시 사용 시 double rerun → 탭 리셋 버그
                     # 최초 렌더 시에만 selected_blocks 기준으로 초기값 세팅
                     if unique_key not in st.session_state:
                         st.session_state[unique_key] = is_selected
-                    checkbox_value = st.checkbox(
+                    # on_change 콜백 사용: 스크립트 실행 전 session_state 갱신 → double rerun 없음 → 탭 유지
+                    st.checkbox(
                         "선택",
                         key=unique_key,
+                        on_change=_toggle_block,
+                        args=(block_id, unique_key),
                     )
-                    
-                    if checkbox_value and not is_selected:
-                        st.session_state['selected_blocks'].append(block_id)
-                    elif not checkbox_value and is_selected:
-                        # 분석 세션 진행 중이고 cot_plan에 있는 블록은 제거하지 않음
-                        if st.session_state.get('cot_session') and block_id in st.session_state.get('cot_plan', []):
-                            print(f"[DEBUG 체크박스] 블록 {block_id} 제거 방지 (cot_plan에 있음)")
-                        else:
-                            print(f"[DEBUG 체크박스] 블록 {block_id} 제거됨")
-                            st.session_state['selected_blocks'].remove(block_id)
             
             if idx < total_categories - 1:
                 st.divider()
