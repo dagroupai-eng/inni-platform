@@ -68,7 +68,7 @@ def show_login_page():
         with st.form("login_form"):
             personal_number = st.text_input(
                 "개인 번호",
-                placeholder="예: ADMIN001",
+                placeholder="예: 98765",
                 help="관리자에게 부여받은 개인 번호를 입력하세요."
             )
 
@@ -84,7 +84,6 @@ def show_login_page():
 
         st.markdown("---")
         st.caption("개인 번호가 없으신가요? 관리자에게 문의하세요.")
-        st.caption("기본 관리자 번호: ADMIN001")
 
 
 def load_user_api_keys():
