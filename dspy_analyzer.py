@@ -1977,19 +1977,19 @@ class EnhancedArchAnalyzer:
                 "top_k": 3
             }
             
-            # 카테고리별 최적화
+            # 블록명 기반 최적화
             if current_block:
-                category = current_block.get('category', '').lower()
-                if any(kw in category for kw in ['법규', 'legal', '수치', 'quantitative']):
+                block_name = current_block.get('name', '').lower()
+                if any(kw in block_name for kw in ['법규', 'legal', '수치', 'quantitative']):
                     # 정밀 분석이 필요한 경우: 더 작은 청크, 더 많은 컨텍스트
                     rag_params["chunk_size"] = 800
                     rag_params["top_k"] = 5
-                    print(f"🎯 정밀 분석 모드 (RAG): {category}")
-                elif any(kw in category for kw in ['디자인', 'design', '컨셉']):
+                    print(f"🎯 정밀 분석 모드 (RAG): {block_name}")
+                elif any(kw in block_name for kw in ['디자인', 'design', '컨셉']):
                     # 전체적인 맥락이 중요한 경우: 더 큰 청크
                     rag_params["chunk_size"] = 1500
                     rag_params["top_k"] = 2
-                    print(f"🎨 맥락 중심 모드 (RAG): {category}")
+                    print(f"🎨 맥락 중심 모드 (RAG): {block_name}")
 
             # RAG 기반 문서 검색 (PDF 텍스트가 길거나 참고 문서가 있을 때)
             rag_context = ""
@@ -2985,9 +2985,9 @@ class EnhancedArchAnalyzer:
             # 최적화된 temperature 계산
             optimal_temperature = self._get_optimal_temperature(block_id, block_info)
 
-            # Phase 5: 전략 수립 카테고리 블록의 경우 3단계 심층 추론 체인 실행
-            block_category = (block_info.get('category', '') if block_info else '').lower()
-            if any(kw in block_category for kw in ['전략', 'strategy']):
+            # Phase 5: 전략 수립 블록의 경우 3단계 심층 추론 체인 실행
+            block_name_lower = (block_info.get('name', '') if block_info else '').lower()
+            if any(kw in block_name_lower for kw in ['전략', 'strategy']):
                 try:
                     chain_pdf = ''
                     if isinstance(project_info, dict):
@@ -5399,17 +5399,6 @@ class EnhancedArchAnalyzer:
         if block_id in THINKING_BUDGET_MAP:
             return THINKING_BUDGET_MAP[block_id]
         
-        # 카테고리로 매핑 시도
-        category = block_info.get('category', '').lower()
-        if '기본' in category or '정보' in category:
-            return 1024
-        elif '요구사항' in category or '접근성' in category:
-            return 4096
-        elif '법규' in category or '법적' in category:
-            return 8192
-        elif '수용력' in category or '타당성' in category or '복합' in category:
-            return 16384
-        
         # 블록의 steps 수로 복잡도 추정
         steps = block_info.get('steps', [])
         if len(steps) <= 3:
@@ -5446,20 +5435,18 @@ class EnhancedArchAnalyzer:
         if block_id in TEMPERATURE_MAP:
             return TEMPERATURE_MAP[block_id]
         
-        # 카테고리로 매핑 시도
-        category = block_info.get('category', '').lower()
         name = block_info.get('name', '').lower()
-        
+
         # 사실 기반 분석
-        if any(keyword in category or keyword in name for keyword in ['기본', '정보', '법규', '법적', '계산', '수치']):
+        if any(keyword in name for keyword in ['기본', '정보', '법규', '법적', '계산', '수치']):
             return 0.2
-        
+
         # 창의적 분석
-        if any(keyword in category or keyword in name for keyword in ['후보', '제안', '생성', '아이디어', '창의', '대안']):
+        if any(keyword in name for keyword in ['후보', '제안', '생성', '아이디어', '창의', '대안']):
             return 0.7
-        
+
         # 복합 분석
-        if any(keyword in category or keyword in name for keyword in ['타당성', '수용력', '영향', '복합', '종합']):
+        if any(keyword in name for keyword in ['타당성', '수용력', '영향', '복합', '종합']):
             return 0.5
         
         # 기본값: 중간 temperature

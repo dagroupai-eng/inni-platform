@@ -317,24 +317,6 @@ def main():
     # 기존 블록 로드 (prompt_processor의 함수 사용)
     existing_blocks = load_blocks_from_processor()  # 리스트 반환
     
-    # 제외할 카테고리 목록
-    excluded_categories = {
-        'Phase 1 · 요구사항 정리',
-        'Phase 1 · 프로그램 설계',
-        'Phase 1 · 후보지 분석'
-    }
-    
-    # 기존 블록의 카테고리 중 제외 목록에 없는 것만 가져오기
-    existing_categories = sorted({
-        block.get("category")
-        for block in existing_blocks
-        if isinstance(block, dict) and block.get("category") and block.get("category") not in excluded_categories
-    })
-    
-    # "기타" 카테고리 추가
-    if "기타" not in existing_categories:
-        existing_categories.append("기타")
-    
     # 수정 모드 세션 상태 초기화
     if 'edit_mode' not in st.session_state:
         st.session_state.edit_mode = False
@@ -376,7 +358,6 @@ def main():
                 with st.expander(display_name):
                     # 기본 정보
                     st.write(f"**ID:** {block.get('id', 'N/A')}")
-                    st.write(f"**카테고리:** {block.get('category', '미지정')}")
                     st.write(f"**설명:** {block.get('description', 'N/A')}")
 
                     # 공개 범위 표시
@@ -962,23 +943,6 @@ def main():
             value=edit_block.get('description', '') if edit_block else ("" if reset_form else None)
         )
         
-        # 카테고리 선택 (고정 목록)
-        if not existing_categories:
-            existing_categories = ["기타"]
-        
-        # 수정 모드일 때 기존 카테고리 인덱스 찾기
-        if edit_block and edit_block.get('category') in existing_categories:
-            default_category_index = existing_categories.index(edit_block.get('category'))
-        else:
-            default_category_index = 0
-
-        category_value = st.selectbox(
-            "카테고리",
-            options=existing_categories,
-            index=default_category_index,
-            help="블록의 카테고리를 선택하세요."
-        )
-        
         # RISEN 구조 입력
         st.subheader("RISEN 프롬프트 구조")
         
@@ -1170,8 +1134,6 @@ def main():
                 st.error("블록 이름을 입력해주세요.")
             elif not block_description or not block_description.strip():
                 st.error("블록 설명을 입력해주세요.")
-            elif not category_value:
-                st.error("카테고리를 선택하거나 입력해주세요.")
             elif not role or not role.strip():
                 st.error("역할(Role)을 입력해주세요.")
             elif not instructions or not instructions.strip():
@@ -1217,7 +1179,6 @@ def main():
                         "id": block_id,
                         "name": final_name,
                         "description": block_description,
-                        "category": category_value,
                         "role": role.strip(),
                         "instructions": instructions.strip(),
                         "steps": steps,
@@ -1253,7 +1214,6 @@ def main():
                                     current_user_id,
                                     name=final_name,
                                     block_data=updated_block,
-                                    category=category_value
                                 ):
                                     save_success = True
                                     db_saved = True
@@ -1304,7 +1264,6 @@ def main():
                                     owner_id=user["id"],
                                     name=final_name,
                                     block_data=updated_block,
-                                    category=category_value,
                                     visibility=visibility_enum,
                                     shared_with_teams=shared_teams,
                                     block_id=block_id

@@ -34,7 +34,6 @@ def create_user_block(
     owner_id: int,
     name: str,
     block_data: Dict[str, Any],
-    category: Optional[str] = None,
     visibility: BlockVisibility = BlockVisibility.PERSONAL,
     shared_with_teams: Optional[List[int]] = None,
     block_id: Optional[str] = None
@@ -46,7 +45,6 @@ def create_user_block(
         owner_id: 소유자 사용자 ID
         name: 블록 이름
         block_data: 블록 데이터 (JSON 직렬화 가능한 딕셔너리)
-        category: 카테고리
         visibility: 공개 범위
         shared_with_teams: 공유된 팀 ID 목록
         block_id: 커스텀 블록 ID (없으면 자동 생성)
@@ -66,14 +64,13 @@ def create_user_block(
     try:
         execute_query(
             """
-            INSERT INTO blocks (block_id, owner_id, name, category, block_data, visibility, shared_with_teams, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO blocks (block_id, owner_id, name, block_data, visibility, shared_with_teams, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 block_id,
                 owner_id,
                 name,
-                category,
                 json.dumps(block_data, ensure_ascii=False),
                 visibility.value if isinstance(visibility, BlockVisibility) else visibility,
                 json.dumps(shared_with_teams or []),
@@ -91,7 +88,6 @@ def create_user_block(
 
 def get_user_blocks(
     owner_id: int,
-    category: Optional[str] = None,
     visibility: Optional[BlockVisibility] = None
 ) -> List[Dict[str, Any]]:
     """
@@ -99,7 +95,6 @@ def get_user_blocks(
 
     Args:
         owner_id: 소유자 사용자 ID
-        category: 카테고리 필터
         visibility: 공개 범위 필터
 
     Returns:
@@ -107,10 +102,6 @@ def get_user_blocks(
     """
     query = "SELECT * FROM blocks WHERE owner_id = ?"
     params = [owner_id]
-
-    if category:
-        query += " AND category = ?"
-        params.append(category)
 
     if visibility:
         query += " AND visibility = ?"
@@ -219,7 +210,7 @@ def update_user_block(
     if not existing or existing["owner_id"] != owner_id:
         return False
 
-    allowed_fields = ["name", "category", "block_data", "visibility", "shared_with_teams"]
+    allowed_fields = ["name", "block_data", "visibility", "shared_with_teams"]
     set_values = {}
 
     for field, value in kwargs.items():
@@ -382,16 +373,3 @@ def get_accessible_blocks(user_id: int, team_id: Optional[int] = None) -> List[D
     return unique_blocks
 
 
-def get_block_categories(owner_id: Optional[int] = None) -> List[str]:
-    """블록 카테고리 목록을 조회합니다."""
-    if owner_id:
-        result = execute_query(
-            "SELECT DISTINCT category FROM blocks WHERE owner_id = ? AND category IS NOT NULL",
-            (owner_id,)
-        )
-    else:
-        result = execute_query(
-            "SELECT DISTINCT category FROM blocks WHERE category IS NOT NULL"
-        )
-
-    return [row["category"] for row in result if row["category"]]

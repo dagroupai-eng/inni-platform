@@ -1050,54 +1050,6 @@ def get_example_blocks():
     """blocks.json에서 예시 블록들을 로드합니다."""
     return load_blocks()
 
-BLOCK_CATEGORY_MAP: Dict[str, str] = {
-    "basic_info": "기본 정보 & 요구사항",
-    "requirements": "기본 정보 & 요구사항",
-    "project_requirements_parsing": "기본 정보 & 요구사항",
-    "design_suggestions": "현황 분석 & 검증",
-    "accessibility_analysis": "현황 분석 & 검증",
-    "zoning_verification": "현황 분석 & 검증",
-    "capacity_estimation": "현황 분석 & 검증",
-    "feasibility_analysis": "사업성 & 운영 전략",
-    "business_model_development": "사업성 & 운영 전략",
-    "market_research_analysis": "사업성 & 운영 전략",
-    "revenue_model_design": "사업성 & 운영 전략",
-    "operational_efficiency_strategy": "사업성 & 운영 전략",
-    "persona_scenario_analysis": "사용자 경험 & 스토리텔링",
-    "storyboard_generation": "사용자 경험 & 스토리텔링",
-    "customer_journey_mapping": "사용자 경험 & 스토리텔링",
-}
-
-CATEGORY_DISPLAY_ORDER: List[str] = [
-    "기본 정보 & 요구사항",
-    "현황 분석 & 검증",
-    "사업성 & 운영 전략",
-    "사용자 경험 & 스토리텔링",
-    "기타",
-]
-
-def resolve_block_category(block: Dict[str, Any]) -> str:
-    if not isinstance(block, dict):
-        return "기타"
-    category = block.get("category")
-    if category:
-        return category
-    block_id = block.get("id")
-    return BLOCK_CATEGORY_MAP.get(block_id, "기타")
-
-def group_blocks_by_category(blocks: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
-    for block in blocks:
-        category = resolve_block_category(block)
-        grouped.setdefault(category, []).append(block)
-    return grouped
-
-def iter_categories_in_order(grouped_blocks: Dict[str, List[Dict[str, Any]]]) -> List[str]:
-    def _sort_key(category: str):
-        if category in CATEGORY_DISPLAY_ORDER:
-            return (CATEGORY_DISPLAY_ORDER.index(category), category)
-        return (len(CATEGORY_DISPLAY_ORDER), category)
-    return sorted(grouped_blocks.keys(), key=_sort_key)
 
 def create_word_document(project_name, analysis_results):
     """분석 결과를 Word 문서로 생성합니다."""
@@ -2579,67 +2531,57 @@ with tab_blocks:
         if isinstance(block, dict) and block.get('id')
     }
 
-    grouped_blocks = group_blocks_by_category(all_blocks)
-    
-    if not grouped_blocks:
+    if not all_blocks:
         st.info("사용 가능한 분석 블록이 없습니다.")
     else:
         st.subheader("블록 목록")
-        ordered_categories = iter_categories_in_order(grouped_blocks)
-        total_categories = len(ordered_categories)
-        
-        for idx, category in enumerate(ordered_categories):
-            st.markdown(f"#### 📂 {category}")
-            for block_idx, block in enumerate(grouped_blocks[category]):
-                block_id = block.get('id')
-                if not block_id:
-                    continue
-                
-                is_custom_block = (
-                    block.get('created_by') == 'user' or
-                    str(block_id).startswith('custom_')
+        for block_idx, block in enumerate(all_blocks):
+            block_id = block.get('id')
+            if not block_id:
+                continue
+
+            is_custom_block = (
+                block.get('created_by') == 'user' or
+                str(block_id).startswith('custom_')
+            )
+
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                block_name = block.get('name', '이름 없음')
+
+                # 관리자 예시 블록 태그
+                if block.get('_is_admin_block'):
+                    if not block_name.startswith('[예시]'):
+                        block_name = f"[예시] {block_name}"
+                # 사용자 블록에 [개인]/[팀] 태그 추가
+                elif is_custom_block or block.get('_db_id'):
+                    visibility = block.get('_visibility', block.get('visibility', ''))
+                    if visibility in ['personal', 'PERSONAL']:
+                        if not block_name.startswith('[개인]'):
+                            block_name = f"[개인] {block_name}"
+                    elif visibility in ['team', 'TEAM']:
+                        if not block_name.startswith('[팀]'):
+                            block_name = f"[팀] {block_name}"
+
+                st.markdown(f"**{block_name}**")
+
+                description = block.get('description')
+                if description:
+                    st.caption(description)
+
+            with col2:
+                is_selected = block_id in st.session_state['selected_blocks']
+                unique_key = f"select_{block_idx}_{block_id}"
+                # 최초 렌더 시에만 selected_blocks 기준으로 초기값 세팅
+                if unique_key not in st.session_state:
+                    st.session_state[unique_key] = is_selected
+                # on_change 콜백 사용: 스크립트 실행 전 session_state 갱신 → double rerun 없음 → 탭 유지
+                st.checkbox(
+                    "선택",
+                    key=unique_key,
+                    on_change=_toggle_block,
+                    args=(block_id, unique_key),
                 )
-                
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    block_name = block.get('name', '이름 없음')
-
-                    # 관리자 예시 블록 태그
-                    if block.get('_is_admin_block'):
-                        if not block_name.startswith('[예시]'):
-                            block_name = f"[예시] {block_name}"
-                    # 사용자 블록에 [개인]/[팀] 태그 추가
-                    elif is_custom_block or block.get('_db_id'):
-                        visibility = block.get('_visibility', block.get('visibility', ''))
-                        if visibility in ['personal', 'PERSONAL']:
-                            if not block_name.startswith('[개인]'):
-                                block_name = f"[개인] {block_name}"
-                        elif visibility in ['team', 'TEAM']:
-                            if not block_name.startswith('[팀]'):
-                                block_name = f"[팀] {block_name}"
-
-                    st.markdown(f"**{block_name}**")
-
-                    description = block.get('description')
-                    if description:
-                        st.caption(description)
-                
-                with col2:
-                    is_selected = block_id in st.session_state['selected_blocks']
-                    unique_key = f"select_{category}_{block_idx}_{block_id}"
-                    # 최초 렌더 시에만 selected_blocks 기준으로 초기값 세팅
-                    if unique_key not in st.session_state:
-                        st.session_state[unique_key] = is_selected
-                    # on_change 콜백 사용: 스크립트 실행 전 session_state 갱신 → double rerun 없음 → 탭 유지
-                    st.checkbox(
-                        "선택",
-                        key=unique_key,
-                        on_change=_toggle_block,
-                        args=(block_id, unique_key),
-                    )
-            
-            if idx < total_categories - 1:
-                st.divider()
     
     # 선택된 블록들 표시 및 순서 조정
     selected_blocks = st.session_state['selected_blocks']
@@ -2668,10 +2610,8 @@ with tab_blocks:
                             block_name = f"[팀] {block_name}"
 
             block_description = block.get('description', '') if block else ""
-            block_category = resolve_block_category(block) if block else "기타"
             block_info_list.append({
                 '순서': order,
-                '카테고리': block_category,
                 '블록명': block_name,
                 '설명': block_description,
                 '블록ID': block_id
@@ -2689,7 +2629,7 @@ with tab_blocks:
         with col_table:
             # 수정 가능한 데이터 에디터로 순서 조정
             edited_df = st.data_editor(
-                df[['순서', '카테고리', '블록명', '설명']],
+                df[['순서', '블록명', '설명']],
                 use_container_width=True,
                 num_rows="fixed",
                 key="block_order_editor",
@@ -2700,10 +2640,6 @@ with tab_blocks:
                         min_value=1,
                         max_value=len(block_info_list),
                         step=1
-                    ),
-                    "카테고리": st.column_config.TextColumn(
-                        "카테고리",
-                        disabled=True
                     ),
                     "블록명": st.column_config.TextColumn(
                         "블록명",
@@ -3632,8 +3568,6 @@ with tab_run:
         for idx, block_id in enumerate(active_plan, start=1):
             block = block_lookup.get(block_id)
             block_name = block.get('name', block_id) if block else block_id
-            category = resolve_block_category(block) if block else "기타"
-
             # 결과 확인 (cot_results와 analysis_results 둘 다 확인)
             has_result = (block_id in st.session_state.cot_results or
                          block_id in st.session_state.analysis_results)
