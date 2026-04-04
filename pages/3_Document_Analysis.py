@@ -2175,8 +2175,14 @@ with tab_project:
     st.caption("입력 후 '입력 완료' 버튼을 눌러야 저장됩니다.")
 
     # 지도에서 필지 선택 시 자동 주입된 경우 안내 (form 외부에서 표시)
-    if st.session_state.get("_map_parcel_loaded") and st.session_state.get("location"):
+    if st.session_state.get("_map_parcel_loaded") and (st.session_state.get("location") or st.session_state.get("_map_location")):
         st.caption("📍 지도(필지 선택) 페이지에서 선택한 필지 주소가 자동으로 입력되었습니다.")
+
+    # 지도 페이지에서 bridge key(_map_location)로 전달된 주소를 form 렌더 직전에 복사.
+    # restore_work_session은 페이지 최상단에서 이미 실행되므로, 여기서 복사하면 덮어쓰기 없음.
+    _map_loc = st.session_state.pop("_map_location", None)
+    if _map_loc:
+        st.session_state["location"] = _map_loc
 
     # key= 만 사용 (value= 와 key= 동시 사용 시 rerun에서 session_state 덮어쓰기 버그 발생)
     # session_state 초기값이 없으면 빈 문자열로 미리 세팅

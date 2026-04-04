@@ -1557,8 +1557,12 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
     st.session_state["site_location"] = site_location
     st.session_state["site_area"]     = site_area
     st.session_state["zoning"]        = zoning_str
-    # 문서 분석 location 필드 자동 주입 (필지 주소로 덮어씀)
-    st.session_state["location"] = site_location
+    # 문서 분석 location 필드 자동 주입 (bridge key 사용 → form 렌더 직전에 복사)
+    # "location"은 Document Analysis의 form 위젯 key이므로 Mapping에서 직접 설정하면
+    # 페이지 전환 시 Streamlit이 위젯 키를 정리할 때 값이 사라질 수 있음.
+    # _map_location은 위젯 key가 아니므로 안전하게 유지됨.
+    if site_location:
+        st.session_state["_map_location"] = site_location
     # 대표 필지 좌표 자동 설정 (Google Maps 블록용)
     rep = next((p for p in parcels if p.get("lat") and p.get("lon")), None)
     if rep:
