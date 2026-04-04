@@ -158,6 +158,22 @@ if '_notify' in st.session_state:
         if _n.get('renamed'):
             msg += " (이름 중복 → 자동 넘버링)"
         st.success(msg)
+        # 저장 직후 rerun 시 form 필드가 비어 보이는 문제 방지:
+        # st.form 위젯은 submit 전 session_state에 반영되지 않으므로,
+        # 저장 직후에는 DB에서 최신 값을 직접 읽어 session_state를 보정한다.
+        try:
+            from auth.project_manager import load_project_session
+            _uid_n = (st.session_state.get("pms_current_user") or {}).get("id")
+            _pid_n = st.session_state.get("current_project_id")
+            if _uid_n and _pid_n:
+                _fresh = load_project_session(_uid_n, _pid_n) or {}
+                _form_keys = ("project_name", "location", "project_goals", "additional_info")
+                for _fk in _form_keys:
+                    _fv = _fresh.get(_fk)
+                    if _fv:  # 비어 있는 값으로 덮어쓰지 않음
+                        st.session_state[_fk] = _fv
+        except Exception as _notify_err:
+            print(f"[저장 알림] form 값 보정 오류: {_notify_err}")
 
 # 로그인 체크
 if AUTH_AVAILABLE:

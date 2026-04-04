@@ -315,29 +315,35 @@ def save_work_session():
 
         if session_data:
             # UNIQUE(user_id, project_id) constraint 유무와 무관하게 동작하는 수동 upsert:
-            # 기존 행이 있으면 UPDATE, 없으면 INSERT
+            # 기존 행이 있으면 기존 session_data와 병합 후 UPDATE, 없으면 INSERT.
+            # 병합(merge) 방식: 새 값이 우선, 빈 값으로 스킵된 키는 DB의 기존 값을 유지.
+            # 이렇게 해야 save_work_session 호출 시 일부 키가 비어 스킵되더라도
+            # 이전에 저장된 project_goals, additional_info 등이 DB에서 사라지지 않음.
             from database.supabase_client import get_supabase_client as _gsc
             _client = _gsc()
             _now = datetime.now().isoformat()
-            _sd_json = json.dumps(session_data, ensure_ascii=False)
             _existing = (
                 _client.table('analysis_sessions')
-                .select('id')
+                .select('id, session_data')
                 .eq('user_id', user_id)
                 .eq('project_id', project_id)
                 .limit(1)
                 .execute()
             )
             if _existing.data:
+                # 기존 DB 데이터와 병합: 새 값 우선, 없는 키는 기존 값 유지
+                _old_raw = _existing.data[0].get('session_data') or {}
+                _old_data = _old_raw if isinstance(_old_raw, dict) else {}
+                _merged = {**_old_data, **session_data}
                 _client.table('analysis_sessions').update({
-                    'session_data': json.loads(_sd_json),
+                    'session_data': _merged,
                     'created_at': _now,
                 }).eq('user_id', user_id).eq('project_id', project_id).execute()
             else:
                 _client.table('analysis_sessions').insert({
                     'user_id': user_id,
                     'project_id': project_id,
-                    'session_data': json.loads(_sd_json),
+                    'session_data': session_data,
                     'created_at': _now,
                 }).execute()
             # projects.updated_at 갱신
