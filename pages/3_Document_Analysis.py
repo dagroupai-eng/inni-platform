@@ -2194,6 +2194,11 @@ with tab_project:
         location = st.session_state.get("location", "")
         project_goals = st.session_state.get("project_goals", "")
         additional_info = st.session_state.get("additional_info", "")
+        try:
+            from auth.session_init import save_work_session
+            save_work_session()
+        except Exception as _save_err:
+            print(f"프로젝트 정보 저장 오류: {_save_err}")
         st.success("프로젝트 정보가 저장되었습니다. '파일 업로드' 또는 '분석 블록 선택' 탭으로 이동하세요.")
 
     st.markdown("---")
@@ -3968,10 +3973,4 @@ with tab_download:
         except Exception as e:
             st.error(f"❌ 저장 실패: {e}")
 
-# 페이지 렌더링 완료 후 작업 세션 자동 저장 (3초 스로틀)
 st.session_state.pop('page_just_reset', None)  # 플래그 정리
-try:
-    from auth.session_init import auto_save_debounced
-    auto_save_debounced(throttle_seconds=3.0)
-except Exception as e:
-    pass

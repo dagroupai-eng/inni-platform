@@ -175,7 +175,7 @@ def restore_work_session():
                 'project_name', 'location', 'latitude', 'longitude',
                 'project_goals', 'additional_info', 'pdf_uploaded',
                 'file_analysis', 'file_storage_path', 'document_summary',
-                'site_fields', 'downloaded_geo_data',
+                'site_fields', 'downloaded_geo_data', 'selected_parcels_raw',
             ]
             # 빈 문자열 복원 금지 키: DB에 "" 저장된 경우 session_state를 덮어쓰지 않음
             _no_restore_empty = {'project_name', 'location', 'project_goals', 'additional_info'}
@@ -281,6 +281,7 @@ def save_work_session():
             # 새 키 (7-C)
             'file_analysis', 'file_storage_path', 'document_summary',
             'site_fields', 'cot_verifications', 'urban_indicator_results',
+            'selected_parcels_raw',
         ]
 
         # 크기 제한이 있는 키 (500KB 이하만 저장)

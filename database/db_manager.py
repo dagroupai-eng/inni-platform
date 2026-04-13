@@ -9,9 +9,8 @@ import threading
 from contextlib import contextmanager
 from typing import Optional, Any, List, Tuple, Dict
 
-# 마지막 INSERT ID 추적
-_last_insert_id = 0
-_connection_lock = threading.Lock()
+# 마지막 INSERT ID — 스레드별 독립 저장소 (동시 INSERT 시 ID 혼선 방지)
+_thread_local = threading.local()
 
 
 class SupabaseRow(dict):
@@ -232,6 +231,16 @@ def _parse_where(where_str: str, params: list) -> list:
         if neq_lit_match:
             conditions.append(('neq', neq_lit_match.group(1), neq_lit_match.group(2)))
             continue
+        # col IS NOT NULL (IS NULL 보다 먼저 검사)
+        is_not_null_match = re.match(r'(\w+)\s+IS\s+NOT\s+NULL', part, re.IGNORECASE)
+        if is_not_null_match:
+            conditions.append(('is_not_null', is_not_null_match.group(1), None))
+            continue
+        # col IS NULL
+        is_null_match = re.match(r'(\w+)\s+IS\s+NULL', part, re.IGNORECASE)
+        if is_null_match:
+            conditions.append(('is_null', is_null_match.group(1), None))
+            continue
 
     return conditions
 
@@ -306,6 +315,10 @@ def _apply_conditions(query_builder, conditions: list):
             query_builder = query_builder.ilike(col, val)
         elif op == 'in':
             query_builder = query_builder.in_(col, val)
+        elif op == 'is_null':
+            query_builder = query_builder.is_(col, 'null')
+        elif op == 'is_not_null':
+            query_builder = query_builder.not_.is_(col, 'null')
     return query_builder
 
 
@@ -318,77 +331,74 @@ def execute_query(
     SQL 쿼리를 파싱하여 Supabase REST API로 실행합니다.
     기존 SQLite execute_query와 동일한 인터페이스를 유지합니다.
     """
-    global _last_insert_id
+    try:
+        parsed = _parse_sql(query, params)
+    except ValueError as e:
+        print(f"⚠️ SQL 파싱 실패: {e}")
+        return []
 
-    with _connection_lock:
-        try:
-            parsed = _parse_sql(query, params)
-        except ValueError as e:
-            print(f"⚠️ SQL 파싱 실패: {e}")
-            return []
+    client = _get_client()
+    table = parsed['table']
 
-        client = _get_client()
-        table = parsed['table']
-
-        try:
-            if parsed['operation'] == 'SELECT':
-                if parsed['is_count']:
-                    qb = client.table(table).select('*', count='exact')
-                    qb = _apply_conditions(qb, parsed['conditions'])
-                    result = qb.limit(1).execute()
-                    count_val = result.count if result.count is not None else 0
-                    # COUNT 결과를 SupabaseRow로 반환 (다양한 alias 호환)
-                    row_data = {'count': count_val, 'cnt': count_val, 'COUNT(*)': count_val}
-                    return [SupabaseRow(row_data, ['count'])]
-
-                select_cols = parsed['columns']
-                qb = client.table(table).select(select_cols)
+    try:
+        if parsed['operation'] == 'SELECT':
+            if parsed['is_count']:
+                qb = client.table(table).select('*', count='exact')
                 qb = _apply_conditions(qb, parsed['conditions'])
+                result = qb.limit(1).execute()
+                count_val = result.count if result.count is not None else 0
+                # COUNT 결과를 SupabaseRow로 반환 (다양한 alias 호환)
+                row_data = {'count': count_val, 'cnt': count_val, 'COUNT(*)': count_val}
+                return [SupabaseRow(row_data, ['count'])]
 
-                if parsed['order_by']:
-                    desc = parsed['order_dir'] == 'desc'
-                    qb = qb.order(parsed['order_by'], desc=desc)
+            select_cols = parsed['columns']
+            qb = client.table(table).select(select_cols)
+            qb = _apply_conditions(qb, parsed['conditions'])
 
-                if parsed['limit']:
-                    qb = qb.limit(parsed['limit'])
+            if parsed['order_by']:
+                desc = parsed['order_dir'] == 'desc'
+                qb = qb.order(parsed['order_by'], desc=desc)
 
-                result = qb.execute()
-                return [SupabaseRow(row) for row in (result.data or [])]
+            if parsed['limit']:
+                qb = qb.limit(parsed['limit'])
 
-            elif parsed['operation'] == 'INSERT':
-                # None 값인 키는 제거 (DB 기본값 사용)
-                values = {k: v for k, v in parsed['values'].items() if v is not None}
-                result = client.table(table).insert(values).execute()
-                if result.data:
-                    _last_insert_id = result.data[0].get('id', 0)
-                return [SupabaseRow(row) for row in (result.data or [])]
+            result = qb.execute()
+            return [SupabaseRow(row) for row in (result.data or [])]
 
-            elif parsed['operation'] == 'UPSERT':
-                values = parsed['values']
-                # on_conflict 컬럼 추정: unique 제약 조건 기반
-                conflict_cols = _get_conflict_column(table)
-                result = client.table(table).upsert(
-                    values, on_conflict=conflict_cols
-                ).execute()
-                if result.data:
-                    _last_insert_id = result.data[0].get('id', 0)
-                return [SupabaseRow(row) for row in (result.data or [])]
+        elif parsed['operation'] == 'INSERT':
+            # None 값인 키는 제거 (DB 기본값 사용)
+            values = {k: v for k, v in parsed['values'].items() if v is not None}
+            result = client.table(table).insert(values).execute()
+            if result.data:
+                _thread_local.last_insert_id = result.data[0].get('id', 0)
+            return [SupabaseRow(row) for row in (result.data or [])]
 
-            elif parsed['operation'] == 'UPDATE':
-                qb = client.table(table).update(parsed['set_values'])
-                qb = _apply_conditions(qb, parsed['conditions'])
-                result = qb.execute()
-                return [SupabaseRow(row) for row in (result.data or [])]
+        elif parsed['operation'] == 'UPSERT':
+            values = parsed['values']
+            # on_conflict 컬럼 추정: unique 제약 조건 기반
+            conflict_cols = _get_conflict_column(table)
+            result = client.table(table).upsert(
+                values, on_conflict=conflict_cols
+            ).execute()
+            if result.data:
+                _thread_local.last_insert_id = result.data[0].get('id', 0)
+            return [SupabaseRow(row) for row in (result.data or [])]
 
-            elif parsed['operation'] == 'DELETE':
-                qb = client.table(table).delete()
-                qb = _apply_conditions(qb, parsed['conditions'])
-                result = qb.execute()
-                return [SupabaseRow(row) for row in (result.data or [])]
+        elif parsed['operation'] == 'UPDATE':
+            qb = client.table(table).update(parsed['set_values'])
+            qb = _apply_conditions(qb, parsed['conditions'])
+            result = qb.execute()
+            return [SupabaseRow(row) for row in (result.data or [])]
 
-        except Exception as e:
-            print(f"⚠️ Supabase 쿼리 오류 [{parsed['operation']} {table}]: {e}")
-            raise e
+        elif parsed['operation'] == 'DELETE':
+            qb = client.table(table).delete()
+            qb = _apply_conditions(qb, parsed['conditions'])
+            result = qb.execute()
+            return [SupabaseRow(row) for row in (result.data or [])]
+
+    except Exception as e:
+        print(f"⚠️ Supabase 쿼리 오류 [{parsed['operation']} {table}]: {e}")
+        raise e
 
     return []
 
@@ -419,8 +429,8 @@ def execute_many(
 
 
 def get_last_insert_id() -> int:
-    """마지막으로 삽입된 행의 ID를 반환합니다."""
-    return _last_insert_id
+    """마지막으로 삽입된 행의 ID를 반환합니다 (현재 스레드 기준)."""
+    return getattr(_thread_local, 'last_insert_id', 0)
 
 
 def table_exists(table_name: str) -> bool:

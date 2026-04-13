@@ -887,6 +887,29 @@ def _fetch_parcel_info(lon: float, lat: float, nearby_radius: int = 500) -> dict
     khug_key = os.getenv("KHUG_API_KEY", "")
     sigungu_code = pnu[:5] if pnu and len(pnu) >= 5 else ""
 
+    # ── PNU 캐시 조회 (캐시 히트 시 NED API 12개 생략) ───────────────────
+    if pnu:
+        try:
+            from database.supabase_client import get_supabase_client as _gsc
+            _sc = _gsc()
+            _hit = _sc.table("parcel_cache").select("parcel_data").eq("pnu", pnu).limit(1).execute()
+            if _hit.data:
+                _cached = _hit.data[0].get("parcel_data") or {}
+                # 클릭 좌표(lon/lat)는 현재 값 유지, 나머지는 캐시에서 덮어씀
+                _cached["lon"] = lon
+                _cached["lat"] = lat
+                # nearby_radius가 다르면 nearby_buildings만 새로 조회
+                if nearby_radius and _cached.get("nearby_radius") != nearby_radius:
+                    try:
+                        _fresh_nearby = _fetch_nearby_buildings(lon, lat, radius_m=nearby_radius)
+                        _cached["nearby_buildings"] = _fresh_nearby or []
+                        _cached["nearby_radius"] = nearby_radius
+                    except Exception as _ne:
+                        print(f"[PNU캐시] nearby_buildings 재조회 오류: {_ne}")
+                return _cached
+        except Exception as _ce:
+            print(f"[PNU캐시] 조회 오류: {_ce}")
+
     # ── 2-b ~ 4. 모든 보강 API 병렬 실행 (timeout 7s) ─────────────────
     # 순차 실행 시 10개+ × 10s = 100s+, 병렬로 ~7s로 단축
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1062,6 +1085,18 @@ def _fetch_parcel_info(lon: float, lat: float, nearby_radius: int = 500) -> dict
                 {"type": type_labels.get(f, f), "name": v}
                 for f, v in vworld_regs.items()
             ]
+
+    # ── PNU 캐시 저장 ────────────────────────────────────────────────────
+    if pnu:
+        try:
+            from database.supabase_client import get_supabase_client as _gsc
+            _sc = _gsc()
+            _sc.table("parcel_cache").upsert(
+                {"pnu": pnu, "parcel_data": info},
+                on_conflict="pnu"
+            ).execute()
+        except Exception as _ce:
+            print(f"[PNU캐시] 저장 오류: {_ce}")
 
     return info
 
@@ -1889,7 +1924,8 @@ def render_land_map_page():
     # ── 세션 초기화 ──────────────────────────────────────────────────────
     if "lm_center"     not in st.session_state: st.session_state.lm_center     = DEFAULT_CENTER
     if "lm_zoom"       not in st.session_state: st.session_state.lm_zoom       = DEFAULT_ZOOM
-    if "lm_parcels"       not in st.session_state: st.session_state.lm_parcels       = []
+    if "lm_parcels" not in st.session_state:
+        st.session_state.lm_parcels = list(st.session_state.get("selected_parcels_raw") or [])
     if "lm_preview"       not in st.session_state: st.session_state.lm_preview       = None
     if "lm_last_click"    not in st.session_state: st.session_state.lm_last_click    = ""
     if "lm_nearby_radius" not in st.session_state: st.session_state.lm_nearby_radius = 500
