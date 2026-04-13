@@ -2504,7 +2504,7 @@ with tab_project:
 
 def _toggle_block(block_id, unique_key):
     """체크박스 on_change 콜백 — 스크립트 실행 전에 session_state를 갱신하여 double rerun 방지."""
-    if st.session_state[unique_key]:
+    if st.session_state.get(unique_key, False):
         if block_id not in st.session_state['selected_blocks']:
             st.session_state['selected_blocks'].append(block_id)
     else:
