@@ -2620,7 +2620,8 @@ class EnhancedArchAnalyzer:
             # API 호출 (낮은 thinking_budget으로)
             current_provider = get_current_provider()
             provider_config = PROVIDER_CONFIG.get(current_provider, {})
-            api_key = os.environ.get(provider_config.get('api_key_env', ''))
+            # 세션 → DB → secrets → 환경변수 순서로 키 조회 (get_api_key 사용)
+            api_key = get_api_key(current_provider)
 
             if not api_key:
                 return {

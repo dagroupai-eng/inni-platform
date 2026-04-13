@@ -2350,8 +2350,6 @@ with tab_project:
                                                 'analysis': _img_analysis,
                                                 'hash': _fh,
                                             })
-                                        with st.expander(f"이미지 읽기 결과(미리보기) [{_uf.name}]"):
-                                            st.text(_img_analysis['preview'])
                                         _parse_ok = True
                                     else:
                                         st.error(f"[{_uf.name}] 이미지 읽기 결과가 비어 있습니다.")
@@ -2426,9 +2424,6 @@ with tab_project:
                                 except Exception as _fs_err:
                                     print(f"[FileStorage] 업로드 오류: {_fs_err}")
 
-                                with st.expander(f"{_fext.upper()} 내용 미리보기 [{_uf.name}]"):
-                                    st.text(analysis_result['preview'])
-
                                 _parse_ok = True
                             else:
                                 st.error(f"[{_uf.name}] {_fext.upper()} 파일 분석에 실패했습니다: {analysis_result.get('error', '알 수 없는 오류')}")
@@ -2458,13 +2453,9 @@ with tab_project:
                     _cached = _cached_entry.get('analysis', {})
                     if _cached.get('file_type') == 'image':
                         st.success(f"[{_uf.name}] 이미지 읽기 완료!")
-                        with st.expander(f"이미지 읽기 결과(미리보기) [{_uf.name}]"):
-                            st.text(_cached.get('preview', ''))
                     else:
                         file_size_mb = len(_fb) / (1024 * 1024)
                         st.info(f"[{_uf.name}] {file_size_mb:.2f}MB, {_cached.get('word_count', 0)}단어, {_cached.get('char_count', 0)}문자")
-                        with st.expander(f"{_fext.upper()} 내용 미리보기 [{_uf.name}]"):
-                            st.text(_cached.get('preview', ''))
 
         # 모든 파일 텍스트 결합 → pdf_text
         _files_list = st.session_state.get('uploaded_files_list', [])
