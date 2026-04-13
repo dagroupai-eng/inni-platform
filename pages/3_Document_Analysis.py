@@ -2509,13 +2509,21 @@ def _toggle_block(block_id, unique_key):
                 st.session_state['selected_blocks'].remove(block_id)
 
 
-with tab_blocks:
+@st.fragment
+def _block_tab_fragment():
+    """블록 선택 탭 — fragment로 격리하여 체크박스 클릭 시 탭 리셋 방지."""
+    # fragment 내부에서 session_state 최신값 직접 읽기
+    project_name = st.session_state.get("project_name", "")
+    location = st.session_state.get("location", "")
+    project_goals = st.session_state.get("project_goals", "")
+    additional_info = st.session_state.get("additional_info", "")
+
     st.header("분석 블록 선택")
-    
+
     # 기본 정보나 파일 중 하나라도 있으면 진행
     has_basic_info = any([project_name, location, project_goals, additional_info])
     has_file = st.session_state.get('pdf_uploaded', False)
-    
+
     if not has_basic_info and not has_file:
         st.info("기본 정보 탭에서 프로젝트 정보를 입력하거나 파일을 업로드하면 분석에 활용됩니다.")
 
@@ -2751,6 +2759,11 @@ with tab_blocks:
             st.success(f"{len(selected_blocks)}개 블록 선택 완료! '분석 실행' 탭으로 이동하세요.")
     else:
         st.warning("분석할 블록을 선택해주세요.")
+
+
+with tab_blocks:
+    _block_tab_fragment()
+
 
 with tab_run:
     st.header("분석 실행")
