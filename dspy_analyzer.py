@@ -121,38 +121,44 @@ PROVIDER_CONFIG = {
         'api_key_env': 'GEMINI_API_KEY',
         'model': 'gemini-2.5-flash',
         'provider': 'gemini',
-        'display_name': 'Gemini 2.5 Flash'
+        'display_name': 'Gemini 2.5 Flash',
+        'max_output_tokens': 65536,
     },
     'gemini': {
         'api_key_env': 'GEMINI_API_KEY',
         'model': 'gemini-2.5-pro',
         'provider': 'gemini',
-        'display_name': 'Gemini 2.5 Pro'
+        'display_name': 'Gemini 2.5 Pro',
+        'max_output_tokens': 65536,
     },
     'gemini_25flash_lite': {
         'api_key_env': 'GEMINI_API_KEY',
         'model': 'gemini-2.5-flash-lite',
         'provider': 'gemini',
-        'display_name': 'Gemini 2.5 Flash Lite'
+        'display_name': 'Gemini 2.5 Flash Lite',
+        'max_output_tokens': 65536,
     },
     # ── Google Gemini 3 (Preview) ──────────────────────────────────────────
     'gemini_31pro': {
         'api_key_env': 'GEMINI_API_KEY',
         'model': 'gemini-3.1-pro-preview',
         'provider': 'gemini',
-        'display_name': 'Gemini 3.1 Pro'
+        'display_name': 'Gemini 3.1 Pro',
+        'max_output_tokens': 65536,
     },
     'gemini_3flash': {
         'api_key_env': 'GEMINI_API_KEY',
         'model': 'gemini-3-flash-preview',
         'provider': 'gemini',
-        'display_name': 'Gemini 3 Flash'
+        'display_name': 'Gemini 3 Flash',
+        'max_output_tokens': 65536,
     },
     'gemini_31flash_lite': {
         'api_key_env': 'GEMINI_API_KEY',
         'model': 'gemini-3.1-flash-lite-preview',
         'provider': 'gemini',
-        'display_name': 'Gemini 3.1 Flash Lite'
+        'display_name': 'Gemini 3.1 Flash Lite',
+        'max_output_tokens': 65536,
     },
 }
 
@@ -901,8 +907,9 @@ class EnhancedArchAnalyzer:
                     EnhancedArchAnalyzer._lm_initialized = True
             return
         
+        provider_max_tokens = PROVIDER_CONFIG.get(current_provider, {}).get('max_output_tokens', 65536)
         temperature = 0.2
-        max_tokens = 16000
+        max_tokens = provider_max_tokens
         thinking_budget = None  # None이면 기본값 사용 (Gemini 2.5는 thinking 활성화)
         thinking_level = None  # Gemini 3 Pro용: "low" 또는 "high"
         include_thoughts = False  # Thought Summaries 포함 여부
@@ -927,7 +934,7 @@ class EnhancedArchAnalyzer:
             include_thoughts = include_thoughts_str == 'true'
 
         temperature = max(0.0, min(1.0, temperature))
-        max_tokens = max(1000, min(16000, max_tokens))
+        max_tokens = max(1000, min(provider_max_tokens, max_tokens))
 
         # 선택된 제공자 정보 가져오기
         provider_config = PROVIDER_CONFIG.get(current_provider)
@@ -1589,16 +1596,17 @@ class EnhancedArchAnalyzer:
         litellm_model = f"gemini/{clean_model}"
         
         # temperature와 max_tokens 가져오기
+        _provider_max = provider_config.get('max_output_tokens', 65536)
         temp_value = 0.2
-        max_tokens_value = 16000
+        max_tokens_value = _provider_max
         try:
             import streamlit as st
             temp_value = float(st.session_state.get('llm_temperature', 0.2))
-            max_tokens_value = int(st.session_state.get('llm_max_tokens', 16000))
+            max_tokens_value = int(st.session_state.get('llm_max_tokens', _provider_max))
         except Exception:
             temp_value = float(os.environ.get('LLM_TEMPERATURE', 0.2))
-            max_tokens_value = int(os.environ.get('LLM_MAX_TOKENS', 16000))
-        
+            max_tokens_value = int(os.environ.get('LLM_MAX_TOKENS', _provider_max))
+
         # Function declarations 변환
         converted_declarations = self._convert_function_declarations(function_declarations)
         if not converted_declarations:
@@ -2195,16 +2203,17 @@ class EnhancedArchAnalyzer:
                         litellm_model = f"gemini/{clean_model}"
                         
                         # temperature와 max_tokens 가져오기
+                        _provider_max2 = provider_config.get('max_output_tokens', 65536)
                         temp_value = 0.2
-                        max_tokens_value = 16000
+                        max_tokens_value = _provider_max2
                         try:
                             import streamlit as st
                             temp_value = float(st.session_state.get('llm_temperature', 0.2))
-                            max_tokens_value = int(st.session_state.get('llm_max_tokens', 16000))
+                            max_tokens_value = int(st.session_state.get('llm_max_tokens', _provider_max2))
                         except Exception:
                             temp_value = float(os.environ.get('LLM_TEMPERATURE', 0.2))
-                            max_tokens_value = int(os.environ.get('LLM_MAX_TOKENS', 16000))
-                        
+                            max_tokens_value = int(os.environ.get('LLM_MAX_TOKENS', _provider_max2))
+
                         schema_name = 'JSON Schema'
                         if isinstance(response_schema, dict):
                             schema_name = 'JSON Schema'
@@ -2638,10 +2647,11 @@ class EnhancedArchAnalyzer:
             client = genai.Client(api_key=api_key)
             model_name = provider_config.get('model', 'gemini-2.5-flash')
 
-            # Thinking config (낮은 budget)
+            # Thinking config
+            _summary_max_tokens = provider_config.get('max_output_tokens', 65536)
             config = types.GenerateContentConfig(
                 temperature=0.3,
-                max_output_tokens=4000
+                max_output_tokens=_summary_max_tokens
             )
 
             # 모델에 따라 thinking 설정
