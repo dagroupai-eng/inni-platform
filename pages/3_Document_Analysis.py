@@ -300,7 +300,7 @@ if 'use_preprocessed_text' not in st.session_state:
 if 'llm_temperature' not in st.session_state:
     st.session_state.llm_temperature = 0.2
 if 'llm_max_tokens' not in st.session_state:
-    st.session_state.llm_max_tokens = 16000
+    st.session_state.llm_max_tokens = 65536
 if 'cot_session' not in st.session_state:
     st.session_state.cot_session = None
 if 'cot_plan' not in st.session_state:
