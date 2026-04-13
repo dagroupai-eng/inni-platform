@@ -2133,6 +2133,21 @@ tab_project, tab_blocks, tab_run, tab_download = st.tabs(
     ["기본 정보 & 파일 업로드", "분석 블록 선택", "분석 실행", "결과 다운로드"]
 )
 
+# 블록 선택 완료 버튼 클릭 후 → "분석 실행" 탭(index 2)으로 자동 이동 + 알림
+if st.session_state.pop('_jump_to_run_tab', False):
+    _bc = st.session_state.pop('_block_confirm_count', 0)
+    st.toast(f"✅ {_bc}개 블록 선택 완료! 분석 실행 탭으로 이동합니다.", icon="✅")
+    import streamlit.components.v1 as _compo
+    _compo.html(
+        "<script>"
+        "setTimeout(function(){"
+        "var t=window.parent.document.querySelectorAll('button[data-testid=\"stTab\"]');"
+        "if(t&&t.length>2)t[2].click();"
+        "},300);"
+        "</script>",
+        height=0,
+    )
+
 project_name = st.session_state.get("project_name", "")
 location = st.session_state.get("location", "")
 project_goals = st.session_state.get("project_goals", "")
@@ -2756,7 +2771,10 @@ def _block_tab_fragment():
                 save_work_session()
             except Exception as e:
                 print(f"블록 선택 자동저장 오류: {e}")
-            st.success(f"{len(selected_blocks)}개 블록 선택 완료! '분석 실행' 탭으로 이동하세요.")
+            # 전체 rerun 후 "분석 실행" 탭 자동 이동 + 알림을 위한 플래그 저장
+            st.session_state['_jump_to_run_tab'] = True
+            st.session_state['_block_confirm_count'] = len(selected_blocks)
+            st.rerun()
     else:
         st.warning("분석할 블록을 선택해주세요.")
 
