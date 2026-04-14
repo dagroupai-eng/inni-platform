@@ -5,7 +5,6 @@ import os
 import re
 import pandas as pd
 from file_analyzer import UniversalFileAnalyzer
-from dspy_analyzer import EnhancedArchAnalyzer
 from utils.integrations.nanobanana_client import NanoBananaClient
 
 
@@ -59,8 +58,7 @@ if render_session_manager_sidebar:
 # AI 이미지 프롬프트 생성 함수
 def generate_ai_image_prompt(user_inputs, cot_history, image_settings):
     """AI 이미지 프롬프트 생성 함수"""
-    from dspy_analyzer import EnhancedArchAnalyzer
-    
+
     # 분석 결과 요약
     analysis_results = []
     if cot_history:
@@ -171,64 +169,69 @@ def generate_ai_image_prompt(user_inputs, cot_history, image_settings):
 """
     
     try:
-        # DSPy 분석기 사용
-        analyzer = EnhancedArchAnalyzer()
-        result = analyzer.analyze_custom_block(image_prompt, "")
-        
-        if result['success']:
-            # 결과를 파싱하여 구조화된 형태로 반환
-            analysis_text = result['analysis']
-            
-            # 한글 설명, 영어 프롬프트, 네거티브 프롬프트 추출 시도
-            korean_description = ""
-            english_prompt = ""
-            negative_prompt = ""
+        # 현재 provider 설정을 그대로 사용해 Gemini 직접 호출
+        # (analyze_custom_block의 불필요한 보일러플레이트 없이 image_prompt만 전달)
+        from dspy_analyzer import get_current_provider, get_api_key, PROVIDER_CONFIG
+        import google.generativeai as genai
 
-            # 간단한 파싱 로직
-            if "**한글 설명:**" in analysis_text:
-                parts = analysis_text.split("**한글 설명:**")
-                if len(parts) > 1:
-                    korean_part = parts[1].split("**English Prompt:**")[0].strip()
-                    korean_description = korean_part
+        current_provider = get_current_provider()
+        provider_config = PROVIDER_CONFIG.get(current_provider, PROVIDER_CONFIG['gemini_25flash'])
+        model_name = provider_config['model']
+        display_name = provider_config.get('display_name', model_name)
 
-            if "**English Prompt:**" in analysis_text:
-                parts = analysis_text.split("**English Prompt:**")
-                if len(parts) > 1:
-                    english_part = parts[1]
-                    # Negative Prompt가 있으면 그 전까지만
-                    if "**Negative Prompt:**" in english_part:
-                        english_prompt = english_part.split("**Negative Prompt:**")[0].strip()
-                    else:
-                        english_prompt = english_part.strip()
-
-            if "**Negative Prompt:**" in analysis_text:
-                parts = analysis_text.split("**Negative Prompt:**")
-                if len(parts) > 1:
-                    negative_prompt = parts[1].strip()
-                    # 다음 섹션이 있으면 그 전까지만
-                    if "**" in negative_prompt:
-                        negative_prompt = negative_prompt.split("**")[0].strip()
-
-            return {
-                'success': True,
-                'korean_description': korean_description,
-                'english_prompt': english_prompt,
-                'negative_prompt': negative_prompt,
-                'full_analysis': analysis_text,
-                'model': result['model']
-            }
-        else:
+        api_key = get_api_key(current_provider)
+        if not api_key:
             return {
                 'success': False,
-                'error': result.get('error', '알 수 없는 오류'),
-                'model': result.get('model', 'Unknown')
+                'error': f"API 키가 설정되지 않았습니다 ({provider_config.get('api_key_env', 'GEMINI_API_KEY')})",
+                'model': display_name
             }
-            
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(image_prompt)
+        analysis_text = response.text
+
+        # 한글 설명, 영어 프롬프트, 네거티브 프롬프트 추출
+        korean_description = ""
+        english_prompt = ""
+        negative_prompt = ""
+
+        if "**한글 설명:**" in analysis_text:
+            parts = analysis_text.split("**한글 설명:**")
+            if len(parts) > 1:
+                korean_description = parts[1].split("**English Prompt:**")[0].strip()
+
+        if "**English Prompt:**" in analysis_text:
+            parts = analysis_text.split("**English Prompt:**")
+            if len(parts) > 1:
+                english_part = parts[1]
+                if "**Negative Prompt:**" in english_part:
+                    english_prompt = english_part.split("**Negative Prompt:**")[0].strip()
+                else:
+                    english_prompt = english_part.strip()
+
+        if "**Negative Prompt:**" in analysis_text:
+            parts = analysis_text.split("**Negative Prompt:**")
+            if len(parts) > 1:
+                negative_prompt = parts[1].strip()
+                if "**" in negative_prompt:
+                    negative_prompt = negative_prompt.split("**")[0].strip()
+
+        return {
+            'success': True,
+            'korean_description': korean_description,
+            'english_prompt': english_prompt,
+            'negative_prompt': negative_prompt,
+            'full_analysis': analysis_text,
+            'model': display_name
+        }
+
     except Exception as e:
         return {
             'success': False,
             'error': str(e),
-            'model': 'DSPy Error'
+            'model': 'Error'
         }
 
 # 분석 데이터 로드 함수
