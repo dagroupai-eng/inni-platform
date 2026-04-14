@@ -1852,6 +1852,98 @@ def _render_summary(parcels: list):
         st.caption(f"공시가액 합계: **{total_price:,} 원**")
 
 
+# ─── 필지 세트 저장/불러오기 ───────────────────────────────────────────────────
+
+_MAP_SET_KEY = "saved_map_sets"
+_MAX_MAP_SETS = 20  # 사용자당 최대 저장 개수
+
+
+def _parcel_snapshot(p: dict) -> dict:
+    """저장할 필지 필드 선택 — 대용량 필드(nearby_buildings 등) 제외"""
+    KEEP = {
+        "pnu", "address", "lat", "lon", "area_m2",
+        "land_category_name", "jibun", "sido_nm", "sgg_nm", "emd_nm",
+        "zoning", "district", "zone", "jigudan", "jiguinfo_entries",
+        "official_price_per_m2", "official_total_price", "price_year",
+        "geometry",
+    }
+    return {k: v for k, v in p.items() if k in KEEP and v is not None}
+
+
+def _get_user_settings_raw(uid: int) -> dict:
+    """user_settings.settings_data 전체를 dict로 반환"""
+    try:
+        from database.supabase_client import get_supabase_client
+        import json as _json
+        client = get_supabase_client()
+        r = client.table("user_settings").select("settings_data").eq("user_id", uid).limit(1).execute()
+        rows = r.data or []
+        if not rows:
+            return {}
+        raw = rows[0].get("settings_data") or {}
+        return _json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as e:
+        print(f"[MapSet] settings 읽기 오류: {e}")
+        return {}
+
+
+def _put_user_settings_raw(uid: int, settings: dict):
+    """user_settings.settings_data UPSERT (기존 키 보존, saved_map_sets만 덮어씀)"""
+    try:
+        from database.supabase_client import get_supabase_client
+        from datetime import datetime as _dt
+        client = get_supabase_client()
+        client.table("user_settings").upsert(
+            {"user_id": uid, "settings_data": settings,
+             "updated_at": _dt.now().isoformat()},
+            on_conflict="user_id",
+        ).execute()
+    except Exception as e:
+        print(f"[MapSet] settings 저장 오류: {e}")
+
+
+def _load_saved_map_sets(uid: int) -> list:
+    return _get_user_settings_raw(uid).get(_MAP_SET_KEY, [])
+
+
+def _save_map_set(uid: int, parcels: list) -> dict:
+    """현재 선택 필지를 user_settings에 자동 저장, 생성된 세트 반환"""
+    import uuid
+    from datetime import datetime as _dt
+
+    # 이름 자동 생성: "삼척시 근덕면 8필지 · 04-14"
+    rep_addr = next((p.get("address", "") for p in parcels if p.get("address")), "")
+    addr_parts = rep_addr.split()
+    short = " ".join(
+        pt for pt in addr_parts
+        if any(pt.endswith(x) for x in ("시", "군", "구", "읍", "면", "동", "리"))
+    )
+    short = (short[:18] if short else "필지 세트")
+    auto_name = f"{short} {len(parcels)}필지 · {_dt.now().strftime('%m-%d')}"
+
+    new_set = {
+        "id":         str(uuid.uuid4())[:8],
+        "name":       auto_name,
+        "created_at": _dt.now().isoformat(),
+        "parcels":    [_parcel_snapshot(p) for p in parcels],
+    }
+
+    settings = _get_user_settings_raw(uid)
+    sets = settings.get(_MAP_SET_KEY, [])
+    sets.insert(0, new_set)
+    settings[_MAP_SET_KEY] = sets[:_MAX_MAP_SETS]
+    _put_user_settings_raw(uid, settings)
+    return new_set
+
+
+def _delete_map_set(uid: int, set_id: str):
+    settings = _get_user_settings_raw(uid)
+    settings[_MAP_SET_KEY] = [
+        s for s in settings.get(_MAP_SET_KEY, []) if s.get("id") != set_id
+    ]
+    _put_user_settings_raw(uid, settings)
+
+
 # ─── 분석 연동 ────────────────────────────────────────────────────────────────
 
 def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
@@ -2063,6 +2155,18 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
     except Exception as _as_err:
         print(f"[Mapping] 자동 저장 오류: {_as_err}")
 
+    # 필지 세트 사이드바 자동 저장
+    try:
+        from auth.authentication import is_authenticated, get_current_user
+        if is_authenticated():
+            _mu = get_current_user()
+            if _mu:
+                _save_map_set(_mu.get("id"), parcels)
+                # 사이드바 갱신을 위해 캐시 무효화
+                st.session_state.pop("_map_sets_cache", None)
+    except Exception as _ms_err:
+        print(f"[MapSet] 자동 저장 오류: {_ms_err}")
+
 
 def _build_nearby_md(buildings: list, radius_m: int = 500) -> str:
     """주변 건물 목록 → 분석용 마크다운"""
@@ -2226,6 +2330,69 @@ def render_land_map_page():
     if "lm_preview"       not in st.session_state: st.session_state.lm_preview       = None
     if "lm_last_click"    not in st.session_state: st.session_state.lm_last_click    = ""
     if "lm_nearby_radius" not in st.session_state: st.session_state.lm_nearby_radius = 500
+
+    # ── 사이드바: 저장된 필지 세트 ────────────────────────────────────────
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("**저장된 필지 세트**")
+
+        _sb_uid = None
+        _sb_sets = []
+        try:
+            from auth.authentication import is_authenticated, get_current_user
+            if is_authenticated():
+                _sb_u = get_current_user()
+                if _sb_u:
+                    _sb_uid = _sb_u.get("id")
+                    # 캐시 활용 (동일 rerun 내 중복 DB 조회 방지)
+                    if "_map_sets_cache" not in st.session_state:
+                        st.session_state["_map_sets_cache"] = _load_saved_map_sets(_sb_uid)
+                    _sb_sets = st.session_state["_map_sets_cache"]
+        except Exception:
+            pass
+
+        if not _sb_uid:
+            st.caption("로그인 후 이용 가능합니다.")
+        elif not _sb_sets:
+            st.caption("저장된 세트가 없습니다.\n\n분석에 활용하면 자동 저장됩니다.")
+        else:
+            for _s in _sb_sets:
+                _sid      = _s.get("id", "")
+                _sname    = _s.get("name", "이름 없음")
+                _sparcels = _s.get("parcels", [])
+                _sdate    = (_s.get("created_at") or "")[:10]
+
+                with st.expander(_sname, expanded=False):
+                    # 지번 목록
+                    for _sp in _sparcels:
+                        _addr = _sp.get("address", "—")
+                        _area = _sp.get("area_m2")
+                        _area_s = f"  {_area:,.0f}㎡" if _area else ""
+                        st.caption(f"• {_addr}{_area_s}")
+
+                    if _sdate:
+                        st.caption(f"저장일: {_sdate}")
+                    st.write("")
+
+                    _bc1, _bc2 = st.columns(2)
+                    with _bc1:
+                        if st.button("불러오기", key=f"lm_load_{_sid}",
+                                     use_container_width=True, type="primary"):
+                            st.session_state.lm_parcels = list(_sparcels)
+                            st.session_state.lm_preview = None
+                            if _sparcels:
+                                _rep = _sparcels[0]
+                                if _rep.get("lat") and _rep.get("lon"):
+                                    st.session_state.lm_center = [_rep["lat"], _rep["lon"]]
+                                    st.session_state.lm_zoom   = 15
+                            st.rerun()
+                    with _bc2:
+                        if st.button("삭제", key=f"lm_del_{_sid}",
+                                     use_container_width=True):
+                            if _sb_uid:
+                                _delete_map_set(_sb_uid, _sid)
+                                st.session_state.pop("_map_sets_cache", None)
+                            st.rerun()
 
     # ── 메인 페이지에서 주소 입력 → 자동 필지 로드 ───────────────────────────
     pending_addrs = st.session_state.get("_pending_map_addresses")
