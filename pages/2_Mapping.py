@@ -807,38 +807,41 @@ def _parse_jibun_address(address: str) -> Optional[tuple]:
 
 def _fetch_parcel_by_jibun(address: str, nearby_radius: int = 500) -> Optional[dict]:
     """
-    지번 주소를 WFS CQL_FILTER로 직접 검색 → 필지 정보.
+    지번 주소 → 정확한 필지 조회.
 
-    geocode(주소→좌표→WFS) 방식 대신 WFS에 지번 텍스트를 직접 필터링해서
-    산/지목 오매칭 문제를 방지한다. 결과가 없으면 None 반환(호출부에서 fallback).
+    geocode로 대략적인 좌표를 구한 뒤, 넓은 BBOX(약 1km)로 WFS 후보를 최대 80개
+    가져와서 jibun 필드가 검색 지번과 정확히 일치하는 필지를 선택한다.
+    geocode가 인근 다른 필지를 반환해도, 실제 필지가 BBOX 안에 있으면 정확히 찾는다.
+    일치 필지가 없으면 None 반환(호출부에서 기존 방식으로 fallback).
     """
     import json as _json
 
     parsed = _parse_jibun_address(address)
     if not parsed:
         return None
-    sig_nm, emd_nm, jibun_num = parsed
-    if not emd_nm or not jibun_num:
+    _, _, jibun_num = parsed
+    if not jibun_num:
         return None
+
+    # geocode: 틀린 지번을 반환해도 실제 필지 근방 좌표는 얻을 수 있다
+    coords = _geocode(address)
+    if not coords:
+        return None
+    lon0, lat0 = coords
 
     key = _api_key()
     dom = _domain()
     if not key:
         return None
 
-    # WFS jibun 필드 형식: "산108-2 임" → LIKE '산108-2 %' 또는 = '산108-2'
-    jn = jibun_num.replace("'", "''")  # 작은따옴표 이스케이프
-    jibun_cql = f"(jibun LIKE '{jn} %' OR jibun = '{jn}')"
-    cql = f"emd_nm = '{emd_nm}' AND {jibun_cql}"
-    if sig_nm:
-        cql = f"sig_nm = '{sig_nm}' AND {cql}"
-
+    # d=0.008 ≈ 약 800m 반경 BBOX — 인접 지번까지 충분히 포함
+    d = 0.008
     wfs_params = {
         "SERVICE": "WFS", "VERSION": "1.1.0", "REQUEST": "GetFeature",
         "TYPENAME": WFS_TYPENAME, "KEY": key,
         "SRSNAME": "EPSG:4326", "outputFormat": "application/json",
-        "MAXFEATURES": "5",
-        "CQL_FILTER": cql,
+        "MAXFEATURES": "80",
+        "BBOX": f"{lat0-d},{lon0-d},{lat0+d},{lon0+d},EPSG:4326",
     }
     if dom:
         wfs_params["domain"] = dom
@@ -846,20 +849,26 @@ def _fetch_parcel_by_jibun(address: str, nearby_radius: int = 500) -> Optional[d
     try:
         r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
         r.raise_for_status()
-        wfs_json = _json.loads(r.content.decode("utf-8"))
-        feats = wfs_json.get("features", [])
-        if not feats:
-            print(f"[WFS CQL] 결과 없음: {address!r} | CQL: {cql}")
+        feats = _json.loads(r.content.decode("utf-8")).get("features", [])
+
+        # WFS jibun 필드: "산108-2 임" → 공백 앞 부분이 지번 번호
+        matched = next(
+            (f for f in feats
+             if f.get("properties", {}).get("jibun", "").split(" ")[0] == jibun_num),
+            None,
+        )
+        if not matched:
+            print(f"[지번 매칭] '{jibun_num}' 없음 — 후보 {len(feats)}개 (fallback)")
             return None
 
-        lon, lat = _polygon_centroid(feats[0].get("geometry", {}))
+        lon, lat = _polygon_centroid(matched.get("geometry", {}))
         if lon is None:
             return None
 
         return _fetch_parcel_info(lon, lat, nearby_radius=nearby_radius)
 
     except Exception as e:
-        print(f"[WFS CQL] 조회 실패 ({address!r}): {type(e).__name__}: {e}")
+        print(f"[지번 매칭] 실패 ({address!r}): {type(e).__name__}: {e}")
         return None
 
 
