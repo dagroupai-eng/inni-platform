@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Optional
 
 
-MAX_CONCURRENT = 2
+MAX_CONCURRENT = 3
 
 
 def _client():
@@ -14,8 +14,8 @@ def _client():
     return get_supabase_client()
 
 
-STALE_MINUTES = 30         # processing 상태 최대 허용 시간
-STALE_WAITING_MINUTES = 10  # waiting 상태 최대 허용 시간 (브라우저 종료 등 비정상 대기 정리)
+STALE_MINUTES = 8          # processing 상태 최대 허용 시간 (파일 1개 기준 — heartbeat로 리셋)
+STALE_WAITING_MINUTES = 5  # waiting 상태 최대 허용 시간 (브라우저 종료 등 비정상 대기 정리)
 
 
 def cleanup_stale() -> int:
@@ -113,6 +113,14 @@ def try_start_processing(user_id: int, server: Optional[str] = None) -> bool:
 def exit_queue(user_id: int) -> None:
     """대기열에서 제거 (분析 완료/중단/오류 시)."""
     _client().table('analysis_queue').delete().eq('user_id', user_id).execute()
+
+
+def update_heartbeat(user_id: int) -> None:
+    """파일 1개 완료 시 heartbeat 갱신 — started_at을 현재 시각으로 리셋해 stale 타이머를 초기화합니다."""
+    from datetime import datetime, timezone
+    _client().table('analysis_queue').update({
+        'started_at': datetime.now(timezone.utc).isoformat(),
+    }).eq('user_id', user_id).eq('status', 'processing').execute()
 
 
 def can_process(user_id: int, server: Optional[str] = None) -> bool:

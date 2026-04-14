@@ -2277,6 +2277,7 @@ with tab_project:
                 from database.queue_manager import (
                     enter_queue, can_process, get_queue_info,
                     try_start_processing, exit_queue as _pq_exit,
+                    update_heartbeat as _pq_heartbeat,
                 )
                 if _pq_uid:
                     enter_queue(_pq_uid, _pq_pid, _pq_server)
@@ -2446,6 +2447,12 @@ with tab_project:
                         if _parse_ok:
                             if _fh not in st.session_state['_processed_file_hashes']:
                                 st.session_state['_processed_file_hashes'].append(_fh)
+                        # 파일 1개 처리 완료 → heartbeat 갱신 (stale 타이머 리셋)
+                        try:
+                            if _pq_uid:
+                                _pq_heartbeat(_pq_uid)
+                        except Exception:
+                            pass
 
                 finally:
                     try:

@@ -381,41 +381,52 @@ def main():
             )
             
             if uploaded_file is not None:
-                st.session_state.uploaded_file = uploaded_file
-                with st.spinner("PDF를 분석하고 있습니다..."):
-                    try:
-                        # UniversalFileAnalyzer 사용
-                        analyzer = UniversalFileAnalyzer()
-                        
-                        # 파일을 바이트로 읽기
-                        pdf_bytes = uploaded_file.read()
-                        
-                        # PDF 분석 실행
-                        result = analyzer.analyze_file_from_bytes(
-                            pdf_bytes, 
-                            "pdf", 
-                            uploaded_file.name
-                        )
-                        
-                        if result['success']:
-                            pdf_text = result['text']
-                            if pdf_text and len(pdf_text.strip()) > 0:
-                                st.session_state.pdf_text = pdf_text.strip()
-                                st.success(f"PDF 분석 완료! ({len(pdf_text.strip())}자)")
-                                st.info(f"파일명: {uploaded_file.name}")
-                                
-                                # 추가 정보 표시
-                                if 'metadata' in result:
-                                    metadata = result['metadata']
-                                    st.info(f"페이지 수: {metadata.get('page_count', 'N/A')}")
+                # 이미 분석된 파일이면 재분석 건너뜀 (file_id + name 두 가지로 비교)
+                _file_id = getattr(uploaded_file, "file_id", None) or uploaded_file.name
+                _already = (
+                    st.session_state.get("_analyzed_pdf_id") == _file_id
+                    and st.session_state.get("pdf_text")
+                )
+                if _already:
+                    st.success(f"PDF 분석 완료! ({len(st.session_state.pdf_text)}자)")
+                    st.info(f"파일명: {uploaded_file.name}")
+                else:
+                    st.session_state.uploaded_file = uploaded_file
+                    with st.spinner("PDF를 분석하고 있습니다..."):
+                        try:
+                            # UniversalFileAnalyzer 사용
+                            analyzer = UniversalFileAnalyzer()
+
+                            # 파일을 바이트로 읽기
+                            pdf_bytes = uploaded_file.read()
+
+                            # PDF 분석 실행
+                            result = analyzer.analyze_file_from_bytes(
+                                pdf_bytes,
+                                "pdf",
+                                uploaded_file.name
+                            )
+
+                            if result['success']:
+                                pdf_text = result['text']
+                                if pdf_text and len(pdf_text.strip()) > 0:
+                                    st.session_state.pdf_text = pdf_text.strip()
+                                    st.session_state["_analyzed_pdf_id"] = _file_id
+                                    st.success(f"PDF 분석 완료! ({len(pdf_text.strip())}자)")
+                                    st.info(f"파일명: {uploaded_file.name}")
+
+                                    # 추가 정보 표시
+                                    if 'metadata' in result:
+                                        metadata = result['metadata']
+                                        st.info(f"페이지 수: {metadata.get('page_count', 'N/A')}")
+                                else:
+                                    st.error("PDF에서 텍스트를 추출할 수 없습니다. 이미지 기반 PDF이거나 텍스트가 없는 PDF일 수 있습니다.")
                             else:
-                                st.error("PDF에서 텍스트를 추출할 수 없습니다. 이미지 기반 PDF이거나 텍스트가 없는 PDF일 수 있습니다.")
-                        else:
-                            st.error(f"PDF 분석 실패: {result.get('error', '알 수 없는 오류')}")
-                            
-                    except Exception as e:
-                        st.error(f"PDF 분석 실패: {str(e)}")
-                        st.info("파일이 손상되었거나 지원하지 않는 형식일 수 있습니다.")
+                                st.error(f"PDF 분석 실패: {result.get('error', '알 수 없는 오류')}")
+
+                        except Exception as e:
+                            st.error(f"PDF 분석 실패: {str(e)}")
+                            st.info("파일이 손상되었거나 지원하지 않는 형식일 수 있습니다.")
         
         else:  # 직접 입력
             st.header("프로젝트 정보 직접 입력")
