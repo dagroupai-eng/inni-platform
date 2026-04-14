@@ -86,6 +86,12 @@ def _normalize_pending_addr(item: Union[str, ParcelAddrEntry]) -> ParcelAddrEntr
     return str(item).strip(), None
 
 
+def _normalize_san_spacing(s: str) -> str:
+    """'산 110-2' → '산110-2' (VWorld·WFS와 동일하게 맞춤)"""
+    import re
+    return re.sub(r'^산\s+', '산', (s or '').strip())
+
+
 def _parse_batch_parcel_input(text: str) -> list[ParcelAddrEntry]:
     """
     쉼표 구분 다중 지번 입력을 (전체 주소, 지목 힌트) 리스트로 변환.
@@ -100,6 +106,7 @@ def _parse_batch_parcel_input(text: str) -> list[ParcelAddrEntry]:
 
     - 지번 끝 지목 코드(임·대·전·답·잡·철 등 한글 접미)는 주소에서는 제거하되 힌트로 보관
     - 읍/면/동/리/가 모두 베이스 주소 기준점으로 지원
+    - **면 아래 리**가 있으면 베이스에 `OO리`까지 포함(이어지는 지번에 리가 빠지지 않게 함)
     - 쉼표 없는 단일 주소는 [(text, None)] 반환
     """
     import re
@@ -111,19 +118,24 @@ def _parse_batch_parcel_input(text: str) -> list[ParcelAddrEntry]:
     if len(parts) <= 1:
         return [(text, None)]
 
-    # 첫 번째 파트에서 베이스 주소 추출
-    # 행정단위(읍/면/동/리/가) 바로 뒤 공백을 경계로 분리
+    # 첫 번째 파트: …면/읍/동 + (선택) OO리 + 첫 지번
     first = parts[0]
-    m = re.match(r'^(.*?(?:읍|면|동|리|가))\s+(.+)$', first)
+    m = re.match(
+        r'^(?P<base_prefix>.*?(\S+(?:읍|면|동|리|가))))'
+        r'(?P<after_li>\s+\S+리)?'
+        r'\s+(?P<first_lot>(?:산\s*)?[\d\-].*)$',
+        first.strip(),
+    )
     if not m:
         # 행정단위 인식 불가 → 기존 파서로 위임
         return [(s, None) for s in _parse_multi_parcel_address(text)]
 
-    base = m.group(1).strip()
-    first_lot_raw = m.group(2).strip()
+    base = (m.group("base_prefix").strip() + (m.group("after_li") or "")).strip()
+    first_lot_raw = _normalize_san_spacing(m.group("first_lot").strip())
 
     results: list[ParcelAddrEntry] = []
     for lot_raw in [first_lot_raw] + parts[1:]:
+        lot_raw = _normalize_san_spacing(lot_raw)
         lot_clean, hint = _strip_category_with_hint(lot_raw)
         if lot_clean:
             results.append((f"{base} {lot_clean}", hint))
@@ -856,20 +868,40 @@ def _polygon_centroid(geom: dict) -> tuple:
 
 def _parse_jibun_address(address: str) -> Optional[tuple]:
     """
-    "강원특별자치도 삼척시 근덕면 산108-2" → ("삼척시", "근덕면", "산108-2")
-    WFS CQL_FILTER 작성용.
+    WFS CQL·지번 매칭용: (sig_nm, emd_nm, 지번번호부만, ri_nm 또는 None)
+
+    - "… 삼척시 근덕면 부남리 산109-1" → ("삼척시", "근덕면", "산109-1", "부남리")
+    - "… 근덕면 산108-2" → ("삼척시", "근덕면", "산108-2", None)
+    면 단위 다음에 `OO리`가 오면 WFS ri_nm 조회에 쓴다.
     """
     import re
     address = address.strip()
-    # 시군구 + 읍면동 + 지번
+    sig_nm: Optional[str] = None
     m = re.match(r'^.*?(\S+(?:시|군|구))\s+(\S+(?:읍|면|동|리|가))\s+(.+)$', address)
     if m:
-        return m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
-    # 시군구 없이 읍면동만 있는 경우
-    m2 = re.match(r'^.*?(\S+(?:읍|면|동|리|가))\s+(.+)$', address)
-    if m2:
-        return None, m2.group(1).strip(), m2.group(2).strip()
-    return None
+        sig_nm = m.group(1).strip()
+        emd_nm = m.group(2).strip()
+        remainder = m.group(3).strip()
+    else:
+        m2 = re.match(r'^.*?(\S+(?:읍|면|동|리|가))\s+(.+)$', address)
+        if not m2:
+            return None
+        emd_nm = m2.group(1).strip()
+        remainder = m2.group(2).strip()
+
+    remainder = re.sub(r'^산\s+', '산', remainder)
+
+    ri_nm: Optional[str] = None
+    if emd_nm.endswith('면'):
+        mri = re.match(r'^(\S+리)\s+(.+)$', remainder)
+        if mri:
+            ri_nm = mri.group(1).strip()
+            remainder = re.sub(r'^산\s+', '산', mri.group(2).strip())
+
+    jibun_num = remainder.strip()
+    if not jibun_num:
+        return None
+    return (sig_nm, emd_nm, jibun_num, ri_nm)
 
 
 def _wfs_jibun_num_jimok(props: dict) -> Tuple[str, str]:
@@ -885,13 +917,16 @@ def _pick_wfs_candidates(
     feats: list,
     jibun_num: str,
     expected_jimok: Optional[str],
+    expected_ri_nm: Optional[str] = None,
 ) -> list:
     """
     지번 번호부 정확 일치 후보를 모은 뒤, 지목 힌트로 좁히고 PNU로 정렬.
     지목 필터로 0건이면 지목 없이 재시도.
     일반지번(산 없음) 검색 시 WFS '산…' 번지는 제외해 오매칭을 줄인다.
+    expected_ri_nm: 면 하위 리가 있으면 WFS ri_nm과 일치하는 후보만 남긴다.
     """
     want_jm = (expected_jimok or "").strip()
+    want_ri = (expected_ri_nm or "").strip()
     req_san = jibun_num.startswith("산")
 
     def _san_ok(wfs_jn: str) -> bool:
@@ -910,6 +945,13 @@ def _pick_wfs_candidates(
         filtered = [f for f in cands if _wfs_jibun_num_jimok(f.get("properties", {}))[1] == want_jm]
         if filtered:
             cands = filtered
+    if want_ri:
+        by_ri = [
+            f for f in cands
+            if str((f.get("properties") or {}).get("ri_nm") or "").strip() == want_ri
+        ]
+        if by_ri:
+            cands = by_ri
     cands.sort(key=lambda f: (f.get("properties") or {}).get("pnu") or "")
     return cands
 
@@ -930,7 +972,7 @@ def _fetch_parcel_by_jibun(
     parsed = _parse_jibun_address(address)
     if not parsed:
         return None
-    sig_nm, emd_nm, jibun_num = parsed
+    sig_nm, emd_nm, jibun_num, ri_nm = parsed
     if not jibun_num:
         return None
 
@@ -954,7 +996,7 @@ def _fetch_parcel_by_jibun(
         r.raise_for_status()
         return _json.loads(r.content.decode("utf-8")).get("features", [])
 
-    def _run_cql() -> list:
+    def _run_cql(with_ri: bool) -> list:
         if not emd_nm:
             return []
         jn = jibun_num.replace("'", "''")
@@ -969,7 +1011,12 @@ def _fetch_parcel_by_jibun(
             )
         else:
             jibun_cql = f"(jibun LIKE '{jn} %' OR jibun = '{jn}')"
-        cql = f"emd_nm = '{emd_esc}' AND {jibun_cql}"
+        parts = [f"emd_nm = '{emd_esc}'"]
+        if with_ri and ri_nm:
+            ri_esc = ri_nm.replace("'", "''")
+            parts.append(f"ri_nm = '{ri_esc}'")
+        parts.append(f"({jibun_cql})")
+        cql = " AND ".join(parts)
         if sig_nm:
             sig_esc = sig_nm.replace("'", "''")
             cql = f"sig_nm = '{sig_esc}' AND {cql}"
@@ -997,7 +1044,7 @@ def _fetch_parcel_by_jibun(
                 continue
             lon0, lat0 = coords
             feats_try = _run_bbox(lon0, lat0)
-            c_try = _pick_wfs_candidates(feats_try, jibun_num, expected_jimok)
+            c_try = _pick_wfs_candidates(feats_try, jibun_num, expected_jimok, ri_nm)
             if c_try:
                 feats = feats_try
                 cands = c_try
@@ -1008,10 +1055,13 @@ def _fetch_parcel_by_jibun(
                 feats = feats_try
 
         if not cands:
-            cands = _pick_wfs_candidates(feats, jibun_num, expected_jimok)
+            cands = _pick_wfs_candidates(feats, jibun_num, expected_jimok, ri_nm)
         if not cands:
-            feats_cql = _run_cql()
-            cands = _pick_wfs_candidates(feats_cql, jibun_num, expected_jimok)
+            for with_ri in ([True, False] if ri_nm else [False]):
+                feats_cql = _run_cql(with_ri)
+                cands = _pick_wfs_candidates(feats_cql, jibun_num, expected_jimok, ri_nm)
+                if cands:
+                    break
 
         if not cands:
             print(f"[지번 매칭] '{jibun_num}' 없음 — bbox+CQL 후보 부족 (fallback)")
@@ -2497,7 +2547,9 @@ def render_land_map_page():
     if do_search and addr_q.strip():
         addresses = _parse_batch_parcel_input(addr_q.strip())
         if len(addresses) > 1:
-            # 다중 필지: pending 등록 후 일괄 로드
+            # 다중 필지: 기존 목록을 비우고 이번 검색 결과만 쌓음(이전 검색과 섞이지 않게)
+            st.session_state.lm_parcels = []
+            st.session_state.lm_preview = None
             st.session_state["_pending_map_addresses"] = addresses
             st.rerun()
         else:
