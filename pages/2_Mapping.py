@@ -10,7 +10,7 @@ VWorld WFS(연속지적도 polygon) + Data API(속성) 연동:
 import logging
 import os
 import streamlit as st
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -58,23 +58,49 @@ PREVIEW_COLOR = "#ff6d00"   # 미리보기 (클릭 직후) → 주황
 
 # ─── 주소 파싱/포맷 ────────────────────────────────────────────────────────────
 
-def _parse_batch_parcel_input(text: str) -> list:
+# 배치 검색: (전체 주소 문자열, 사용자가 적은 지목 힌트 또는 None)
+ParcelAddrEntry = Tuple[str, Optional[str]]
+
+
+def _strip_category_with_hint(raw: str) -> Tuple[str, Optional[str]]:
     """
-    쉼표 구분 다중 지번 입력을 개별 전체 주소 리스트로 변환.
+    지번 끝 지목 한글 접미 추출 후 제거.
+    "산12-1임" → ("산12-1", "임"), "127-1잡" → ("127-1", "잡")
+    """
+    import re
+    raw = raw.strip().replace('번지', '').strip()
+    m = re.search(r'(?<=[0-9])([가-힣]+)$', raw)
+    if m:
+        hint = m.group(1)
+        lot = raw[: m.start(1)].strip()
+        return lot, hint
+    return raw, None
+
+
+def _normalize_pending_addr(item: Union[str, ParcelAddrEntry]) -> ParcelAddrEntry:
+    """세션 등 문자열/튜플 혼입 시 (주소, 지목힌트)로 통일."""
+    if isinstance(item, (list, tuple)) and len(item) >= 2:
+        return str(item[0]).strip(), (str(item[1]).strip() if item[1] else None)
+    if isinstance(item, (list, tuple)) and len(item) == 1:
+        return str(item[0]).strip(), None
+    return str(item).strip(), None
+
+
+def _parse_batch_parcel_input(text: str) -> list[ParcelAddrEntry]:
+    """
+    쉼표 구분 다중 지번 입력을 (전체 주소, 지목 힌트) 리스트로 변환.
 
     입력 예:
       "강원특별자치도 삼척시 도계읍 산12-1임, 산12-3임, 127-1잡, 130-2철, 131-3대, 129-3대"
     출력:
-      ["강원특별자치도 삼척시 도계읍 산12-1",
-       "강원특별자치도 삼척시 도계읍 산12-3",
-       "강원특별자치도 삼척시 도계읍 127-1",
-       "강원특별자치도 삼척시 도계읍 130-2",
-       "강원특별자치도 삼척시 도계읍 131-3",
-       "강원특별자치도 삼척시 도계읍 129-3"]
+      [("강원특별자치도 삼척시 도계읍 산12-1", "임"),
+       ("강원특별자치도 삼척시 도계읍 산12-3", "임"),
+       ("강원특별자치도 삼척시 도계읍 127-1", "잡"),
+       ...]
 
-    - 지번 끝 지목 코드(임·대·전·답·잡·철 등 한글 접미) 자동 제거
+    - 지번 끝 지목 코드(임·대·전·답·잡·철 등 한글 접미)는 주소에서는 제거하되 힌트로 보관
     - 읍/면/동/리/가 모두 베이스 주소 기준점으로 지원
-    - 쉼표 없는 단일 주소는 [text] 반환
+    - 쉼표 없는 단일 주소는 [(text, None)] 반환
     """
     import re
     text = text.strip()
@@ -83,7 +109,7 @@ def _parse_batch_parcel_input(text: str) -> list:
 
     parts = [p.strip() for p in text.split(',') if p.strip()]
     if len(parts) <= 1:
-        return [text]
+        return [(text, None)]
 
     # 첫 번째 파트에서 베이스 주소 추출
     # 행정단위(읍/면/동/리/가) 바로 뒤 공백을 경계로 분리
@@ -91,24 +117,18 @@ def _parse_batch_parcel_input(text: str) -> list:
     m = re.match(r'^(.*?(?:읍|면|동|리|가))\s+(.+)$', first)
     if not m:
         # 행정단위 인식 불가 → 기존 파서로 위임
-        return _parse_multi_parcel_address(text)
+        return [(s, None) for s in _parse_multi_parcel_address(text)]
 
     base = m.group(1).strip()
     first_lot_raw = m.group(2).strip()
 
-    def _strip_category(raw: str) -> str:
-        """지번 끝 지목 코드(한글) 제거: "산12-1임" → "산12-1", "127-1잡" → "127-1" """
-        raw = raw.strip().replace('번지', '').strip()
-        # 숫자 바로 뒤 한글 접미 제거
-        return re.sub(r'(?<=[0-9])[가-힣]+$', '', raw).strip()
-
-    results = []
+    results: list[ParcelAddrEntry] = []
     for lot_raw in [first_lot_raw] + parts[1:]:
-        lot_clean = _strip_category(lot_raw)
+        lot_clean, hint = _strip_category_with_hint(lot_raw)
         if lot_clean:
-            results.append(f"{base} {lot_clean}")
+            results.append((f"{base} {lot_clean}", hint))
 
-    return results if results else [text]
+    return results if results else [(text, None)]
 
 
 def _parse_multi_parcel_address(text: str) -> list:
@@ -805,80 +825,149 @@ def _parse_jibun_address(address: str) -> Optional[tuple]:
     return None
 
 
-def _fetch_parcel_by_jibun(address: str, nearby_radius: int = 500) -> Optional[dict]:
+def _wfs_jibun_num_jimok(props: dict) -> Tuple[str, str]:
+    """WFS properties → (지번번호부, 지목부) 예: '산108-2 임' → ('산108-2', '임')"""
+    jr = (props.get("jibun") or "").strip()
+    parts = jr.split()
+    num = parts[0] if parts else ""
+    jim = parts[1] if len(parts) > 1 else ""
+    return num, jim
+
+
+def _pick_wfs_candidates(
+    feats: list,
+    jibun_num: str,
+    expected_jimok: Optional[str],
+) -> list:
+    """
+    지번 번호부 정확 일치 후보를 모은 뒤, 지목 힌트로 좁히고 PNU로 정렬.
+    지목 필터로 0건이면 지목 없이 재시도.
+    """
+    want_jm = (expected_jimok or "").strip()
+    cands = [
+        f for f in feats
+        if _wfs_jibun_num_jimok(f.get("properties", {}))[0] == jibun_num
+    ]
+    if want_jm:
+        filtered = [f for f in cands if _wfs_jibun_num_jimok(f.get("properties", {}))[1] == want_jm]
+        if filtered:
+            cands = filtered
+    cands.sort(key=lambda f: (f.get("properties") or {}).get("pnu") or "")
+    return cands
+
+
+def _fetch_parcel_by_jibun(
+    address: str,
+    nearby_radius: int = 500,
+    expected_jimok: Optional[str] = None,
+) -> Optional[dict]:
     """
     지번 주소 → 정확한 필지 조회.
 
-    geocode로 대략적인 좌표를 구한 뒤, 넓은 BBOX(약 1km)로 WFS 후보를 최대 80개
-    가져와서 jibun 필드가 검색 지번과 정확히 일치하는 필지를 선택한다.
-    geocode가 인근 다른 필지를 반환해도, 실제 필지가 BBOX 안에 있으면 정확히 찾는다.
-    일치 필지가 없으면 None 반환(호출부에서 기존 방식으로 fallback).
+    geocode 후 넓은 BBOX로 WFS 후보를 받아, 지번 번호부·지목 힌트로 후보를 좁힌 뒤
+    PNU 정렬로 결정적으로 1건을 고른다. BBOX에 없으면 CQL 필터로 재시도.
     """
     import json as _json
 
     parsed = _parse_jibun_address(address)
     if not parsed:
         return None
-    _, _, jibun_num = parsed
+    sig_nm, emd_nm, jibun_num = parsed
     if not jibun_num:
         return None
-
-    # geocode: 틀린 지번을 반환해도 실제 필지 근방 좌표는 얻을 수 있다
-    coords = _geocode(address)
-    if not coords:
-        return None
-    lon0, lat0 = coords
 
     key = _api_key()
     dom = _domain()
     if not key:
         return None
 
-    # d=0.008 ≈ 약 800m 반경 BBOX — 인접 지번까지 충분히 포함
-    d = 0.008
-    wfs_params = {
-        "SERVICE": "WFS", "VERSION": "1.1.0", "REQUEST": "GetFeature",
-        "TYPENAME": WFS_TYPENAME, "KEY": key,
-        "SRSNAME": "EPSG:4326", "outputFormat": "application/json",
-        "MAXFEATURES": "80",
-        "BBOX": f"{lat0-d},{lon0-d},{lat0+d},{lon0+d},EPSG:4326",
-    }
-    if dom:
-        wfs_params["domain"] = dom
-
-    try:
+    def _run_bbox(lon0: float, lat0: float) -> list:
+        d = 0.008
+        wfs_params = {
+            "SERVICE": "WFS", "VERSION": "1.1.0", "REQUEST": "GetFeature",
+            "TYPENAME": WFS_TYPENAME, "KEY": key,
+            "SRSNAME": "EPSG:4326", "outputFormat": "application/json",
+            "MAXFEATURES": "80",
+            "BBOX": f"{lat0-d},{lon0-d},{lat0+d},{lon0+d},EPSG:4326",
+        }
+        if dom:
+            wfs_params["domain"] = dom
         r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
         r.raise_for_status()
-        feats = _json.loads(r.content.decode("utf-8")).get("features", [])
+        return _json.loads(r.content.decode("utf-8")).get("features", [])
 
-        # WFS jibun 필드: "산108-2 임" → 공백 앞 부분이 지번 번호
-        matched = next(
-            (f for f in feats
-             if f.get("properties", {}).get("jibun", "").split(" ")[0] == jibun_num),
-            None,
-        )
-        if not matched:
-            print(f"[지번 매칭] '{jibun_num}' 없음 — 후보 {len(feats)}개 (fallback)")
+    def _run_cql() -> list:
+        if not emd_nm:
+            return []
+        jn = jibun_num.replace("'", "''")
+        emd_esc = emd_nm.replace("'", "''")
+        jibun_cql = f"(jibun LIKE '{jn} %' OR jibun = '{jn}')"
+        cql = f"emd_nm = '{emd_esc}' AND {jibun_cql}"
+        if sig_nm:
+            sig_esc = sig_nm.replace("'", "''")
+            cql = f"sig_nm = '{sig_esc}' AND {cql}"
+        wfs_params = {
+            "SERVICE": "WFS", "VERSION": "1.1.0", "REQUEST": "GetFeature",
+            "TYPENAME": WFS_TYPENAME, "KEY": key,
+            "SRSNAME": "EPSG:4326", "outputFormat": "application/json",
+            "MAXFEATURES": "20",
+            "CQL_FILTER": cql,
+        }
+        if dom:
+            wfs_params["domain"] = dom
+        r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
+        r.raise_for_status()
+        return _json.loads(r.content.decode("utf-8")).get("features", [])
+
+    try:
+        coords = _geocode(address)
+        feats: list = []
+        if coords:
+            lon0, lat0 = coords
+            feats = _run_bbox(lon0, lat0)
+
+        cands = _pick_wfs_candidates(feats, jibun_num, expected_jimok)
+        if not cands:
+            feats_cql = _run_cql()
+            cands = _pick_wfs_candidates(feats_cql, jibun_num, expected_jimok)
+
+        if not cands:
+            print(f"[지번 매칭] '{jibun_num}' 없음 — bbox+CQL 후보 부족 (fallback)")
             return None
 
+        matched = cands[0]
         lon, lat = _polygon_centroid(matched.get("geometry", {}))
         if lon is None:
             return None
 
-        return _fetch_parcel_info(lon, lat, nearby_radius=nearby_radius)
+        return _fetch_parcel_info(
+            lon, lat,
+            nearby_radius=nearby_radius,
+            expected_jibun_num=jibun_num,
+            expected_jimok=expected_jimok,
+        )
 
     except Exception as e:
         print(f"[지번 매칭] 실패 ({address!r}): {type(e).__name__}: {e}")
         return None
 
 
-def _fetch_parcel_info(lon: float, lat: float, nearby_radius: int = 500) -> dict:
+def _fetch_parcel_info(
+    lon: float,
+    lat: float,
+    nearby_radius: int = 500,
+    expected_jibun_num: Optional[str] = None,
+    expected_jimok: Optional[str] = None,
+) -> dict:
     """
     좌표 → 필지 전체 정보 딕셔너리.
 
     Step 1. WFS lp_pa_cbnd_bubun  → polygon + PNU + 지번 + 공시지가(jiga)
     Step 2. Data API LANDINFOBASEMAP → 면적 보완
     Step 3~N. 보강 API 병렬 실행 (토지특성/공시지가/소유정보/건물/주변건물 등)
+
+    expected_jibun_num / expected_jimok: 검색·지오코딩 직후 좁은 BBOX에서 이웃 필지로
+    잘못 잡히는 경우, 좌표가 들어 있는 폴리곤 중 지번이 일치하는 것을 우선한다.
     """
     import requests, json as _json
 
@@ -912,11 +1001,36 @@ def _fetch_parcel_info(lon: float, lat: float, nearby_radius: int = 500) -> dict
             # VWorld가 features 없이 다른 구조를 반환할 경우 로그
             print(f"[VWorld WFS] features 없음. 응답 앞 300자: {raw_text[:300]}")
         if feats:
-            # 클릭 좌표가 실제로 포함된 polygon 선택 (point-in-polygon)
-            matched = next(
-                (f for f in feats if _point_in_geom(lon, lat, f.get("geometry", {}))),
-                feats[0],   # 없으면 첫 번째 fallback
-            )
+            def _feat_jn(f):
+                jr = (f.get("properties") or {}).get("jibun", "")
+                return jr.split()[0] if jr else ""
+
+            inside = [f for f in feats if _point_in_geom(lon, lat, f.get("geometry", {}))]
+            exp_jn = (expected_jibun_num or "").strip()
+            exp_jm = (expected_jimok or "").strip()
+
+            matched = None
+            if exp_jn:
+                pool = inside if inside else feats
+                if exp_jm:
+                    matched = next(
+                        (f for f in pool
+                         if _feat_jn(f) == exp_jn
+                         and _wfs_jibun_num_jimok(f.get("properties", {}))[1] == exp_jm),
+                        None,
+                    )
+                if matched is None:
+                    matched = next((f for f in pool if _feat_jn(f) == exp_jn), None)
+                if matched is None and inside:
+                    matched = next(
+                        (f for f in feats if _feat_jn(f) == exp_jn),
+                        None,
+                    )
+            if matched is None:
+                matched = next(
+                    (f for f in inside),
+                    feats[0],
+                )
             feat   = matched
             props  = feat.get("properties", {})
             geom   = feat.get("geometry", {})
@@ -2039,17 +2153,29 @@ def render_land_map_page():
         with st.spinner(f"{len(pending_addrs)}개 주소 필지 로드 중..."):
             existing_pnus = {p.get("pnu") for p in st.session_state.lm_parcels}
             _loaded_count = 0
-            for addr in pending_addrs:
-                # 1차: WFS CQL 직접 검색 (지번 텍스트 매칭 → 오매칭 방지)
-                info = _fetch_parcel_by_jibun(addr, nearby_radius=st.session_state.lm_nearby_radius)
+            for raw_entry in pending_addrs:
+                addr, jimok_hint = _normalize_pending_addr(raw_entry)
+                # 1차: geocode+BBOX 지번 매칭, 실패 시 CQL + 지목 힌트
+                info = _fetch_parcel_by_jibun(
+                    addr,
+                    nearby_radius=st.session_state.lm_nearby_radius,
+                    expected_jimok=jimok_hint,
+                )
                 if not info:
-                    # 2차: geocode fallback
+                    # 2차: geocode만으로 좁은 BBOX (기대 지번으로 폴리곤 재선택)
                     coords = _geocode(addr)
                     if not coords:
                         _failed.append(addr)
                         continue
                     lon_a, lat_a = coords
-                    info = _fetch_parcel_info(lon_a, lat_a, nearby_radius=st.session_state.lm_nearby_radius)
+                    parsed_fb = _parse_jibun_address(addr)
+                    exp_jn = parsed_fb[2] if parsed_fb else None
+                    info = _fetch_parcel_info(
+                        lon_a, lat_a,
+                        nearby_radius=st.session_state.lm_nearby_radius,
+                        expected_jibun_num=exp_jn,
+                        expected_jimok=jimok_hint,
+                    )
                 if info and not info.get("error") and info.get("pnu") not in existing_pnus:
                     st.session_state.lm_parcels.append(info)
                     existing_pnus.add(info.get("pnu"))
@@ -2117,25 +2243,37 @@ def render_land_map_page():
             st.session_state["_pending_map_addresses"] = addresses
             st.rerun()
         else:
-            # 단일 필지: WFS CQL 직접 검색 → geocode fallback
-            single = addresses[0] if addresses else addr_q.strip()
+            # 단일 필지: BBOX/CQL 지번 매칭 → geocode fallback
+            single, jimok_hint = _normalize_pending_addr(
+                addresses[0] if addresses else (addr_q.strip(), None)
+            )
             with st.spinner("필지 검색 중..."):
-                info = _fetch_parcel_by_jibun(single, nearby_radius=st.session_state.lm_nearby_radius)
+                info = _fetch_parcel_by_jibun(
+                    single,
+                    nearby_radius=st.session_state.lm_nearby_radius,
+                    expected_jimok=jimok_hint,
+                )
             if info:
                 st.session_state.lm_center  = [info["lat"], info["lon"]]
                 st.session_state.lm_zoom    = 18
                 st.session_state.lm_preview = info
                 st.rerun()
             else:
-                # CQL 검색 실패 시 geocode fallback
                 with st.spinner("좌표 변환 중..."):
                     coords = _geocode(single)
                 if coords:
                     lon_g, lat_g = coords
                     st.session_state.lm_center = [lat_g, lon_g]
                     st.session_state.lm_zoom   = 18
+                    parsed_fb = _parse_jibun_address(single)
+                    exp_jn = parsed_fb[2] if parsed_fb else None
                     with st.spinner("필지 정보 조회 중..."):
-                        info = _fetch_parcel_info(lon_g, lat_g, nearby_radius=st.session_state.lm_nearby_radius)
+                        info = _fetch_parcel_info(
+                            lon_g, lat_g,
+                            nearby_radius=st.session_state.lm_nearby_radius,
+                            expected_jibun_num=exp_jn,
+                            expected_jimok=jimok_hint,
+                        )
                     st.session_state.lm_preview = info
                     st.rerun()
                 else:
