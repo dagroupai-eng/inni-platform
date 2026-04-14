@@ -154,6 +154,12 @@ CREATE INDEX IF NOT EXISTS idx_analysis_steps_run ON analysis_steps(run_id, step
 CREATE INDEX IF NOT EXISTS idx_analysis_steps_project ON analysis_steps(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_analysis_steps_block ON analysis_steps(project_id, block_id);
 
+-- 10. 필지 API 캐시 (PNU 기준, NED/WFS 12개 병렬 호출 결과 저장)
+CREATE TABLE IF NOT EXISTS parcel_cache (
+    pnu          TEXT PRIMARY KEY,
+    parcel_data  JSONB NOT NULL
+);
+
 -- RLS 정책: service_role 키 사용 시 바이패스되므로 별도 정책 불필요
 -- 필요 시 아래 정책 추가 가능:
 -- ALTER TABLE users ENABLE ROW LEVEL SECURITY;

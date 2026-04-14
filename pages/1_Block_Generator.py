@@ -498,6 +498,8 @@ def main():
                                         st.error("블록 저장에 실패했습니다.")
 
                                 if delete_success:
+                                    # 3_Document_Analysis 블록 캐시 무효화
+                                    st.session_state['_blocks_dirty'] = True
                                     st.rerun()
 
                         # 공개 범위 변경 (DB 블록이고 소유자인 경우)
@@ -1246,6 +1248,8 @@ def main():
                         if save_success:
                             st.session_state.edit_mode = False
                             st.session_state.edit_block_data = None
+                            # 3_Document_Analysis 블록 캐시 무효화
+                            st.session_state['_blocks_dirty'] = True
                             st.balloons()
                             st.rerun()
 
@@ -1304,6 +1308,8 @@ def main():
                                 'signature_code': signature_code
                             }
 
+                            # 3_Document_Analysis 블록 캐시 무효화
+                            st.session_state['_blocks_dirty'] = True
                             # 사이드바 새로고침을 위해 즉시 rerun
                             st.rerun()
                         else:

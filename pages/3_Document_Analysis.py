@@ -1047,41 +1047,45 @@ def ensure_pandas_available(feature_name: str) -> bool:
 
 # 블록들을 JSON 파일에서 로드
 def get_example_blocks():
-    """blocks.json에서 예시 블록들을 로드합니다."""
-    return load_blocks()
+    """블록 목록을 session_state에 캐시해서 반환합니다.
+    Block Generator에서 블록을 저장/삭제하면 _blocks_dirty 플래그로 캐시가 무효화됩니다.
+    """
+    # dirty 플래그가 있으면 캐시 무효화
+    if st.session_state.pop('_blocks_dirty', False):
+        st.session_state.pop('_blocks_cache', None)
+
+    if '_blocks_cache' not in st.session_state:
+        st.session_state['_blocks_cache'] = load_blocks()
+
+    return st.session_state['_blocks_cache']
 
 
 def create_word_document(project_name, analysis_results):
     """분석 결과를 Word 문서로 생성합니다."""
     doc = Document()
-    
+
     # 제목
     doc.add_heading(f'건축 프로젝트 분석 보고서: {project_name}', 0)
-    
+
+    # 블록 id → name 딕셔너리를 루프 전에 한 번만 생성
+    # get_example_blocks()는 커스텀 블록 포함 전체를 반환하므로 단독으로 충분
+    block_name_map = {
+        b['id']: b['name']
+        for b in get_example_blocks()
+        if isinstance(b, dict) and b.get('id')
+    }
+
     # 각 분석 결과 추가
     for block_id, result in analysis_results.items():
-        # 블록 이름 찾기
-        block_name = "사용자 정의 블록"
-        if block_id.startswith('custom_'):
-            custom_blocks = load_custom_blocks()
-            for block in custom_blocks:
-                if block['id'] == block_id:
-                    block_name = block['name']
-                    break
-        else:
-            example_blocks = get_example_blocks()
-            for block in example_blocks:
-                if block['id'] == block_id:
-                    block_name = block['name']
-                    break
-        
+        block_name = block_name_map.get(block_id, "사용자 정의 블록")
+
         # 섹션 제목
         doc.add_heading(block_name, level=1)
-        
+
         # Word 표 형식으로 처리
         add_content_with_tables(doc, result)
         doc.add_paragraph()  # 빈 줄
-    
+
     return doc
 
 def add_content_with_tables(doc, text):
