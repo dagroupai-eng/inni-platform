@@ -172,7 +172,8 @@ def generate_ai_image_prompt(user_inputs, cot_history, image_settings):
         # 현재 provider 설정을 그대로 사용해 Gemini 직접 호출
         # (analyze_custom_block의 불필요한 보일러플레이트 없이 image_prompt만 전달)
         from dspy_analyzer import get_current_provider, get_api_key, PROVIDER_CONFIG
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
 
         current_provider = get_current_provider()
         provider_config = PROVIDER_CONFIG.get(current_provider, PROVIDER_CONFIG['gemini_25flash'])
@@ -187,9 +188,13 @@ def generate_ai_image_prompt(user_inputs, cot_history, image_settings):
                 'model': display_name
             }
 
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(image_prompt)
+        client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(temperature=0.3, max_output_tokens=4096)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=image_prompt,
+            config=config
+        )
         analysis_text = response.text
 
         # 한글 설명, 영어 프롬프트, 네거티브 프롬프트 추출
