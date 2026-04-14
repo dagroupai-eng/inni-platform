@@ -121,7 +121,7 @@ def _parse_batch_parcel_input(text: str) -> list[ParcelAddrEntry]:
     # 첫 번째 파트: …면/읍/동 + (선택) OO리 + 첫 지번
     first = parts[0]
     m = re.match(
-        r'^(?P<base_prefix>.*?(\S+(?:읍|면|동|리|가))))'
+        r'^(?P<base_prefix>.*?(\S+(?:읍|면|동|리|가)))'
         r'(?P<after_li>\s+\S+리)?'
         r'\s+(?P<first_lot>(?:산\s*)?[\d\-].*)$',
         first.strip(),
