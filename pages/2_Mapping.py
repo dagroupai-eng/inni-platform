@@ -771,6 +771,98 @@ def _point_in_geom(lon: float, lat: float, geom: dict) -> bool:
     return False
 
 
+def _polygon_centroid(geom: dict) -> tuple:
+    """GeoJSON Polygon/MultiPolygon → (lon, lat) bbox 중심점"""
+    gtype = geom.get("type", "")
+    coords = geom.get("coordinates", [])
+    ring = []
+    if gtype == "Polygon" and coords:
+        ring = coords[0]
+    elif gtype == "MultiPolygon" and coords:
+        ring = coords[0][0]
+    if not ring:
+        return None, None
+    lons = [pt[0] for pt in ring]
+    lats = [pt[1] for pt in ring]
+    return (min(lons) + max(lons)) / 2, (min(lats) + max(lats)) / 2
+
+
+def _parse_jibun_address(address: str) -> Optional[tuple]:
+    """
+    "강원특별자치도 삼척시 근덕면 산108-2" → ("삼척시", "근덕면", "산108-2")
+    WFS CQL_FILTER 작성용.
+    """
+    import re
+    address = address.strip()
+    # 시군구 + 읍면동 + 지번
+    m = re.match(r'^.*?(\S+(?:시|군|구))\s+(\S+(?:읍|면|동|리|가))\s+(.+)$', address)
+    if m:
+        return m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
+    # 시군구 없이 읍면동만 있는 경우
+    m2 = re.match(r'^.*?(\S+(?:읍|면|동|리|가))\s+(.+)$', address)
+    if m2:
+        return None, m2.group(1).strip(), m2.group(2).strip()
+    return None
+
+
+def _fetch_parcel_by_jibun(address: str, nearby_radius: int = 500) -> Optional[dict]:
+    """
+    지번 주소를 WFS CQL_FILTER로 직접 검색 → 필지 정보.
+
+    geocode(주소→좌표→WFS) 방식 대신 WFS에 지번 텍스트를 직접 필터링해서
+    산/지목 오매칭 문제를 방지한다. 결과가 없으면 None 반환(호출부에서 fallback).
+    """
+    import json as _json
+
+    parsed = _parse_jibun_address(address)
+    if not parsed:
+        return None
+    sig_nm, emd_nm, jibun_num = parsed
+    if not emd_nm or not jibun_num:
+        return None
+
+    key = _api_key()
+    dom = _domain()
+    if not key:
+        return None
+
+    # WFS jibun 필드 형식: "산108-2 임" → LIKE '산108-2 %' 또는 = '산108-2'
+    jn = jibun_num.replace("'", "''")  # 작은따옴표 이스케이프
+    jibun_cql = f"(jibun LIKE '{jn} %' OR jibun = '{jn}')"
+    cql = f"emd_nm = '{emd_nm}' AND {jibun_cql}"
+    if sig_nm:
+        cql = f"sig_nm = '{sig_nm}' AND {cql}"
+
+    wfs_params = {
+        "SERVICE": "WFS", "VERSION": "1.1.0", "REQUEST": "GetFeature",
+        "TYPENAME": WFS_TYPENAME, "KEY": key,
+        "SRSNAME": "EPSG:4326", "outputFormat": "application/json",
+        "MAXFEATURES": "5",
+        "CQL_FILTER": cql,
+    }
+    if dom:
+        wfs_params["domain"] = dom
+
+    try:
+        r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
+        r.raise_for_status()
+        wfs_json = _json.loads(r.content.decode("utf-8"))
+        feats = wfs_json.get("features", [])
+        if not feats:
+            print(f"[WFS CQL] 결과 없음: {address!r} | CQL: {cql}")
+            return None
+
+        lon, lat = _polygon_centroid(feats[0].get("geometry", {}))
+        if lon is None:
+            return None
+
+        return _fetch_parcel_info(lon, lat, nearby_radius=nearby_radius)
+
+    except Exception as e:
+        print(f"[WFS CQL] 조회 실패 ({address!r}): {type(e).__name__}: {e}")
+        return None
+
+
 def _fetch_parcel_info(lon: float, lat: float, nearby_radius: int = 500) -> dict:
     """
     좌표 → 필지 전체 정보 딕셔너리.
@@ -1939,12 +2031,16 @@ def render_land_map_page():
             existing_pnus = {p.get("pnu") for p in st.session_state.lm_parcels}
             _loaded_count = 0
             for addr in pending_addrs:
-                coords = _geocode(addr)
-                if not coords:
-                    _failed.append(addr)
-                    continue
-                lon_a, lat_a = coords
-                info = _fetch_parcel_info(lon_a, lat_a, nearby_radius=st.session_state.lm_nearby_radius)
+                # 1차: WFS CQL 직접 검색 (지번 텍스트 매칭 → 오매칭 방지)
+                info = _fetch_parcel_by_jibun(addr, nearby_radius=st.session_state.lm_nearby_radius)
+                if not info:
+                    # 2차: geocode fallback
+                    coords = _geocode(addr)
+                    if not coords:
+                        _failed.append(addr)
+                        continue
+                    lon_a, lat_a = coords
+                    info = _fetch_parcel_info(lon_a, lat_a, nearby_radius=st.session_state.lm_nearby_radius)
                 if info and not info.get("error") and info.get("pnu") not in existing_pnus:
                     st.session_state.lm_parcels.append(info)
                     existing_pnus.add(info.get("pnu"))
@@ -2012,20 +2108,29 @@ def render_land_map_page():
             st.session_state["_pending_map_addresses"] = addresses
             st.rerun()
         else:
-            # 단일 필지: 기존 흐름
+            # 단일 필지: WFS CQL 직접 검색 → geocode fallback
             single = addresses[0] if addresses else addr_q.strip()
-            with st.spinner("좌표 변환 중..."):
-                coords = _geocode(single)
-            if coords:
-                lon_g, lat_g = coords
-                st.session_state.lm_center = [lat_g, lon_g]
-                st.session_state.lm_zoom   = 18
-                with st.spinner("필지 정보 조회 중..."):
-                    info = _fetch_parcel_info(lon_g, lat_g, nearby_radius=st.session_state.lm_nearby_radius)
+            with st.spinner("필지 검색 중..."):
+                info = _fetch_parcel_by_jibun(single, nearby_radius=st.session_state.lm_nearby_radius)
+            if info:
+                st.session_state.lm_center  = [info["lat"], info["lon"]]
+                st.session_state.lm_zoom    = 18
                 st.session_state.lm_preview = info
                 st.rerun()
             else:
-                st.warning("주소를 찾을 수 없습니다.")
+                # CQL 검색 실패 시 geocode fallback
+                with st.spinner("좌표 변환 중..."):
+                    coords = _geocode(single)
+                if coords:
+                    lon_g, lat_g = coords
+                    st.session_state.lm_center = [lat_g, lon_g]
+                    st.session_state.lm_zoom   = 18
+                    with st.spinner("필지 정보 조회 중..."):
+                        info = _fetch_parcel_info(lon_g, lat_g, nearby_radius=st.session_state.lm_nearby_radius)
+                    st.session_state.lm_preview = info
+                    st.rerun()
+                else:
+                    st.warning("주소를 찾을 수 없습니다.")
 
     # ── 합계 (필지 있을 때만) ─────────────────────────────────────────────
     if parcels:
