@@ -1027,11 +1027,46 @@ def _fetch_parcel_by_jibun(
             nearby_radius=nearby_radius,
             expected_jibun_num=jibun_num,
             expected_jimok=expected_jimok,
+            seed_wfs_feature=matched,
         )
 
     except Exception as e:
         print(f"[지번 매칭] 실패 ({address!r}): {type(e).__name__}: {e}")
         return None
+
+
+def _wfs_feature_to_parcel_info_fields(feat: dict) -> dict:
+    """WFS GeoJSON feature → _fetch_parcel_info용 기본 필드."""
+    props = feat.get("properties", {}) or {}
+    geom = feat.get("geometry", {}) or {}
+    jibun_raw = props.get("jibun", "")
+    jibun_parts = jibun_raw.rsplit(" ", 1)
+    jibun_num = jibun_parts[0] if jibun_parts else jibun_raw
+    land_cat = jibun_parts[1] if len(jibun_parts) == 2 else ""
+    jiga_raw = props.get("jiga")
+    price_per_m2 = None
+    if jiga_raw:
+        try:
+            price_per_m2 = int(float(str(jiga_raw).replace(",", "")))
+        except (ValueError, TypeError):
+            pass
+    addr_parts = [
+        props.get("ctp_nm", ""), props.get("sig_nm", ""),
+        props.get("emd_nm", ""), jibun_raw,
+    ]
+    address = " ".join(x for x in addr_parts if x)
+    return {
+        "pnu": props.get("pnu", ""),
+        "jibun": jibun_num,
+        "land_category_name": land_cat,
+        "sido_nm": props.get("ctp_nm", ""),
+        "sgg_nm": props.get("sig_nm", ""),
+        "emd_nm": props.get("emd_nm", ""),
+        "address": address,
+        "official_price_per_m2": price_per_m2,
+        "price_year": str(props.get("gosi_year", "") or ""),
+        "geometry": geom,
+    }
 
 
 def _fetch_parcel_info(
@@ -1040,6 +1075,7 @@ def _fetch_parcel_info(
     nearby_radius: int = 500,
     expected_jibun_num: Optional[str] = None,
     expected_jimok: Optional[str] = None,
+    seed_wfs_feature: Optional[dict] = None,
 ) -> dict:
     """
     좌표 → 필지 전체 정보 딕셔너리.
@@ -1050,6 +1086,9 @@ def _fetch_parcel_info(
 
     expected_jibun_num / expected_jimok: 검색·지오코딩 직후 좁은 BBOX에서 이웃 필지로
     잘못 잡히는 경우, 좌표가 들어 있는 폴리곤 중 지번이 일치하는 것을 우선한다.
+
+    seed_wfs_feature: 지번 검색에서 이미 고른 WFS 피처가 있으면 BBOX 재조회 없이 사용한다.
+    (좁은 BBOX가 이웃 필지로 바뀌는 오류 방지)
     """
     import requests, json as _json
 
@@ -1060,106 +1099,75 @@ def _fetch_parcel_info(
         return {**info, "error": "VWORLD_API_KEY 미설정"}
 
     # ── 1. WFS → polygon + 기본 필지 속성 ────────────────────────────
-    # d=0.0002 ≈ 22m 반경 BBOX, MAXFEATURES=30 → point-in-polygon으로 정확 선택
-    d = 0.0002
-    wfs_params = {
-        "SERVICE": "WFS", "VERSION": "1.1.0", "REQUEST": "GetFeature",
-        "TYPENAME": WFS_TYPENAME, "KEY": key,
-        "SRSNAME": "EPSG:4326", "outputFormat": "application/json",
-        "MAXFEATURES": "30",
-        # WFS 1.1.0 + EPSG:4326 → lat_min,lon_min,lat_max,lon_max
-        "BBOX": f"{lat-d},{lon-d},{lat+d},{lon+d},EPSG:4326",
-    }
-    if dom:
-        wfs_params["domain"] = dom
+    if seed_wfs_feature and (seed_wfs_feature.get("properties") or seed_wfs_feature.get("geometry")):
+        g = seed_wfs_feature.get("geometry") or {}
+        c_lon, c_lat = _polygon_centroid(g)
+        if c_lon is not None and c_lat is not None:
+            lon, lat = c_lon, c_lat
+        info["lon"], info["lat"] = lon, lat
+        info.update(_wfs_feature_to_parcel_info_fields(seed_wfs_feature))
+    else:
+        # d=0.0002 ≈ 22m 반경 BBOX, MAXFEATURES=30 → point-in-polygon으로 정확 선택
+        d = 0.0002
+        wfs_params = {
+            "SERVICE": "WFS", "VERSION": "1.1.0", "REQUEST": "GetFeature",
+            "TYPENAME": WFS_TYPENAME, "KEY": key,
+            "SRSNAME": "EPSG:4326", "outputFormat": "application/json",
+            "MAXFEATURES": "30",
+            "BBOX": f"{lat-d},{lon-d},{lat+d},{lon+d},EPSG:4326",
+        }
+        if dom:
+            wfs_params["domain"] = dom
 
-    try:
-        r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
-        r.raise_for_status()
-        raw_text = r.content.decode("utf-8")
-        wfs_json = _json.loads(raw_text)
-        feats = wfs_json.get("features", [])
-        if not feats:
-            # VWorld가 features 없이 다른 구조를 반환할 경우 로그
-            print(f"[VWorld WFS] features 없음. 응답 앞 300자: {raw_text[:300]}")
-        if feats:
-            def _feat_jn(f):
-                jr = (f.get("properties") or {}).get("jibun", "")
-                return jr.split()[0] if jr else ""
-
-            inside = [f for f in feats if _point_in_geom(lon, lat, f.get("geometry", {}))]
-            exp_jn = (expected_jibun_num or "").strip()
-            exp_jm = (expected_jimok or "").strip()
-
-            matched = None
-            if exp_jn:
-                pool = inside if inside else feats
-                if exp_jm:
-                    matched = next(
-                        (f for f in pool
-                         if _feat_jn(f) == exp_jn
-                         and _wfs_jibun_num_jimok(f.get("properties", {}))[1] == exp_jm),
-                        None,
-                    )
-                if matched is None:
-                    matched = next((f for f in pool if _feat_jn(f) == exp_jn), None)
-                if matched is None and inside:
-                    matched = next(
-                        (f for f in feats if _feat_jn(f) == exp_jn),
-                        None,
-                    )
-            if matched is None:
-                matched = next(
-                    (f for f in inside),
-                    feats[0],
-                )
-            feat   = matched
-            props  = feat.get("properties", {})
-            geom   = feat.get("geometry", {})
-
-            # 지번 파싱: "77-10 대" → jibun="77-10", land_category_name="대"
-            jibun_raw = props.get("jibun", "")
-            jibun_parts = jibun_raw.rsplit(" ", 1)
-            jibun_num  = jibun_parts[0] if jibun_parts else jibun_raw
-            land_cat   = jibun_parts[1] if len(jibun_parts) == 2 else ""
-
-            # 공시지가 (jiga 필드: 원/㎡)
-            jiga_raw = props.get("jiga")
-            price_per_m2 = None
-            if jiga_raw:
-                try:
-                    price_per_m2 = int(float(str(jiga_raw).replace(",", "")))
-                except (ValueError, TypeError):
-                    pass
-
-            # 주소 조합
-            addr_parts = [
-                props.get("ctp_nm", ""), props.get("sig_nm", ""),
-                props.get("emd_nm", ""), jibun_raw,
-            ]
-            address = " ".join(x for x in addr_parts if x)
-
-            info.update({
-                "pnu":                   props.get("pnu", ""),
-                "jibun":                 jibun_num,
-                "land_category_name":    land_cat,
-                "sido_nm":               props.get("ctp_nm", ""),
-                "sgg_nm":                props.get("sig_nm", ""),
-                "emd_nm":                props.get("emd_nm", ""),
-                "address":               address,
-                "official_price_per_m2": price_per_m2,
-                "price_year":            str(props.get("gosi_year", "") or ""),
-                "geometry":              geom,
-            })
-    except _json.JSONDecodeError as e:
-        # VWorld가 JSON이 아닌 XML/HTML 오류를 반환할 때 (key 오류, domain 불일치 등)
         try:
-            raw_preview = r.content.decode("utf-8")[:500]
-        except Exception:
-            raw_preview = "(응답 읽기 실패)"
-        print(f"[VWorld WFS] JSON 파싱 실패 — 응답: {raw_preview}")
-    except Exception as e:
-        print(f"[VWorld WFS] 조회 실패: {type(e).__name__}: {e}")
+            r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
+            r.raise_for_status()
+            raw_text = r.content.decode("utf-8")
+            wfs_json = _json.loads(raw_text)
+            feats = wfs_json.get("features", [])
+            if not feats:
+                print(f"[VWorld WFS] features 없음. 응답 앞 300자: {raw_text[:300]}")
+            if feats:
+                def _feat_jn(f):
+                    jr = (f.get("properties") or {}).get("jibun", "")
+                    return jr.split()[0] if jr else ""
+
+                inside = [f for f in feats if _point_in_geom(lon, lat, f.get("geometry", {}))]
+                exp_jn = (expected_jibun_num or "").strip()
+                exp_jm = (expected_jimok or "").strip()
+
+                matched = None
+                if exp_jn:
+                    pool = inside if inside else feats
+                    if exp_jm:
+                        matched = next(
+                            (f for f in pool
+                             if _feat_jn(f) == exp_jn
+                             and _wfs_jibun_num_jimok(f.get("properties", {}))[1] == exp_jm),
+                            None,
+                        )
+                    if matched is None:
+                        matched = next((f for f in pool if _feat_jn(f) == exp_jn), None)
+                    if matched is None and inside:
+                        matched = next(
+                            (f for f in feats if _feat_jn(f) == exp_jn),
+                            None,
+                        )
+                if matched is None:
+                    matched = next(
+                        (f for f in inside),
+                        feats[0],
+                    )
+                info.update(_wfs_feature_to_parcel_info_fields(matched))
+        except _json.JSONDecodeError as e:
+            # VWorld가 JSON이 아닌 XML/HTML 오류를 반환할 때 (key 오류, domain 불일치 등)
+            try:
+                raw_preview = r.content.decode("utf-8")[:500]
+            except Exception:
+                raw_preview = "(응답 읽기 실패)"
+            print(f"[VWorld WFS] JSON 파싱 실패 — 응답: {raw_preview}")
+        except Exception as e:
+            print(f"[VWorld WFS] 조회 실패: {type(e).__name__}: {e}")
 
     # ── 2. Data API → 면적·지목 보완 (LT_C_LANDINFOBASEMAP) ──────────
     da_feats = _get_feature(LAYER_PARCEL, lon, lat)
@@ -1185,7 +1193,8 @@ def _fetch_parcel_info(
     sigungu_code = pnu[:5] if pnu and len(pnu) >= 5 else ""
 
     # ── PNU 캐시 조회 (캐시 히트 시 NED API 12개 생략) ───────────────────
-    if pnu:
+    # seed_wfs_feature 경로는 방금 확정한 필지와 캐시 불일치 방지를 위해 캐시 생략
+    if pnu and seed_wfs_feature is None:
         try:
             from database.supabase_client import get_supabase_client as _gsc
             _sc = _gsc()
