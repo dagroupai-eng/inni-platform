@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
     team_id BIGINT REFERENCES teams(id) ON DELETE SET NULL,
     status TEXT DEFAULT 'active',
     last_login TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    server TEXT                          -- 접속 서버 구분
 );
 CREATE INDEX IF NOT EXISTS idx_users_personal_number ON users(personal_number);
 
@@ -72,14 +73,20 @@ CREATE INDEX IF NOT EXISTS idx_user_settings_session_token
     ON user_settings ((settings_data -> '_session' ->> 'token'))
     WHERE settings_data ? '_session';
 
--- 7. 분석 진행 상태 (실시간 저장용)
-CREATE TABLE IF NOT EXISTS analysis_progress (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    progress_data JSONB NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+-- 7. 분석 큐 (서버 배분 / 순번 관리)
+CREATE TABLE IF NOT EXISTS analysis_queue (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL,
+    project_id  INTEGER,
+    status      TEXT,                        -- waiting | running | done | cancelled
+    position    INTEGER,
+    entered_at  TIMESTAMPTZ,
+    started_at  TIMESTAMPTZ,
+    team_id     INTEGER,
+    server      CHARACTER VARYING
 );
-CREATE INDEX IF NOT EXISTS idx_analysis_progress_user ON analysis_progress(user_id);
+CREATE INDEX IF NOT EXISTS idx_analysis_queue_user ON analysis_queue(user_id);
+CREATE INDEX IF NOT EXISTS idx_analysis_queue_status ON analysis_queue(status);
 
 -- 8. 프로젝트 (다중 프로젝트 지원)
 CREATE TABLE IF NOT EXISTS projects (
@@ -103,10 +110,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_project ON analysis_sessions(project_id)
 -- 이미 중복 행이 없는 경우에만 실행 가능
 ALTER TABLE analysis_sessions
     ADD CONSTRAINT uq_sessions_user_project UNIQUE (user_id, project_id);
-
--- analysis_progress 에 project_id 추가
-ALTER TABLE analysis_progress
-    ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE;
 
 -- project_files: 업로드 파일 메타데이터 (바이너리는 Supabase Storage)
 CREATE TABLE IF NOT EXISTS project_files (
@@ -157,7 +160,8 @@ CREATE INDEX IF NOT EXISTS idx_analysis_steps_block ON analysis_steps(project_id
 -- 10. 필지 API 캐시 (PNU 기준, NED/WFS 12개 병렬 호출 결과 저장)
 CREATE TABLE IF NOT EXISTS parcel_cache (
     pnu          TEXT PRIMARY KEY,
-    parcel_data  JSONB NOT NULL
+    parcel_data  JSONB NOT NULL,
+    cached_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- RLS 정책: service_role 키 사용 시 바이패스되므로 별도 정책 불필요

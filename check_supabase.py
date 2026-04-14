@@ -109,23 +109,6 @@ try:
 except Exception as e:
     check("analysis_sessions 테이블 조회", False, str(e))
 
-try:
-    r = client.table("analysis_progress").select("id, user_id, updated_at, progress_data").execute()
-    rows = r.data or []
-    check("analysis_progress 테이블 조회", True, f"{len(rows)}행 존재")
-    for row in rows[:3]:
-        pd = row.get("progress_data") or {}
-        has_queue = "_queue" in pd
-        has_cot = bool(pd.get("cot_results") or pd.get("cot_session"))
-        flags = []
-        if has_queue:
-            flags.append(f"queue={pd['_queue'].get('status')}")
-        if has_cot:
-            flags.append("cot_results 있음")
-        print(f"       - user_id={row['user_id']} | updated={row.get('updated_at','')[:19]} | {', '.join(flags) or '데이터 없음'}")
-except Exception as e:
-    check("analysis_progress 테이블 조회", False, str(e))
-
 
 # ── C. 파일 / Storage ────────────────────────────────────────────────────────
 section("C. 파일 / Storage")

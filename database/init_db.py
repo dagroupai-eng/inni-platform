@@ -64,7 +64,7 @@ def reset_database():
     from database.supabase_client import get_supabase_client
     client = get_supabase_client()
 
-    tables = ["user_settings", "analysis_progress", "analysis_sessions", "blocks", "api_keys", "users", "teams"]
+    tables = ["user_settings", "analysis_sessions", "blocks", "api_keys", "users", "teams"]
     for table in tables:
         try:
             # 모든 행 삭제 (id > 0 조건으로 전체 삭제)
