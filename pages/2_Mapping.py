@@ -228,6 +228,53 @@ def _geocode(address: str) -> Optional[tuple]:
     return None
 
 
+def _parcel_geocode_variants(address: str, expected_jimok: Optional[str]) -> list[str]:
+    """
+    지번지 주소(지목 제거된 문자열)에 대해 VWorld PARCEL 지오코딩에 넘길 변형 목록.
+    - '번지' 접미: 지번지 API에 흔한 표기(예: 근덕면 산110-2번지)라 베이스마다 함께 시도한다.
+    - 지목: '산110-2 임' / '산110-2임' 형태를 번지 유무 각각에 대해 먼저 시도한다.
+    """
+    a = (address or "").strip()
+    if not a:
+        return []
+    jm = (expected_jimok or "").strip()
+
+    def _bases(addr: str) -> list[str]:
+        b = [addr]
+        tail = addr.rstrip()
+        if not tail.endswith("번지"):
+            b.append(f"{addr}번지")
+            b.append(f"{addr} 번지")
+        return b
+
+    def _append_jimok_variants(out_list: list[str], base: str) -> None:
+        if jm and not base.endswith(jm):
+            out_list.append(f"{base} {jm}")
+            out_list.append(f"{base}{jm}")
+        out_list.append(base)
+
+    out: list[str] = []
+    for base in _bases(a):
+        _append_jimok_variants(out, base)
+
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for s in out:
+        if s not in seen:
+            seen.add(s)
+            uniq.append(s)
+    return uniq
+
+
+def _geocode_parcel_first_hit(address: str, expected_jimok: Optional[str]) -> Optional[tuple]:
+    """지번+지목 변형을 순서대로 시도해 첫 성공 좌표만 반환."""
+    for cand in _parcel_geocode_variants(address, expected_jimok):
+        c = _geocode(cand)
+        if c:
+            return c
+    return None
+
+
 def _get_land_characteristics(pnu: str) -> dict:
     """
     VWorld NED 토지특성속성조회 (getLandCharacteristics)
@@ -842,11 +889,22 @@ def _pick_wfs_candidates(
     """
     지번 번호부 정확 일치 후보를 모은 뒤, 지목 힌트로 좁히고 PNU로 정렬.
     지목 필터로 0건이면 지목 없이 재시도.
+    일반지번(산 없음) 검색 시 WFS '산…' 번지는 제외해 오매칭을 줄인다.
     """
     want_jm = (expected_jimok or "").strip()
+    req_san = jibun_num.startswith("산")
+
+    def _san_ok(wfs_jn: str) -> bool:
+        wfs_san = wfs_jn.startswith("산")
+        if req_san:
+            return wfs_san
+        # 요청에 산이 없으면 산지번 후보는 배제 (67-1 vs 산67-1)
+        return not wfs_san
+
     cands = [
         f for f in feats
         if _wfs_jibun_num_jimok(f.get("properties", {}))[0] == jibun_num
+        and _san_ok(_wfs_jibun_num_jimok(f.get("properties", {}))[0])
     ]
     if want_jm:
         filtered = [f for f in cands if _wfs_jibun_num_jimok(f.get("properties", {}))[1] == want_jm]
@@ -901,7 +959,16 @@ def _fetch_parcel_by_jibun(
             return []
         jn = jibun_num.replace("'", "''")
         emd_esc = emd_nm.replace("'", "''")
-        jibun_cql = f"(jibun LIKE '{jn} %' OR jibun = '{jn}')"
+        jm_raw = (expected_jimok or "").strip()
+        if jm_raw:
+            jm = jm_raw.replace("'", "''")
+            # 공부 형식: '산110-2 임' 우선, 없으면 기존 넓은 패턴
+            jibun_cql = (
+                f"(jibun = '{jn} {jm}' OR jibun LIKE '{jn} {jm} %' OR jibun LIKE '{jn} {jm}%')"
+                f" OR (jibun LIKE '{jn} %' OR jibun = '{jn}')"
+            )
+        else:
+            jibun_cql = f"(jibun LIKE '{jn} %' OR jibun = '{jn}')"
         cql = f"emd_nm = '{emd_esc}' AND {jibun_cql}"
         if sig_nm:
             sig_esc = sig_nm.replace("'", "''")
@@ -920,13 +987,28 @@ def _fetch_parcel_by_jibun(
         return _json.loads(r.content.decode("utf-8")).get("features", [])
 
     try:
-        coords = _geocode(address)
+        # 지목(임·전 등)을 주소에 붙인 변형부터 지오코딩 — PARCEL 검색이 산+지목 조합에 맞춰지는 경우가 많음
         feats: list = []
-        if coords:
+        variants = _parcel_geocode_variants(address, expected_jimok)
+        cands: list = []
+        for cand_addr in variants:
+            coords = _geocode(cand_addr)
+            if not coords:
+                continue
             lon0, lat0 = coords
-            feats = _run_bbox(lon0, lat0)
+            feats_try = _run_bbox(lon0, lat0)
+            c_try = _pick_wfs_candidates(feats_try, jibun_num, expected_jimok)
+            if c_try:
+                feats = feats_try
+                cands = c_try
+                break
+            if not feats and feats_try:
+                feats = feats_try
+            elif feats_try and len(feats_try) > len(feats):
+                feats = feats_try
 
-        cands = _pick_wfs_candidates(feats, jibun_num, expected_jimok)
+        if not cands:
+            cands = _pick_wfs_candidates(feats, jibun_num, expected_jimok)
         if not cands:
             feats_cql = _run_cql()
             cands = _pick_wfs_candidates(feats_cql, jibun_num, expected_jimok)
@@ -2163,7 +2245,7 @@ def render_land_map_page():
                 )
                 if not info:
                     # 2차: geocode만으로 좁은 BBOX (기대 지번으로 폴리곤 재선택)
-                    coords = _geocode(addr)
+                    coords = _geocode_parcel_first_hit(addr, jimok_hint)
                     if not coords:
                         _failed.append(addr)
                         continue
@@ -2260,7 +2342,7 @@ def render_land_map_page():
                 st.rerun()
             else:
                 with st.spinner("좌표 변환 중..."):
-                    coords = _geocode(single)
+                    coords = _geocode_parcel_first_hit(single, jimok_hint)
                 if coords:
                     lon_g, lat_g = coords
                     st.session_state.lm_center = [lat_g, lon_g]
