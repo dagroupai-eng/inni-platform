@@ -2161,6 +2161,218 @@ with tab_project:
     st.header("프로젝트 기본 정보 입력")
     st.caption("입력 후 '입력 완료' 버튼을 눌러야 저장됩니다.")
 
+    # ── 저장된 필지 세트 불러오기 ─────────────────────────────────────────
+    def _doc_load_saved_map_sets(uid: int) -> list:
+        """user_settings에서 저장된 필지 세트 목록을 반환 (2_Mapping.py와 동일 로직)"""
+        try:
+            from database.supabase_client import get_supabase_client
+            import json as _json
+            _client = get_supabase_client()
+            _r = _client.table("user_settings").select("settings_data").eq("user_id", uid).limit(1).execute()
+            _rows = _r.data or []
+            if not _rows:
+                return []
+            _raw = _rows[0].get("settings_data") or {}
+            _data = _json.loads(_raw) if isinstance(_raw, str) else _raw
+            return _data.get("saved_map_sets", [])
+        except Exception as _e:
+            print(f"[DocSets] 필지 세트 로드 오류: {_e}")
+            return []
+
+    def _doc_format_parcel_addresses(addresses: list) -> str:
+        """필지 주소 목록 → 간결한 위치 문자열"""
+        import re
+        from collections import OrderedDict
+        if not addresses:
+            return ""
+        if len(addresses) == 1:
+            m = re.match(r'^(.*?[동리가])\s+([\d\-]+)', addresses[0].strip())
+            if m:
+                return f"{m.group(1).strip()} {m.group(2)}번지"
+            return addresses[0]
+        groups: dict = OrderedDict()
+        unmatched = []
+        for addr in addresses:
+            m = re.match(r'^(.*?[동리가])\s+([\d\-]+)', addr.strip())
+            if m:
+                base, lot = m.group(1).strip(), m.group(2)
+                groups.setdefault(base, []).append(lot)
+            else:
+                unmatched.append(addr.strip())
+        parts = [f"{base} {', '.join(lots)}번지" for base, lots in groups.items()]
+        parts.extend(unmatched)
+        return " / ".join(parts)
+
+    try:
+        from auth.authentication import is_authenticated, get_current_user
+        if is_authenticated():
+            _doc_u = get_current_user()
+            if _doc_u:
+                _doc_uid = _doc_u.get("id")
+                if "_doc_sets_cache" not in st.session_state:
+                    st.session_state["_doc_sets_cache"] = _doc_load_saved_map_sets(_doc_uid)
+                _doc_saved_sets = st.session_state["_doc_sets_cache"]
+
+                if _doc_saved_sets:
+                    with st.expander(f"📍 저장된 필지 세트 불러오기 ({len(_doc_saved_sets)}개 저장됨)", expanded=False):
+                        # 새로고침 버튼
+                        if st.button("목록 새로고침", key="doc_sets_refresh", use_container_width=False):
+                            st.session_state.pop("_doc_sets_cache", None)
+                            st.rerun()
+
+                        _doc_set_options = {
+                            s.get("id", f"idx_{i}"): f"{s.get('name', '이름 없음')}  ({len(s.get('parcels', []))}필지)"
+                            for i, s in enumerate(_doc_saved_sets)
+                        }
+                        _doc_selected_ids = st.multiselect(
+                            "세트 선택 (복수 선택 가능)",
+                            options=list(_doc_set_options.keys()),
+                            format_func=lambda sid: _doc_set_options.get(sid, sid),
+                            key="doc_parcel_set_select",
+                        )
+
+                        if _doc_selected_ids:
+                            _doc_preview_count = sum(
+                                len(s.get("parcels", []))
+                                for s in _doc_saved_sets
+                                if s.get("id") in _doc_selected_ids
+                            )
+                            st.caption(f"선택: {len(_doc_selected_ids)}개 세트 · 총 {_doc_preview_count}필지 합산 예정")
+
+                        _doc_apply = st.button(
+                            "선택한 세트 적용",
+                            type="primary",
+                            disabled=not _doc_selected_ids,
+                            key="doc_sets_apply_btn",
+                            use_container_width=True,
+                        )
+
+                        if _doc_apply and _doc_selected_ids:
+                            # 선택된 세트의 필지 합산 (pnu 기준 중복 제거)
+                            _doc_all_parcels = []
+                            _doc_seen_pnus = set()
+                            for _ds in _doc_saved_sets:
+                                if _ds.get("id") in _doc_selected_ids:
+                                    for _dp in _ds.get("parcels", []):
+                                        _dpnu = _dp.get("pnu")
+                                        if not _dpnu or _dpnu not in _doc_seen_pnus:
+                                            _doc_all_parcels.append(_dp)
+                                            if _dpnu:
+                                                _doc_seen_pnus.add(_dpnu)
+
+                            _doc_total_area = sum(p.get("area_m2") or 0 for p in _doc_all_parcels)
+                            _doc_pyeong     = _doc_total_area / 3.3058 if _doc_total_area else 0
+                            _doc_zonings    = list(dict.fromkeys(
+                                p.get("zoning", "") for p in _doc_all_parcels if p.get("zoning")
+                            ))
+                            _doc_addresses  = [p.get("address", "") for p in _doc_all_parcels if p.get("address")]
+                            _doc_site_loc   = _doc_format_parcel_addresses(_doc_addresses)
+                            _doc_site_area  = (
+                                f"{_doc_total_area:,.1f}㎡ (약 {_doc_pyeong:,.0f}평, {len(_doc_all_parcels)}필지 합산) [필지 세트]"
+                                if _doc_total_area else ""
+                            )
+                            _doc_zoning_str = ", ".join(_doc_zonings) + " [VWorld API 확인]" if _doc_zonings else ""
+
+                            # 지목 목록
+                            _doc_land_cats = list(dict.fromkeys(
+                                p.get("land_category_name", "") for p in _doc_all_parcels if p.get("land_category_name")
+                            ))
+                            # 용도지역 제한 (jiguinfo)
+                            _doc_jiguinfos = [
+                                e for p in _doc_all_parcels
+                                for e in (p.get("jiguinfo_entries") or [])
+                                if e.get("name")
+                            ]
+                            _doc_restrictions = list(dict.fromkeys(e.get("name", "") for e in _doc_jiguinfos))
+                            # 공시지가 가중평균
+                            _doc_wp_num = sum(
+                                (p.get("official_price_per_m2") or 0) * (p.get("area_m2") or 0)
+                                for p in _doc_all_parcels
+                            )
+                            _doc_wp_den = sum(
+                                p.get("area_m2") or 0 for p in _doc_all_parcels
+                                if p.get("official_price_per_m2")
+                            )
+                            _doc_avg_price = int(_doc_wp_num / _doc_wp_den) if _doc_wp_den else 0
+
+                            # 대표 좌표
+                            _doc_rep_lat = next((p.get("lat") for p in _doc_all_parcels if p.get("lat")), None)
+                            _doc_rep_lon = next((p.get("lon") for p in _doc_all_parcels if p.get("lon")), None)
+
+                            # session_state 주입
+                            if "user_inputs" not in st.session_state:
+                                st.session_state.user_inputs = {}
+                            st.session_state.user_inputs.update({
+                                "site_location": _doc_site_loc,
+                                "site_area": _doc_site_area,
+                                "zoning": _doc_zoning_str,
+                            })
+                            st.session_state["location"]             = _doc_site_loc
+                            st.session_state["site_area"]            = _doc_site_area
+                            st.session_state["zoning"]               = _doc_zoning_str
+                            st.session_state["selected_parcels_raw"] = _doc_all_parcels
+                            st.session_state["_map_parcel_loaded"]   = True
+                            if _doc_rep_lat and _doc_rep_lon:
+                                st.session_state["latitude"]  = str(_doc_rep_lat)
+                                st.session_state["longitude"] = str(_doc_rep_lon)
+
+                            # 필지 스냅샷에서 계산한 기본 필드
+                            _doc_sf_base = {
+                                "site_address":         _doc_site_loc,
+                                "site_area":            _doc_site_area,
+                                "zoning":               _doc_zoning_str,
+                                "land_category":        ", ".join(_doc_land_cats) if _doc_land_cats else "",
+                                "parcel_count":         str(len(_doc_all_parcels)),
+                                "official_price_per_m2": f"{_doc_avg_price:,}원/㎡" if _doc_avg_price else "",
+                                "land_restrictions":    ", ".join(_doc_restrictions) if _doc_restrictions else "",
+                            }
+                            # 저장된 site_fields (건물 정보·인근 건물 등) 병합
+                            # 여러 세트 선택 시 나중 세트가 앞 세트를 덮어씀
+                            _doc_sf_live_keys = {
+                                "land_ownership", "building_height", "illegal_building",
+                                "existing_building_purpose", "existing_building_area",
+                                "existing_bcr", "existing_vlr", "existing_floors", "existing_approve_date",
+                                "nearby_buildings_count", "nearby_building_uses", "nearby_buildings_summary",
+                                "land_api_summary", "indvd_land_price_history", "land_price_change_rate",
+                            }
+                            for _ds in _doc_saved_sets:
+                                if _ds.get("id") in _doc_selected_ids:
+                                    _ds_sf = _ds.get("site_fields") or {}
+                                    for _k in _doc_sf_live_keys:
+                                        if _ds_sf.get(_k):
+                                            _doc_sf_base[_k] = _ds_sf[_k]
+                            st.session_state["site_fields"] = _doc_sf_base
+
+                            # GeoJSON (geometry 있는 필지만)
+                            _doc_geo_features = []
+                            for _dp in _doc_all_parcels:
+                                _dg = _dp.get("geometry")
+                                if _dg:
+                                    _doc_geo_features.append({
+                                        "type": "Feature",
+                                        "geometry": _dg,
+                                        "properties": {
+                                            "address": _dp.get("address", ""),
+                                            "pnu":     _dp.get("pnu", ""),
+                                            "area_m2": _dp.get("area_m2"),
+                                            "zoning":  _dp.get("zoning", ""),
+                                        },
+                                    })
+                            if _doc_geo_features:
+                                _doc_existing_geo = st.session_state.get("downloaded_geo_data") or {}
+                                _doc_existing_geo["선택 필지 (연속지적도)"] = {
+                                    "geojson": {"type": "FeatureCollection", "features": _doc_geo_features},
+                                    "feature_count": len(_doc_geo_features),
+                                }
+                                st.session_state["downloaded_geo_data"] = _doc_existing_geo
+
+                            st.success(f"✅ {len(_doc_all_parcels)}개 필지 ({len(_doc_selected_ids)}개 세트)가 적용되었습니다.")
+                            st.rerun()
+    except Exception as _doc_sets_err:
+        print(f"[DocSets] 필지 세트 UI 오류: {_doc_sets_err}")
+
+    st.markdown("---")
+
     # 지도에서 필지 선택 시 자동 주입된 경우 안내 (form 외부에서 표시)
     if st.session_state.get("_map_parcel_loaded") and (st.session_state.get("location") or st.session_state.get("_map_location")):
         st.caption("📍 지도(필지 선택) 페이지에서 선택한 필지 주소가 자동으로 입력되었습니다.")

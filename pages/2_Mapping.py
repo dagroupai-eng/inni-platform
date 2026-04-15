@@ -1029,9 +1029,13 @@ def _fetch_parcel_by_jibun(
         }
         if dom:
             wfs_params["domain"] = dom
-        r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
-        r.raise_for_status()
-        return _json.loads(r.content.decode("utf-8")).get("features", [])
+        try:
+            r = _vworld_get("https://api.vworld.kr/req/wfs", wfs_params, timeout=12)
+            r.raise_for_status()
+            return _json.loads(r.content.decode("utf-8")).get("features", [])
+        except Exception as _cql_err:
+            print(f"[CQL] WFS 조회 실패 (with_ri={with_ri}): {type(_cql_err).__name__}: {_cql_err}")
+            return []
 
     try:
         # 지목(임·전 등)을 주소에 붙인 변형부터 지오코딩 — PARCEL 검색이 산+지목 조합에 맞춰지는 경우가 많음
@@ -1914,7 +1918,7 @@ def _render_summary(parcels: list):
 # ─── 필지 세트 저장/불러오기 ───────────────────────────────────────────────────
 
 _MAP_SET_KEY = "saved_map_sets"
-_MAX_MAP_SETS = 20  # 사용자당 최대 저장 개수
+_MAX_MAP_SETS = 30  # 사용자당 최대 저장 개수
 
 
 def _parcel_snapshot(p: dict) -> dict:
@@ -1965,26 +1969,40 @@ def _load_saved_map_sets(uid: int) -> list:
     return _get_user_settings_raw(uid).get(_MAP_SET_KEY, [])
 
 
-def _save_map_set(uid: int, parcels: list) -> dict:
+def _save_map_set(uid: int, parcels: list, custom_name: str = "", site_fields: dict = None) -> dict:
     """현재 선택 필지를 user_settings에 자동 저장, 생성된 세트 반환"""
     import uuid
     from datetime import datetime as _dt
 
-    # 이름 자동 생성: "삼척시 근덕면 8필지 · 04-14"
-    rep_addr = next((p.get("address", "") for p in parcels if p.get("address")), "")
-    addr_parts = rep_addr.split()
-    short = " ".join(
-        pt for pt in addr_parts
-        if any(pt.endswith(x) for x in ("시", "군", "구", "읍", "면", "동", "리"))
-    )
-    short = (short[:18] if short else "필지 세트")
-    auto_name = f"{short} {len(parcels)}필지 · {_dt.now().strftime('%m-%d')}"
+    if custom_name and custom_name.strip():
+        set_name = custom_name.strip()
+    else:
+        # 이름 자동 생성: "삼척시 근덕면 8필지 · 04-14"
+        rep_addr = next((p.get("address", "") for p in parcels if p.get("address")), "")
+        addr_parts = rep_addr.split()
+        short = " ".join(
+            pt for pt in addr_parts
+            if any(pt.endswith(x) for x in ("시", "군", "구", "읍", "면", "동", "리"))
+        )
+        short = (short[:18] if short else "필지 세트")
+        set_name = f"{short} {len(parcels)}필지 · {_dt.now().strftime('%m-%d')}"
+
+    # site_fields 중 저장할 키 목록 (대용량 전체 건물 목록 제외, 요약 필드만 보관)
+    _SF_SAVE_KEYS = {
+        "land_ownership", "building_height", "illegal_building",
+        "existing_building_purpose", "existing_building_area",
+        "existing_bcr", "existing_vlr", "existing_floors", "existing_approve_date",
+        "nearby_buildings_count", "nearby_building_uses", "nearby_buildings_summary",
+        "land_api_summary", "indvd_land_price_history", "land_price_change_rate",
+    }
+    saved_sf = {k: v for k, v in (site_fields or {}).items() if k in _SF_SAVE_KEYS and v} if site_fields else {}
 
     new_set = {
         "id":         str(uuid.uuid4())[:8],
-        "name":       auto_name,
+        "name":       set_name,
         "created_at": _dt.now().isoformat(),
         "parcels":    [_parcel_snapshot(p) for p in parcels],
+        **({"site_fields": saved_sf} if saved_sf else {}),
     }
 
     settings = _get_user_settings_raw(uid)
@@ -2005,7 +2023,7 @@ def _delete_map_set(uid: int, set_id: str):
 
 # ─── 분석 연동 ────────────────────────────────────────────────────────────────
 
-def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
+def _apply_to_analysis(parcels: list, nearby_radius: int = 500, custom_name: str = ""):
     if not parcels:
         return
 
@@ -2220,7 +2238,11 @@ def _apply_to_analysis(parcels: list, nearby_radius: int = 500):
         if is_authenticated():
             _mu = get_current_user()
             if _mu:
-                _save_map_set(_mu.get("id"), parcels)
+                _save_map_set(
+                    _mu.get("id"), parcels,
+                    custom_name=custom_name,
+                    site_fields=st.session_state.get("site_fields"),
+                )
                 # 사이드바 갱신을 위해 캐시 무효화
                 st.session_state.pop("_map_sets_cache", None)
     except Exception as _ms_err:
@@ -2597,14 +2619,27 @@ def render_land_map_page():
         zonings     = list(dict.fromkeys(p.get("zoning","") for p in parcels if p.get("zoning")))
 
         st.markdown("---")
-        m1, m2, m3, m4, m5 = st.columns(5)
+        # 세트 이름 입력 + 분석에 활용 버튼
+        _nc1, _nc2 = st.columns([3, 1])
+        with _nc1:
+            _set_name_input = st.text_input(
+                "세트 이름",
+                placeholder="세트 이름 입력 (비워두면 자동 생성)",
+                key="lm_set_name_input",
+                label_visibility="collapsed",
+            )
+        with _nc2:
+            if st.button("🚀 분석에 활용", type="primary", use_container_width=True, key="lm_apply_btn"):
+                _apply_to_analysis(
+                    parcels,
+                    st.session_state.lm_nearby_radius,
+                    custom_name=st.session_state.get("lm_set_name_input", ""),
+                )
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("필지 수",  f"{len(parcels)}필지")
         m2.metric("합산 면적", f"{total_area:,.0f} ㎡" if total_area else "—")
         m3.metric("평수",     f"{pyeong:,.0f} 평" if pyeong else "—")
         m4.metric("공시가액 합계", f"{total_price/1e8:,.1f} 억원" if total_price else "—")
-        with m5:
-            if st.button("🚀 분석에 활용", type="primary", use_container_width=True, key="lm_apply_btn"):
-                _apply_to_analysis(parcels, st.session_state.lm_nearby_radius)
 
         if zonings:
             st.caption(f"용도지역: {', '.join(zonings)}")
