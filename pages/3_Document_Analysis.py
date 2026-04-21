@@ -1060,13 +1060,16 @@ def get_example_blocks():
     return st.session_state['_blocks_cache']
 
 
-_XML_CTRL = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+_XML_CTRL = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff￾￿]')
 
 def _sanitize_xml(text):
-    """XML 1.0 비호환 제어 문자 제거"""
+    """XML 1.0 비호환 문자 제거 (제어문자 + 서로게이트 + 비문자)"""
     if not isinstance(text, str):
         text = str(text)
-    return _XML_CTRL.sub('', text)
+    try:
+        return _XML_CTRL.sub('', text)
+    except (re.error, TypeError):
+        return text.encode('utf-8', errors='ignore').decode('utf-8')
 
 def create_word_document(project_name, analysis_results):
     """분석 결과를 Word 문서로 생성합니다."""
@@ -1205,7 +1208,14 @@ def create_word_table(doc, table_lines):
     
     # 열 수 결정 (최소 1 보장)
     max_cols = max((len(row) for row in table_data), default=1) or 1
-    
+
+    # 컬럼이 너무 많으면 (수식의 | 등 오탐) 표 대신 텍스트로 처리
+    if max_cols > 20:
+        for row in table_data:
+            doc.add_paragraph(' | '.join(row))
+        doc.add_paragraph()
+        return
+
     # Word 표 생성 - 개선된 방식
     try:
         table = doc.add_table(rows=len(data_rows) + (1 if headers else 0), cols=max_cols)
@@ -1556,8 +1566,8 @@ def clean_text_for_pdf(text):
     # 연속된 공백 정리
     text = re.sub(r'\s+', ' ', text)
 
-    # XML 1.0 비호환 제어 문자 제거 (null byte, vertical tab, form feed 등)
-    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+    # XML 1.0 비호환 문자 제거 (서로게이트/비문자 포함)
+    text = _sanitize_xml(text)
 
     return text.strip()
 
