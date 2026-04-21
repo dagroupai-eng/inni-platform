@@ -152,18 +152,16 @@ def restore_work_session():
             # project_id 없을 때 (브라우저 탭 닫고 재오픈 등): 가장 최근 세션으로 폴백
             try:
                 from database.db_manager import execute_query as _eq
-                import json as _json
                 _rows = _eq(
-                    "SELECT project_id, session_data FROM analysis_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+                    "SELECT project_id FROM analysis_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
                     (user_id,)
                 )
                 if _rows:
                     _pid_fb = _rows[0]["project_id"]
-                    _raw_fb = _rows[0]["session_data"]
-                    session_data = _json.loads(_raw_fb) if isinstance(_raw_fb, str) else _raw_fb
                     if _pid_fb:
                         st.session_state['current_project_id'] = _pid_fb
                         print(f"[복원] project_id 폴백 복원: {_pid_fb}")
+                        session_data = load_project_session(user_id, _pid_fb)
             except Exception as _fb_err:
                 print(f"[복원] 폴백 복원 오류: {_fb_err}")
 
@@ -453,6 +451,7 @@ def restore_analysis_progress() -> Optional[dict]:
                 """
                 SELECT session_data, created_at FROM analysis_sessions
                 WHERE user_id = ? AND created_at > ?
+                ORDER BY created_at DESC
                 LIMIT 1
                 """,
                 (user_id, one_hour_ago)
