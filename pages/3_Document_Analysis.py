@@ -1060,15 +1060,22 @@ def get_example_blocks():
     return st.session_state['_blocks_cache']
 
 
+_XML_CTRL = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+def _sanitize_xml(text):
+    """XML 1.0 비호환 제어 문자 제거"""
+    if not isinstance(text, str):
+        text = str(text)
+    return _XML_CTRL.sub('', text)
+
 def create_word_document(project_name, analysis_results):
     """분석 결과를 Word 문서로 생성합니다."""
     doc = Document()
 
     # 제목
-    doc.add_heading(f'건축 프로젝트 분석 보고서: {project_name}', 0)
+    doc.add_heading(_sanitize_xml(f'건축 프로젝트 분석 보고서: {project_name}'), 0)
 
     # 블록 id → name 딕셔너리를 루프 전에 한 번만 생성
-    # get_example_blocks()는 커스텀 블록 포함 전체를 반환하므로 단독으로 충분
     block_name_map = {
         b['id']: b['name']
         for b in get_example_blocks()
@@ -1077,7 +1084,7 @@ def create_word_document(project_name, analysis_results):
 
     # 각 분석 결과 추가
     for block_id, result in analysis_results.items():
-        block_name = block_name_map.get(block_id, "사용자 정의 블록")
+        block_name = _sanitize_xml(block_name_map.get(block_id, "사용자 정의 블록"))
 
         # 섹션 제목
         doc.add_heading(block_name, level=1)
@@ -1085,7 +1092,7 @@ def create_word_document(project_name, analysis_results):
         try:
             add_content_with_tables(doc, result)
         except Exception as e:
-            doc.add_paragraph(f"[블록 렌더링 오류: {e}]")
+            doc.add_paragraph(_sanitize_xml(f"[블록 렌더링 오류: {e}]"))
 
         doc.add_paragraph()  # 빈 줄
 
@@ -1093,8 +1100,6 @@ def create_word_document(project_name, analysis_results):
 
 def add_content_with_tables(doc, text):
     """텍스트를 분석하여 표는 Word 표로, 일반 텍스트는 문단으로 추가합니다."""
-    import re
-
     # dict인 경우 (Structured Output) 문자열로 변환
     if isinstance(text, dict):
         parts = []
@@ -1131,35 +1136,34 @@ def add_content_with_tables(doc, text):
         text = str(text)
 
     # XML 1.0 비호환 제어 문자 일괄 제거
-    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+    text = _sanitize_xml(text)
 
     lines = text.split('\n')
     i = 0
-    
+
     while i < len(lines):
         line = lines[i].strip()
-        
-        # 표 시작 패턴 확인 (개선된 방식)
+
+        # 표 시작 패턴 확인 (파이프 테이블만)
         if is_table_line(line):
             # 표 데이터 수집
             table_lines = [line]
             i += 1
-            
-            # 연속된 표 줄들 수집 (개선된 방식)
+
             while i < len(lines) and is_table_line(lines[i].strip()):
                 table_lines.append(lines[i].strip())
                 i += 1
-            
+
             # Word 표 생성
             create_word_table(doc, table_lines)
             continue
-        
+
         # 일반 텍스트 처리
         if line:
             # Markdown 헤더 처리
             if line.startswith('#'):
                 level = len(line) - len(line.lstrip('#'))
-                header_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', line.lstrip('#').strip())
+                header_text = _sanitize_xml(line.lstrip('#').strip())
                 doc.add_heading(header_text, level=min(level, 6))
             else:
                 # 리스트 처리
@@ -1167,15 +1171,12 @@ def add_content_with_tables(doc, text):
                     line = '• ' + line[2:]
                 elif line.startswith('* '):
                     line = '• ' + line[2:]
-                
+
                 # 볼드 텍스트 처리 (**text**)
                 line = re.sub(r'\*\*(.*?)\*\*', r'\1', line)
 
-                # XML 비호환 제어 문자 제거
-                line = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', line)
+                doc.add_paragraph(_sanitize_xml(line))
 
-                doc.add_paragraph(line)
-        
         i += 1
 
 def create_word_table(doc, table_lines):
@@ -1194,16 +1195,16 @@ def create_word_table(doc, table_lines):
     if not table_data:
         return
     
-    # 첫 번째 행이 헤더 구분선인지 확인 (--- 형태)
-    if len(table_data) > 1 and all(cell == '---' or cell == '------' or cell == '' for cell in table_data[1]):
+    # 첫 번째 행이 헤더 구분선인지 확인 (---, ----, ----- 등)
+    if len(table_data) > 1 and all(re.match(r'^-+$', cell) or cell == '' for cell in table_data[1]):
         headers = table_data[0]
         data_rows = table_data[2:]
     else:
         headers = None
         data_rows = table_data
     
-    # 열 수 결정
-    max_cols = max(len(row) for row in table_data) if table_data else 2
+    # 열 수 결정 (최소 1 보장)
+    max_cols = max((len(row) for row in table_data), default=1) or 1
     
     # Word 표 생성 - 개선된 방식
     try:
@@ -1212,7 +1213,6 @@ def create_word_table(doc, table_lines):
         
         # 표 자동 크기 조절 활성화
         table.allow_autofit = True
-        table.autofit = True
         
         # 헤더 추가
         if headers:
@@ -1263,23 +1263,11 @@ def create_word_table(doc, table_lines):
         doc.add_paragraph()
 
 def is_table_line(line):
-    """한 줄이 표 행인지 확인"""
+    """한 줄이 마크다운 파이프 표 행인지 확인"""
     if not line:
         return False
-
-    # | 구분자가 있는 경우 (마크다운 표 형식)
-    if '|' in line and line.count('|') >= 2:
-        return True
-
-    # 탭으로 구분된 경우
-    if '\t' in line:
-        return True
-
-    # 2개 이상의 공백으로 구분된 경우 (정렬된 텍스트)
-    if re.search(r'\s{2,}', line):
-        return True
-
-    return False
+    # 파이프 문자가 2개 이상인 경우만 표로 인식
+    return '|' in line and line.count('|') >= 2
 
 def render_structured_response(response: dict):
     """JSON 구조화된 응답을 Streamlit으로 렌더링합니다.
