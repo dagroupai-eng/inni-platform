@@ -1122,6 +1122,9 @@ def add_content_with_tables(doc, text):
     elif not isinstance(text, str):
         text = str(text)
 
+    # XML 1.0 비호환 제어 문자 일괄 제거
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+
     lines = text.split('\n')
     i = 0
     
@@ -1148,7 +1151,7 @@ def add_content_with_tables(doc, text):
             # Markdown 헤더 처리
             if line.startswith('#'):
                 level = len(line) - len(line.lstrip('#'))
-                header_text = line.lstrip('#').strip()
+                header_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', line.lstrip('#').strip())
                 doc.add_heading(header_text, level=min(level, 6))
             else:
                 # 리스트 처리
@@ -1159,7 +1162,10 @@ def add_content_with_tables(doc, text):
                 
                 # 볼드 텍스트 처리 (**text**)
                 line = re.sub(r'\*\*(.*?)\*\*', r'\1', line)
-                
+
+                # XML 비호환 제어 문자 제거
+                line = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', line)
+
                 doc.add_paragraph(line)
         
         i += 1
@@ -1553,7 +1559,10 @@ def clean_text_for_pdf(text):
     
     # 연속된 공백 정리
     text = re.sub(r'\s+', ' ', text)
-    
+
+    # XML 1.0 비호환 제어 문자 제거 (null byte, vertical tab, form feed 등)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+
     return text.strip()
 
 def _extract_first_number(text, pattern, default=None, transform=None):
