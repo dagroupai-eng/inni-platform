@@ -1082,8 +1082,11 @@ def create_word_document(project_name, analysis_results):
         # 섹션 제목
         doc.add_heading(block_name, level=1)
 
-        # Word 표 형식으로 처리
-        add_content_with_tables(doc, result)
+        try:
+            add_content_with_tables(doc, result)
+        except Exception as e:
+            doc.add_paragraph(f"[블록 렌더링 오류: {e}]")
+
         doc.add_paragraph()  # 빈 줄
 
     return doc
@@ -1119,6 +1122,11 @@ def add_content_with_tables(doc, text):
         if text.get('conclusion'):
             parts.append(str(text['conclusion']))
         text = '\n\n'.join(parts) if parts else str(text)
+    elif isinstance(text, bytes):
+        try:
+            text = text.decode('utf-8', errors='replace')
+        except Exception:
+            text = repr(text)
     elif not isinstance(text, str):
         text = str(text)
 
