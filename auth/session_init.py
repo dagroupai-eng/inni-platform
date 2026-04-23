@@ -179,11 +179,14 @@ def restore_work_session():
             _no_restore_empty = {'project_name', 'location', 'project_goals', 'additional_info'}
 
             # 분석 결과는 항상 복원 (중요!)
+            # cot_results/cot_citations는 저장하지 않으므로 복원 목록에서도 제외
+            # → _load_latest_steps_into_session()이 analysis_steps에서 재구성
             analysis_keys = [
-                'analysis_results', 'cot_results', 'cot_session', 'cot_plan',
-                'cot_current_index', 'selected_blocks', 'cot_history', 'cot_citations',
+                'cot_session', 'cot_plan',
+                'cot_current_index', 'selected_blocks', 'cot_history',
                 'cot_feedback_inputs', 'skipped_blocks',
                 'cot_verifications', 'urban_indicator_results',
+                'analysis_step_id_map',
             ]
 
             restored_count = 0
@@ -267,24 +270,28 @@ def save_work_session():
         # 일반 직렬화 키
         # pdf_text, preprocessed_text, reference_combined_text 제외: 대역폭 절감 (23명 동시 사용 고려)
         # 해당 필드는 파일 재업로드 시 재생성됨
+        # cot_results/cot_citations는 저장하지 않음 — analysis_steps에서 복원
         save_keys = [
             'project_name', 'location', 'latitude', 'longitude',
             'project_goals', 'additional_info', 'pdf_uploaded',
-            'analysis_results', 'selected_blocks', 'cot_results',
+            'selected_blocks',
             'cot_history', 'preprocessing_meta',
             'reference_documents',
             'cot_session', 'cot_plan', 'cot_current_index',
             'cot_running_block', 'cot_progress_messages',
-            'cot_feedback_inputs', 'skipped_blocks', 'cot_citations',
+            'cot_feedback_inputs', 'skipped_blocks',
             # 새 키 (7-C)
             'file_analysis', 'file_storage_path', 'document_summary',
             'site_fields', 'cot_verifications', 'urban_indicator_results',
-            'selected_parcels_raw',
+            'analysis_step_id_map',
         ]
 
-        # 크기 제한이 있는 키 (500KB 이하만 저장)
-        large_keys = ['downloaded_geo_data']
-        _SIZE_LIMIT = 500 * 1024  # 500 KB
+        # 크기 제한이 있는 키 (키별 상한)
+        large_keys = ['downloaded_geo_data', 'selected_parcels_raw']
+        _SIZE_LIMITS = {
+            'downloaded_geo_data': 500 * 1024,   # 500KB
+            'selected_parcels_raw': 1024 * 1024,  # 1MB
+        }
 
         # 빈 문자열로 저장 금지: 이전 유효값을 덮어쓰지 않도록 보호
         _no_empty_keys = {'project_name', 'location', 'project_goals', 'additional_info'}
@@ -303,14 +310,41 @@ def save_work_session():
         for key in large_keys:
             if key in st.session_state:
                 value = st.session_state[key]
+                _limit = _SIZE_LIMITS.get(key, 500 * 1024)
                 try:
                     serialized = json.dumps(value, ensure_ascii=False)
-                    if len(serialized.encode('utf-8')) <= _SIZE_LIMIT:
+                    if len(serialized.encode('utf-8')) <= _limit:
                         session_data[key] = value
                     else:
                         print(f"[저장] {key} 크기 초과, 저장 스킵 ({len(serialized)//1024}KB)")
                 except (TypeError, ValueError):
                     pass
+
+        # cot_session에서 대용량 텍스트 필드 제거 (재업로드/analysis_steps에서 재구성)
+        if 'cot_session' in session_data and isinstance(session_data['cot_session'], dict):
+            cs = dict(session_data['cot_session'])
+            pi = dict(cs.get('project_info') or {})
+            for _fk in ('file_text', 'pdf_text', '_original_file_text'):
+                pi.pop(_fk, None)
+            cs['project_info'] = pi
+            cs.pop('previous_results', None)  # analysis_steps에서 재구성되므로 제거
+            session_data['cot_session'] = cs
+
+        # 전체 2MB 상한: 초과 시 대용량 키부터 제거
+        _TOTAL_LIMIT = 2 * 1024 * 1024
+        _large_drop_order = ['cot_session', 'cot_history']
+        try:
+            _total_size = len(json.dumps(session_data, ensure_ascii=False).encode('utf-8'))
+            if _total_size > _TOTAL_LIMIT:
+                for _dk in _large_drop_order:
+                    if _dk in session_data:
+                        del session_data[_dk]
+                        _total_size = len(json.dumps(session_data, ensure_ascii=False).encode('utf-8'))
+                        print(f"[저장] 2MB 초과, {_dk} 제거 후 {_total_size//1024}KB")
+                        if _total_size <= _TOTAL_LIMIT:
+                            break
+        except Exception:
+            pass
 
         if session_data:
             # UNIQUE(user_id, project_id) constraint 유무와 무관하게 동작하는 수동 upsert:
@@ -334,6 +368,9 @@ def save_work_session():
                 _old_raw = _existing.data[0].get('session_data') or {}
                 _old_data = _old_raw if isinstance(_old_raw, dict) else {}
                 _merged = {**_old_data, **session_data}
+                # 저장 대상에서 제외된 키가 기존 DB 행에 잔존하는 경우 정리
+                for _dead_key in ('analysis_results', 'cot_results', 'cot_citations'):
+                    _merged.pop(_dead_key, None)
                 _client.table('analysis_sessions').update({
                     'session_data': _merged,
                     'created_at': _now,
@@ -356,7 +393,8 @@ def save_work_session():
             # (_load_latest_steps_into_session이 steps 데이터를 덮어쓰므로 일치시켜야 함)
             try:
                 step_id_map = st.session_state.get("analysis_step_id_map") or {}
-                cr = session_data.get("cot_results") or {}
+                # session_data에서 trimmed될 수 있으므로 session_state 직접 참조
+                cr = st.session_state.get("cot_results") or {}
                 if step_id_map and cr:
                     from database.analysis_steps_manager import save_step_payloads
                     for _bid, _result in cr.items():
@@ -462,7 +500,7 @@ def restore_analysis_progress() -> Optional[dict]:
             session_data = json.loads(raw) if isinstance(raw, str) else raw
             updated_at = result[0]['created_at']
 
-            if session_data and (session_data.get('cot_results') or session_data.get('cot_session')):
+            if session_data and (session_data.get('cot_session') or session_data.get('analysis_step_id_map')):
                 session_data['_restored_from'] = updated_at
                 return session_data
 
@@ -486,11 +524,12 @@ def apply_restored_progress(progress_data: dict) -> bool:
         return False
 
     try:
+        # cot_results/cot_citations/analysis_results는 analysis_steps에서 재구성
         restore_keys = [
             'cot_session', 'cot_plan', 'cot_current_index',
-            'cot_results', 'cot_progress_messages',
-            'cot_feedback_inputs', 'skipped_blocks', 'cot_citations',
-            'cot_history', 'analysis_results', 'selected_blocks'
+            'cot_progress_messages',
+            'cot_feedback_inputs', 'skipped_blocks',
+            'cot_history', 'selected_blocks'
         ]
 
         for key in restore_keys:
@@ -613,7 +652,7 @@ def render_session_manager_sidebar():
         if 'pending_restore' in st.session_state and st.session_state.pending_restore:
             restored_progress = st.session_state.pending_restore
             restored_time = restored_progress.get('_restored_from', '')[:16].replace('T', ' ')
-            results_count = len(restored_progress.get('cot_results', {}))
+            results_count = restored_progress.get('cot_current_index', 0)
 
             st.warning(f"📂 중단된 세션 발견")
             st.caption(f"저장: {restored_time}, 완료 블록: {results_count}개")

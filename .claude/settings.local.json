@@ -91,7 +91,8 @@
       "Bash(/c/Users/dA/miniconda3/envs/da_AI_env/python.exe -c ':*)",
       "Bash(/c/Users/dA/miniconda3/envs/da_AI_env/python.exe -c \" import os, requests url = os.environ.get\\('SUPABASE_URL','https://fkqdkwplddvowghdgssl.supabase.co'\\) key = os.environ.get\\('SUPABASE_SERVICE_ROLE_KEY','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrcWRrd3BsZGR2b3dnaGRnc3NsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTQ2NDYwOCwiZXhwIjoyMDg3MDQwNjA4fQ.t4-HWuYKZ00h6OBbDVXdTFyvIqK-0urbW00up_KYb8s'\\) headers = {'apikey': key, 'Authorization': 'Bearer '+key} r = requests.get\\(url+'/rest/v1/analysis_queue?select=*&order=entered_at', headers=headers\\) rows = r.json\\(\\) from collections import Counter sc = Counter\\(\\) for x in rows: sc[\\(x.get\\('server'\\), x.get\\('status'\\)\\)] += 1 print\\('rows:', len\\(rows\\)\\) for k,v in sorted\\(sc.items\\(\\)\\): print\\(k, v\\) for x in rows: print\\(x.get\\('id'\\), x.get\\('user_id'\\), x.get\\('server'\\), x.get\\('status'\\), str\\(x.get\\('entered_at',''\\)\\)[:19]\\) \")",
       "WebFetch(domain:gisdeveloper.co.kr)",
-      "WebFetch(domain:www.yoginsoft.com)"
+      "WebFetch(domain:www.yoginsoft.com)",
+      "WebFetch(domain:localhost)"
     ]
   }
 }

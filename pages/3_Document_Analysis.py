@@ -125,6 +125,10 @@ def _load_latest_steps_into_session(user_id: int, project_id: int) -> None:
             st.session_state.setdefault("cot_results", {})
             st.session_state["analysis_results"].update(restored_results)
             st.session_state["cot_results"].update(restored_results)
+            # cot_session.previous_results 재구성 (저장 시 제거되므로 여기서 복원)
+            _cs = st.session_state.get("cot_session")
+            if isinstance(_cs, dict):
+                _cs.setdefault("previous_results", {}).update(restored_results)
 
         if restored_citations:
             st.session_state.setdefault("cot_citations", {})

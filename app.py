@@ -179,7 +179,7 @@ def show_main_app():
                 if 'pending_restore' in st.session_state and st.session_state.pending_restore:
                     restored_progress = st.session_state.pending_restore
                     restored_time = restored_progress.get('_restored_from', '')[:16].replace('T', ' ')
-                    results_count = len(restored_progress.get('cot_results', {}))
+                    results_count = restored_progress.get('cot_current_index', 0)
 
                     st.warning(f"📂 중단된 세션 발견")
                     st.caption(f"저장: {restored_time}, 완료 블록: {results_count}개")
