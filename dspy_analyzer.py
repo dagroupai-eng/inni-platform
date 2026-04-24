@@ -3480,6 +3480,17 @@ class EnhancedArchAnalyzer:
                 )
             
             # Streaming이 활성화된 경우 streamify 사용
+            # Streamlit 환경에서 실행 중인 이벤트 루프가 있으면 스트리밍 비활성화 (hang 방지)
+            if enable_streaming:
+                try:
+                    import asyncio
+                    asyncio.get_running_loop()
+                    # 루프가 실행 중 → 스트리밍 불가
+                    enable_streaming = False
+                    print("⚠️ 실행 중인 이벤트 루프 감지, 스트리밍 비활성화 (일반 모드로 진행)")
+                except RuntimeError:
+                    pass  # 루프 없음 → 스트리밍 가능
+
             if enable_streaming and progress_callback:
                 try:
                     # DSPy streamify를 사용하여 스트리밍
@@ -3582,8 +3593,17 @@ class EnhancedArchAnalyzer:
                             print(f"⚠️ 스트리밍 환경 제한, 일반 모드로 전환: {stream_error}")
                             if progress_callback:
                                 progress_callback("📊 분석 시작...")
-                            # 일반 모드로 전환
-                            result = dspy.Predict(signature_class)(input=enhanced_prompt)
+                            # 일반 모드 + 타임아웃
+                            import concurrent.futures
+                            _LLM_TIMEOUT = 300  # 5분
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                                _fut = _ex.submit(
+                                    lambda: dspy.Predict(signature_class)(input=enhanced_prompt)
+                                )
+                                try:
+                                    result = _fut.result(timeout=_LLM_TIMEOUT)
+                                except concurrent.futures.TimeoutError:
+                                    raise RuntimeError(f"LLM 호출 타임아웃 ({_LLM_TIMEOUT}초 초과)")
                             if progress_callback:
                                 progress_callback("✅ 분석 완료")
                 except Exception as stream_error:
@@ -3599,12 +3619,30 @@ class EnhancedArchAnalyzer:
                     else:
                         new_lm_context = self._lm_context_with_system_instruction(system_instruction)
 
+                    import concurrent.futures
+                    _LLM_TIMEOUT = 300  # 5분
                     with new_lm_context:
-                        result = dspy.Predict(signature_class)(input=enhanced_prompt)
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                            _fut = _ex.submit(
+                                lambda: dspy.Predict(signature_class)(input=enhanced_prompt)
+                            )
+                            try:
+                                result = _fut.result(timeout=_LLM_TIMEOUT)
+                            except concurrent.futures.TimeoutError:
+                                raise RuntimeError(f"LLM 호출 타임아웃 ({_LLM_TIMEOUT}초 초과)")
             else:
-                # 일반 모드 (스트리밍 없음)
+                # 일반 모드 (스트리밍 없음) + 타임아웃
+                import concurrent.futures
+                _LLM_TIMEOUT = 300  # 5분
                 with lm_context:
-                    result = dspy.Predict(signature_class)(input=enhanced_prompt)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                        _fut = _ex.submit(
+                            lambda: dspy.Predict(signature_class)(input=enhanced_prompt)
+                        )
+                        try:
+                            result = _fut.result(timeout=_LLM_TIMEOUT)
+                        except concurrent.futures.TimeoutError:
+                            raise RuntimeError(f"LLM 호출 타임아웃 ({_LLM_TIMEOUT}초 초과)")
             
             return {
                 "success": True,
@@ -4188,8 +4226,16 @@ class EnhancedArchAnalyzer:
             model_name = provider_config.get('model', 'gemini-2.5-flash')
             clean_model = model_name.replace('models/', '').replace('model/', '')
             
-            client = genai.Client(api_key=api_key)
-            
+            # 타임아웃 설정 (5분): 무한 대기 방지
+            try:
+                import httpx
+                client = genai.Client(
+                    api_key=api_key,
+                    http_options={'timeout': 300}
+                )
+            except Exception:
+                client = genai.Client(api_key=api_key)
+
             # Gemini API PDF 제한: 50MB / 1,000페이지
             MAX_PDF_SIZE = 50 * 1024 * 1024  # 50MB
             FILE_SIZE_THRESHOLD = 10 * 1024 * 1024  # 10MB
@@ -4204,64 +4250,151 @@ class EnhancedArchAnalyzer:
                 }
 
             use_files_api = file_size >= FILE_SIZE_THRESHOLD
-            
+
             # PDF Part 준비
             pdf_part = None
             if use_files_api:
-                # Files API 사용 (대용량 파일). pdf_bytes 우선 사용 (한글 경로 ASCII 인코딩 오류 방지)
-                if pdf_bytes is not None:
-                    pdf_io = io.BytesIO(pdf_bytes)
-                    uploaded_file = client.files.upload(
-                        file=pdf_io,
-                        config=dict(mime_type='application/pdf')
-                    )
-                elif pdf_path:
-                    uploaded_file = client.files.upload(
-                        file=pdf_path,
-                        config=dict(mime_type='application/pdf')
-                    )
-                else:
-                    return {
-                        "success": False,
-                        "error": "PDF 데이터가 없습니다.",
-                        "model": self._get_current_model_info(" (PDF Direct)"),
-                        "method": "PDF Direct (No Data)"
-                    }
-                
-                # 파일 처리 대기
-                max_wait_time = 300  # 최대 5분 대기
-                start_time = time.time()
-                
-                while str(uploaded_file.state) in ('PROCESSING', 'State.PROCESSING'):
-                    if time.time() - start_time > max_wait_time:
+                # ── Files API 캐시 확인 (세션 내 + Supabase DB) ──
+                import hashlib
+                pdf_hash = hashlib.md5(pdf_bytes).hexdigest()
+                cached_uri = None
+
+                # 1순위: session_state 캐시 (같은 세션 내 즉시 재사용)
+                try:
+                    import streamlit as st
+                    _cache = st.session_state.get('_gemini_file_cache', {})
+                    cached_uri = _cache.get(pdf_hash)
+                    if cached_uri:
+                        print(f"📄 [session 캐시 히트] 재업로드 생략: {cached_uri}")
+                        if progress_callback:
+                            progress_callback("📄 PDF 캐시 사용 중 (세션)...")
+                except Exception:
+                    pass
+
+                # 2순위: Supabase DB 캐시 (48시간 이내 동일 PDF, 세션 재시작 후에도 재사용)
+                if not cached_uri:
+                    try:
+                        from database.supabase_client import get_supabase_client
+                        from datetime import datetime, timedelta, timezone
+                        _supabase = get_supabase_client()
+                        _cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+                        _db_res = _supabase.table('analysis_runs') \
+                            .select('gemini_file_uri, created_at') \
+                            .eq('gemini_file_hash', pdf_hash) \
+                            .gte('created_at', _cutoff) \
+                            .order('created_at', desc=True) \
+                            .limit(1) \
+                            .execute()
+                        if _db_res.data and _db_res.data[0].get('gemini_file_uri'):
+                            cached_uri = _db_res.data[0]['gemini_file_uri']
+                            print(f"📄 [DB 캐시 히트] 재업로드 생략: {cached_uri}")
+                            if progress_callback:
+                                progress_callback("📄 PDF 캐시 사용 중 (DB)...")
+                            # session_state에도 저장
+                            try:
+                                import streamlit as st
+                                if '_gemini_file_cache' not in st.session_state:
+                                    st.session_state['_gemini_file_cache'] = {}
+                                st.session_state['_gemini_file_cache'][pdf_hash] = cached_uri
+                            except Exception:
+                                pass
+                    except Exception as _db_cache_err:
+                        print(f"📄 DB 캐시 조회 실패 (무시): {_db_cache_err}")
+
+                if cached_uri:
+                    # 캐시된 URI 바로 사용
+                    try:
+                        pdf_part = types.Part.from_uri(
+                            file_uri=cached_uri,
+                            mime_type='application/pdf'
+                        )
+                    except Exception:
+                        # URI가 만료된 경우 캐시 삭제 후 재업로드
+                        cached_uri = None
+                        try:
+                            import streamlit as st
+                            st.session_state.get('_gemini_file_cache', {}).pop(pdf_hash, None)
+                            print(f"📄 캐시 URI 만료, 재업로드 진행")
+                        except Exception:
+                            pass
+
+                if not cached_uri:
+                    # Files API 사용 (대용량 파일). pdf_bytes 우선 사용 (한글 경로 ASCII 인코딩 오류 방지)
+                    if pdf_bytes is not None:
+                        pdf_io = io.BytesIO(pdf_bytes)
+                        uploaded_file = client.files.upload(
+                            file=pdf_io,
+                            config=dict(mime_type='application/pdf')
+                        )
+                    elif pdf_path:
+                        uploaded_file = client.files.upload(
+                            file=pdf_path,
+                            config=dict(mime_type='application/pdf')
+                        )
+                    else:
                         return {
                             "success": False,
-                            "error": "파일 처리 시간이 초과되었습니다."
+                            "error": "PDF 데이터가 없습니다.",
+                            "model": self._get_current_model_info(" (PDF Direct)"),
+                            "method": "PDF Direct (No Data)"
                         }
 
-                    uploaded_file = client.files.get(name=uploaded_file.name)
-                    if progress_callback:
-                        progress_callback(f"📤 PDF 파일 처리 중... ({uploaded_file.state})")
-                    time.sleep(2)
+                    # 파일 처리 대기
+                    max_wait_time = 300  # 최대 5분 대기
+                    start_time = time.time()
 
-                if str(uploaded_file.state) in ('FAILED', 'State.FAILED'):
-                    return {
-                        "success": False,
-                        "error": "파일 처리에 실패했습니다."
-                    }
-                
-                # Files API로 업로드된 파일은 URI로 참조
-                # google-genai SDK에서 File 객체 대신 Part.from_uri 사용
-                try:
-                    pdf_part = types.Part.from_uri(
-                        file_uri=uploaded_file.uri,
-                        mime_type='application/pdf'
-                    )
-                    print(f"📄 Files API 사용 (Part.from_uri): {uploaded_file.uri}")
-                except Exception:
-                    # 폴백: File 객체 직접 사용
-                    pdf_part = uploaded_file
-                    print(f"📄 Files API 사용 (File 직접): {uploaded_file.uri}")
+                    while str(uploaded_file.state) in ('PROCESSING', 'State.PROCESSING'):
+                        if time.time() - start_time > max_wait_time:
+                            return {
+                                "success": False,
+                                "error": "파일 처리 시간이 초과되었습니다."
+                            }
+                        uploaded_file = client.files.get(name=uploaded_file.name)
+                        if progress_callback:
+                            progress_callback(f"📤 PDF 파일 처리 중... ({uploaded_file.state})")
+                        time.sleep(2)
+
+                    if str(uploaded_file.state) in ('FAILED', 'State.FAILED'):
+                        return {
+                            "success": False,
+                            "error": "파일 처리에 실패했습니다."
+                        }
+
+                    # Files API로 업로드된 파일은 URI로 참조
+                    try:
+                        pdf_part = types.Part.from_uri(
+                            file_uri=uploaded_file.uri,
+                            mime_type='application/pdf'
+                        )
+                        print(f"📄 Files API 사용 (Part.from_uri): {uploaded_file.uri}")
+                    except Exception:
+                        pdf_part = uploaded_file
+                        print(f"📄 Files API 사용 (File 직접): {uploaded_file.uri}")
+
+                    # ── 업로드 URI 캐시 저장 (session_state + Supabase DB) ──
+                    _uploaded_uri = uploaded_file.uri
+                    # session_state 저장
+                    try:
+                        import streamlit as st
+                        if '_gemini_file_cache' not in st.session_state:
+                            st.session_state['_gemini_file_cache'] = {}
+                        st.session_state['_gemini_file_cache'][pdf_hash] = _uploaded_uri
+                        print(f"📄 session 캐시 저장: {pdf_hash[:8]}... → {_uploaded_uri}")
+                    except Exception:
+                        pass
+                    # Supabase DB 저장 (현재 run_id가 있으면 해당 row 업데이트)
+                    try:
+                        import streamlit as st
+                        run_id = st.session_state.get('current_analysis_run_id')
+                        if run_id:
+                            from database.supabase_client import get_supabase_client
+                            get_supabase_client().table('analysis_runs').update({
+                                'gemini_file_uri': _uploaded_uri,
+                                'gemini_file_hash': pdf_hash,
+                            }).eq('id', run_id).execute()
+                            print(f"📄 DB 캐시 저장: run_id={run_id}")
+                    except Exception as _db_save_err:
+                        print(f"📄 DB 캐시 저장 실패 (무시): {_db_save_err}")
             else:
                 # 인라인 처리 (작은 파일)
                 pdf_part = types.Part.from_bytes(
