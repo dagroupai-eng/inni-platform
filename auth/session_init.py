@@ -203,6 +203,9 @@ def restore_work_session():
                 elif key in analysis_keys:
                     if value is not None and value not in [[], {}, ""]:
                         st.session_state[key] = value
+                        if key == 'cot_session' and isinstance(value, dict):
+                            value.setdefault('previous_results', {})
+                            value.setdefault('cot_history', [])
                         restored_count += 1
                         print(f"[복원] 분석 데이터 복원: {key}")
                 elif key not in st.session_state:
@@ -347,41 +350,44 @@ def save_work_session():
             pass
 
         if session_data:
-            # UNIQUE(user_id, project_id) constraint 유무와 무관하게 동작하는 수동 upsert:
-            # 기존 행이 있으면 기존 session_data와 병합 후 UPDATE, 없으면 INSERT.
-            # 병합(merge) 방식: 새 값이 우선, 빈 값으로 스킵된 키는 DB의 기존 값을 유지.
-            # 이렇게 해야 save_work_session 호출 시 일부 키가 비어 스킵되더라도
-            # 이전에 저장된 project_goals, additional_info 등이 DB에서 사라지지 않음.
+            # SELECT는 세션당 최초 1회만 수행 (캐시 키: _session_db_base_{project_id}).
+            # 이후 저장은 캐시된 base와 병합해 직접 UPDATE → DB SELECT 부하 제거.
             from database.supabase_client import get_supabase_client as _gsc
             _client = _gsc()
             _now = datetime.now().isoformat()
-            _existing = (
-                _client.table('analysis_sessions')
-                .select('id, session_data')
-                .eq('user_id', user_id)
-                .eq('project_id', project_id)
-                .limit(1)
-                .execute()
-            )
-            if _existing.data:
-                # 기존 DB 데이터와 병합: 새 값 우선, 없는 키는 기존 값 유지
-                _old_raw = _existing.data[0].get('session_data') or {}
-                _old_data = _old_raw if isinstance(_old_raw, dict) else {}
-                _merged = {**_old_data, **session_data}
-                # 저장 대상에서 제외된 키가 기존 DB 행에 잔존하는 경우 정리
-                for _dead_key in ('analysis_results', 'cot_results', 'cot_citations'):
-                    _merged.pop(_dead_key, None)
-                _client.table('analysis_sessions').update({
-                    'session_data': _merged,
-                    'created_at': _now,
-                }).eq('user_id', user_id).eq('project_id', project_id).execute()
-            else:
-                _client.table('analysis_sessions').insert({
-                    'user_id': user_id,
-                    'project_id': project_id,
-                    'session_data': session_data,
-                    'created_at': _now,
-                }).execute()
+            _cache_key = f'_session_db_base_{project_id}'
+            _cached_base = st.session_state.get(_cache_key)
+
+            if _cached_base is None:
+                # 최초 저장: DB에서 기존 데이터 조회
+                _existing = (
+                    _client.table('analysis_sessions')
+                    .select('id, session_data')
+                    .eq('user_id', user_id)
+                    .eq('project_id', project_id)
+                    .limit(1)
+                    .execute()
+                )
+                if _existing.data:
+                    _old_raw = _existing.data[0].get('session_data') or {}
+                    _cached_base = _old_raw if isinstance(_old_raw, dict) else {}
+                else:
+                    _cached_base = {}
+                st.session_state[_cache_key] = _cached_base
+
+            # 캐시 base와 병합: 새 값 우선, 스킵된 키는 기존 값 유지
+            _merged = {**_cached_base, **session_data}
+            for _dead_key in ('analysis_results', 'cot_results', 'cot_citations'):
+                _merged.pop(_dead_key, None)
+            # 캐시 업데이트
+            st.session_state[_cache_key] = _merged
+
+            _client.table('analysis_sessions').upsert({
+                'user_id': user_id,
+                'project_id': project_id,
+                'session_data': _merged,
+                'created_at': _now,
+            }, on_conflict='user_id,project_id').execute()
             # projects.updated_at 갱신
             if project_id:
                 execute_query(
@@ -417,9 +423,9 @@ def save_work_session():
         st.session_state['_save_status'] = 'error'
 
 
-def auto_save_debounced(throttle_seconds: float = 3.0):
+def auto_save_debounced(throttle_seconds: float = 15.0):
     """
-    자동 저장 (3초 스로틀).
+    자동 저장 (15초 스로틀 — 30명 동시 사용 기준 DB 부하 분산).
     입력 필드 변경 콜백이나 분석 완료 후 호출한다.
     """
     import time

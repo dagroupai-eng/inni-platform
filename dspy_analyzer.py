@@ -1086,7 +1086,8 @@ class EnhancedArchAnalyzer:
                     'provider': provider_name,
                     'api_key': api_key,
                     'max_tokens': max_tokens,
-                    'temperature': temperature
+                    'temperature': temperature,
+                    'num_retries': 3,
                 }
             
             if current_provider == 'deepseek' and 'base_url' in provider_config:
@@ -2976,7 +2977,7 @@ class EnhancedArchAnalyzer:
         try:
             print(f"[DEBUG] run_cot_step 시작: block_id={block_id}")
             print(f"[DEBUG] cot_session previous_results keys: {list(cot_session.get('previous_results', {}).keys())}")
-            current_step = step_index if step_index is not None else len(cot_session["previous_results"]) + 1
+            current_step = step_index if step_index is not None else len(cot_session.get("previous_results", {})) + 1
             print(f"[DEBUG] current_step={current_step}")
             context_for_current_block = self._build_cot_context(
                 cot_session,
@@ -3129,7 +3130,7 @@ class EnhancedArchAnalyzer:
             return {
                 "success": True,
                 "analysis_results": analysis_results,
-                "cot_history": cumulative_context["cot_history"],
+                "cot_history": cumulative_context.get("cot_history", []),
                 "model": self._get_current_model_info(" (DSPy + Block CoT)"),
                 "method": "Block Chain of Thought Analysis"
             }
@@ -3155,7 +3156,7 @@ class EnhancedArchAnalyzer:
 
         # 이전 블록들의 핵심 인사이트 요약
         previous_insights_summary = ""
-        if cumulative_context["previous_results"]:
+        if cumulative_context.get("previous_results"):
             previous_insights_summary = "\n### 🔗 이전 블록들의 핵심 인사이트:\n"
 
             for i, history_item in enumerate(cumulative_context["cot_history"]):
@@ -3254,7 +3255,7 @@ class EnhancedArchAnalyzer:
 
 ### 📊 분석 진행 상황
 - 현재 단계: {current_step}/{cumulative_context['total_blocks']}
-- 완료된 블록: {len(cumulative_context['previous_results'])}개
+- 완료된 블록: {len(cumulative_context.get('previous_results', {}))}개
 - 남은 블록: {cumulative_context['total_blocks'] - current_step + 1}개
 
 {previous_insights_summary}

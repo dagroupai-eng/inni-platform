@@ -11,11 +11,65 @@ import json
 from typing import Any, Dict, List, Optional, Tuple
 
 
+_last_cleanup_time: float = 0.0
+_CLEANUP_INTERVAL_SECONDS: float = 300.0  # 5분에 1번만 실행
+
+
+def cleanup_stale_runs(
+    run_stale_hours: int = 3,
+    step_stale_minutes: int = 20,
+) -> None:
+    """
+    비정상 종료로 running 상태에 고착된 rows를 자동 정리합니다.
+    - analysis_runs: run_stale_hours 이상 running → cancelled
+    - analysis_steps: step_stale_minutes 이상 running → failed
+
+    모듈 레벨 디바운스(_CLEANUP_INTERVAL_SECONDS)로 서버 프로세스당 5분에 1회만 실행.
+    create_run() 호출 시 자동으로 실행됩니다.
+    """
+    global _last_cleanup_time
+    import time
+    now_ts = time.monotonic()
+    if now_ts - _last_cleanup_time < _CLEANUP_INTERVAL_SECONDS:
+        return
+    _last_cleanup_time = now_ts
+
+    try:
+        from database.supabase_client import get_supabase_client
+        from datetime import datetime, timezone, timedelta
+        client = get_supabase_client()
+        now = datetime.now(timezone.utc)
+        finished = now.isoformat()
+
+        run_cutoff = (now - timedelta(hours=run_stale_hours)).isoformat()
+        result = client.table('analysis_runs').update({
+            'status': 'cancelled',
+            'finished_at': finished,
+        }).eq('status', 'running').lt('created_at', run_cutoff).execute()
+        n_runs = len(result.data) if result.data else 0
+        if n_runs:
+            print(f"[AnalysisSteps] stale runs {n_runs}개 cancelled 처리")
+
+        step_cutoff = (now - timedelta(minutes=step_stale_minutes)).isoformat()
+        result2 = client.table('analysis_steps').update({
+            'status': 'failed',
+            'finished_at': finished,
+            'error': f'자동 정리: {step_stale_minutes}분 초과',
+        }).eq('status', 'running').lt('started_at', step_cutoff).execute()
+        n_steps = len(result2.data) if result2.data else 0
+        if n_steps:
+            print(f"[AnalysisSteps] stale steps {n_steps}개 failed 처리")
+
+    except Exception as e:
+        print(f"[AnalysisSteps] cleanup_stale_runs 오류: {e}")
+
+
 def create_run(
     user_id: int,
     project_id: int,
     input_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Optional[int]:
+    cleanup_stale_runs()
     try:
         from database.db_manager import execute_query, get_last_insert_id
         execute_query(
