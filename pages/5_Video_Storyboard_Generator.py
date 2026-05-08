@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 import os
 from dspy_analyzer import EnhancedArchAnalyzer
+from file_analyzer import UniversalFileAnalyzer
 
 # 인증 모듈 import
 try:
@@ -181,7 +182,7 @@ def parse_scene_narratives(narratives_text, scene_count):
     return scene_narratives
 
 
-def generate_narrative(scenes, project_info, narrative_type, narrative_tone):
+def generate_narrative(scenes, project_info, narrative_type, narrative_tone, pdf_content=""):
     """AI를 사용하여 각 Scene에 대한 Narrative 생성"""
 
     scenes_text = ""
@@ -195,6 +196,10 @@ def generate_narrative(scenes, project_info, narrative_type, narrative_tone):
             link_info += f" | 다음: {next_name}"
         scenes_text += f"- Scene {i+1} ({s['name']}): {s['description']} / 카메라: {s['angle']}, {s['movement']} / {s['duration']}초{link_info}\n"
 
+    pdf_section = ""
+    if pdf_content:
+        pdf_section = f"\n## PDF 문서 내용 (참고)\n{pdf_content[:3000]}{'...' if len(pdf_content) > 3000 else ''}\n"
+
     prompt = f"""
 당신은 건축 영상 제작 전문가입니다. 아래 스토리보드의 각 Scene에 대해 Narrative(나레이션/해설)를 작성해주세요.
 
@@ -202,6 +207,7 @@ def generate_narrative(scenes, project_info, narrative_type, narrative_tone):
 - 프로젝트명: {project_info.get('project_name', 'N/A')}
 - 위치: {project_info.get('location', 'N/A')}
 - 건물 유형: {project_info.get('building_type', 'N/A')}
+{pdf_section}
 
 ## Narrative 스타일
 - 유형: {narrative_type}
@@ -383,9 +389,37 @@ def main():
 
         if data_source == "PDF 업로드":
             uploaded_pdf = st.file_uploader("PDF 파일 업로드", type=['pdf'], key="storyboard_pdf")
-            if uploaded_pdf:
-                st.session_state['storyboard_uploaded_pdf'] = uploaded_pdf
-                st.success(f"'{uploaded_pdf.name}' 업로드 완료")
+            if uploaded_pdf is not None:
+                _file_id = getattr(uploaded_pdf, "file_id", None) or uploaded_pdf.name
+                _already = (
+                    st.session_state.get("_storyboard_pdf_id") == _file_id
+                    and st.session_state.get("storyboard_pdf_text")
+                )
+                if _already:
+                    st.success(f"PDF 분석 완료! ({len(st.session_state.storyboard_pdf_text)}자)")
+                    st.info(f"파일명: {uploaded_pdf.name}")
+                else:
+                    with st.spinner("PDF를 분석하고 있습니다..."):
+                        try:
+                            analyzer = UniversalFileAnalyzer()
+                            pdf_bytes = uploaded_pdf.read()
+                            result = analyzer.analyze_file_from_bytes(pdf_bytes, "pdf", uploaded_pdf.name)
+                            if result['success']:
+                                pdf_text = result['text']
+                                if pdf_text and len(pdf_text.strip()) > 0:
+                                    st.session_state.storyboard_pdf_text = pdf_text.strip()
+                                    st.session_state['storyboard_uploaded_pdf'] = uploaded_pdf
+                                    st.session_state["_storyboard_pdf_id"] = _file_id
+                                    st.success(f"PDF 분석 완료! ({len(pdf_text.strip())}자)")
+                                    st.info(f"파일명: {uploaded_pdf.name}")
+                                    if 'metadata' in result:
+                                        st.caption(f"페이지 수: {result['metadata'].get('page_count', 'N/A')}")
+                                else:
+                                    st.error("PDF에서 텍스트를 추출할 수 없습니다.")
+                            else:
+                                st.error(f"PDF 분석 실패: {result.get('error', '알 수 없는 오류')}")
+                        except Exception as e:
+                            st.error(f"PDF 분석 실패: {str(e)}")
         else:
             st.info("직접 입력 모드입니다.")
 
@@ -408,6 +442,12 @@ def main():
             uploaded_pdf = st.session_state.get('storyboard_uploaded_pdf')
             if uploaded_pdf:
                 st.success(f"업로드된 PDF: {uploaded_pdf.name}")
+            pdf_text_preview = st.session_state.get('storyboard_pdf_text', '')
+            if pdf_text_preview:
+                with st.expander("PDF 내용 미리보기"):
+                    st.text(pdf_text_preview[:1000] + "..." if len(pdf_text_preview) > 1000 else pdf_text_preview)
+                st.info("PDF 내용이 나레이션 생성에 자동으로 활용됩니다. 아래 필드를 추가로 채워주세요.")
+            else:
                 st.info("PDF에서 프로젝트 정보를 추출하여 아래 필드를 채워주세요.")
 
             col1, col2 = st.columns(2)
@@ -624,11 +664,13 @@ def main():
                 project_info = st.session_state.get('storyboard_project_info', {})
 
                 with st.spinner("나레이션을 생성하고 있습니다..."):
+                    pdf_content = st.session_state.get('storyboard_pdf_text', '')
                     result = generate_narrative(
                         st.session_state.storyboard_scenes,
                         project_info,
                         narrative_type,
-                        narrative_tone
+                        narrative_tone,
+                        pdf_content=pdf_content
                     )
 
                     if result['success']:
