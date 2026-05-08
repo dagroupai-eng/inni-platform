@@ -3021,16 +3021,35 @@ class EnhancedArchAnalyzer:
             import time
             start_time = time.time()
 
-            result = self._analyze_block_with_cot_context(
-                context_for_current_block,
-                block_info,
-                block_id,
-                project_info,
-                thinking_budget=optimal_thinking_budget,
-                temperature=optimal_temperature,
-                enable_streaming=True,  # CoT 분석에서는 스트리밍 활성화
-                progress_callback=progress_callback
-            )
+            _MAX_RATE_RETRIES = 3
+            _RATE_RETRY_WAITS = [20, 40, 80]  # 초: 20 → 40 → 80
+            result = None
+            for _attempt in range(_MAX_RATE_RETRIES + 1):
+                result = self._analyze_block_with_cot_context(
+                    context_for_current_block,
+                    block_info,
+                    block_id,
+                    project_info,
+                    thinking_budget=optimal_thinking_budget,
+                    temperature=optimal_temperature,
+                    enable_streaming=True,
+                    progress_callback=progress_callback
+                )
+                if result.get("success"):
+                    break
+                _err = str(result.get("error", ""))
+                if ("RateLimitError" in _err or "rateLimitExceeded" in _err or "rate_limit" in _err.lower()) \
+                        and _attempt < _MAX_RATE_RETRIES:
+                    _wait = _RATE_RETRY_WAITS[_attempt]
+                    print(f"[Retry] RateLimitError 감지, {_wait}초 후 재시도 ({_attempt+1}/{_MAX_RATE_RETRIES})")
+                    if progress_callback:
+                        progress_callback(
+                            f"⏳ API 요청 한도 초과 — {_wait}초 후 자동 재시도합니다 "
+                            f"({_attempt+1}/{_MAX_RATE_RETRIES}). 창을 닫지 마세요."
+                        )
+                    time.sleep(_wait)
+                else:
+                    break
 
             elapsed_time = time.time() - start_time
             print(f"[DEBUG] _analyze_block_with_cot_context 완료. 소요시간: {elapsed_time:.2f}초")
@@ -3040,9 +3059,10 @@ class EnhancedArchAnalyzer:
                 return result
 
             key_insights = self._extract_key_insights(result['analysis'])
-            cot_session["previous_results"][block_id] = result['analysis']
+            cot_session.setdefault("previous_results", {})[block_id] = result['analysis']
+            history = cot_session.setdefault("cot_history", [])
             cot_session["cot_history"] = [
-                entry for entry in cot_session["cot_history"] if entry.get('block_id') != block_id
+                entry for entry in history if entry.get('block_id') != block_id
             ]
             cot_session["cot_history"].append({
                 "block_id": block_id,

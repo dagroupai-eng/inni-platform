@@ -17,7 +17,7 @@ _CLEANUP_INTERVAL_SECONDS: float = 300.0  # 5분에 1번만 실행
 
 def cleanup_stale_runs(
     run_stale_hours: int = 3,
-    step_stale_minutes: int = 20,
+    step_stale_minutes: int = 40,
 ) -> None:
     """
     비정상 종료로 running 상태에 고착된 rows를 자동 정리합니다.

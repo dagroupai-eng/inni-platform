@@ -14,7 +14,7 @@ def _client():
     return get_supabase_client()
 
 
-STALE_MINUTES = 8          # processing 상태 최대 허용 시간 (파일 1개 기준 — heartbeat로 리셋)
+STALE_MINUTES = 50         # processing 상태 최대 허용 시간 (파일 1개 기준 — heartbeat로 리셋)
 STALE_WAITING_MINUTES = 5  # waiting 상태 최대 허용 시간 (브라우저 종료 등 비정상 대기 정리)
 
 

@@ -93,12 +93,36 @@ AUDIO_KEYWORDS = {
 # 템플릿 정의 (예시용)
 STORYBOARD_TEMPLATES = {
     "마스터플랜 기본 (예시)": [
-        {"name": "대상지 위치", "description": "대상지 위치와 경계, 주변 도시 맥락을 보여주는 넓은 조감도", "angle": "조감", "movement": "줌 인", "duration": 5, "audio": "도시 앰비언스"},
-        {"name": "마스터플랜 전체도", "description": "전체 마스터플랜 배치도를 천천히 스캔하며 보여줌", "angle": "조감", "movement": "팬 좌우", "duration": 6, "audio": "미니멀 음악"},
-        {"name": "토지이용계획", "description": "용도별 존(Zone) 구분과 면적 배분을 컬러 코딩으로 시각화", "angle": "조감", "movement": "고정", "duration": 5, "audio": "미니멀 음악"},
-        {"name": "동선 체계", "description": "차량과 보행자 동선 네트워크가 활성화되며 흐름을 보여줌", "angle": "조감", "movement": "고정", "duration": 5, "audio": "도시 앰비언스"},
-        {"name": "오픈스페이스 체계", "description": "공원, 광장, 녹지축이 연결되는 그린 네트워크", "angle": "조감", "movement": "팬 좌우", "duration": 5, "audio": "자연 환경음"},
-        {"name": "주요 시설 배치", "description": "주요 건물과 시설의 위치, 규모, 형태를 하이라이트", "angle": "조감", "movement": "줌 인", "duration": 5, "audio": "드라마틱 음악"},
+        {
+            "name": "대상지 위치",
+            "description": "도시 전체 위성 뷰에서 시작해 대상지를 향해 서서히 줌인 — 주변 도로망·하천·건물군 사이로 경계가 드러남",
+            "angle": "조감", "movement": "줌 인", "duration": 5, "audio": "도시 앰비언스"
+        },
+        {
+            "name": "마스터플랜 전체도",
+            "description": "줌인이 멈추며 빈 대지 위로 마스터플랜 배치도가 선으로 그려지듯 나타남 — 카메라가 천천히 좌우로 쓸며 전체 규모를 파악",
+            "angle": "조감", "movement": "팬 좌우", "duration": 6, "audio": "미니멀 음악"
+        },
+        {
+            "name": "토지이용계획",
+            "description": "팬이 중앙에서 멈추며 배치도 위로 용도별 컬러가 레이어처럼 하나씩 켜짐 — 주거·상업·공원·업무 구역이 순서대로 채워지며 면적 배분을 시각화",
+            "angle": "조감", "movement": "고정", "duration": 5, "audio": "미니멀 음악"
+        },
+        {
+            "name": "동선 체계",
+            "description": "컬러 존 위로 차량·보행 동선이 빛의 흐름처럼 활성화됨 — 간선도로에서 골목까지 위계적으로 연결되는 네트워크 흐름",
+            "angle": "조감", "movement": "고정", "duration": 5, "audio": "도시 앰비언스"
+        },
+        {
+            "name": "오픈스페이스 체계",
+            "description": "동선 레이어 위에 공원·광장·녹지축이 겹쳐지며 그린 네트워크가 도시 전체를 연결 — 카메라가 녹지 흐름을 따라 대각선으로 팬",
+            "angle": "조감", "movement": "팬 좌우", "duration": 5, "audio": "자연 환경음"
+        },
+        {
+            "name": "주요 시설 배치",
+            "description": "녹지 네트워크 위로 핵심 건물들이 하나씩 매스로 솟아오르며 하이라이트됨 — 카메라가 가장 중심 시설로 줌인하며 마무리",
+            "angle": "조감", "movement": "줌 인", "duration": 5, "audio": "드라마틱 음악"
+        },
     ],
 }
 
@@ -160,10 +184,16 @@ def parse_scene_narratives(narratives_text, scene_count):
 def generate_narrative(scenes, project_info, narrative_type, narrative_tone):
     """AI를 사용하여 각 Scene에 대한 Narrative 생성"""
 
-    scenes_text = "\n".join([
-        f"- Scene {i+1} ({s['name']}): {s['description']} / 카메라: {s['angle']}, {s['movement']} / {s['duration']}초"
-        for i, s in enumerate(scenes)
-    ])
+    scenes_text = ""
+    for i, s in enumerate(scenes):
+        prev_name = scenes[i-1]['name'] if i > 0 else None
+        next_name = scenes[i+1]['name'] if i < len(scenes) - 1 else None
+        link_info = ""
+        if prev_name:
+            link_info += f" | 이전: {prev_name}"
+        if next_name:
+            link_info += f" | 다음: {next_name}"
+        scenes_text += f"- Scene {i+1} ({s['name']}): {s['description']} / 카메라: {s['angle']}, {s['movement']} / {s['duration']}초{link_info}\n"
 
     prompt = f"""
 당신은 건축 영상 제작 전문가입니다. 아래 스토리보드의 각 Scene에 대해 Narrative(나레이션/해설)를 작성해주세요.
@@ -177,7 +207,7 @@ def generate_narrative(scenes, project_info, narrative_type, narrative_tone):
 - 유형: {narrative_type}
 - 톤: {narrative_tone}
 
-## Scene 목록
+## Scene 목록 (각 씬에 이전/다음 씬 정보 포함)
 {scenes_text}
 
 ## 출력 형식
@@ -194,8 +224,8 @@ def generate_narrative(scenes, project_info, narrative_type, narrative_tone):
 ## 작성 가이드라인
 1. {narrative_type} 스타일에 맞게 작성
 2. {narrative_tone} 톤 유지
-3. 각 Scene의 시각적 특성과 공간적 의미를 반영
-4. 전체적인 흐름과 연결성 고려
+3. **각 씬의 나레이션은 이전 씬에서 자연스럽게 이어지도록** — 첫 문장은 이전 씬의 흐름을 받아 전환하고, 마지막 문장은 다음 씬을 암시하거나 연결
+4. 전체 영상이 하나의 흐름으로 읽혀야 함 (씬을 잘라도 각 나레이션이 독립적으로 읽히면 안 됨)
 5. 건축적 특징과 공간의 분위기 강조
 """
 
@@ -246,6 +276,19 @@ def generate_scene_prompts(scenes, project_info, include_timeline=True):
         start_time = cumulative_time
         end_time = cumulative_time + duration
 
+        # 이전/다음 씬 컨텍스트
+        prev_scene = scenes[i - 1] if i > 0 else None
+        next_scene = scenes[i + 1] if i < len(scenes) - 1 else None
+        prev_movement_kw = MOVEMENT_KEYWORDS.get(prev_scene['movement'], '') if prev_scene else ''
+        next_movement_kw = MOVEMENT_KEYWORDS.get(next_scene['movement'], '') if next_scene else ''
+
+        # 씬 연결 컨텍스트 문자열
+        transition_context = ""
+        if prev_scene:
+            transition_context += f"continuing from previous scene ({prev_scene['name']}: {prev_movement_kw}), "
+        if next_scene:
+            transition_context += f"transitioning into next scene ({next_scene['name']}: {next_movement_kw})"
+
         # 기본 이미지 프롬프트 (Midjourney 호환)
         base_prompt = f"architectural visualization, {project_info.get('building_type', 'modern building')}, {scene['description']}, {angle_kw}, {movement_kw}, professional architectural photography, hyperrealistic, 8k, high quality, cinematic lighting"
 
@@ -256,11 +299,16 @@ def generate_scene_prompts(scenes, project_info, include_timeline=True):
         timeline_prompt = ""
         if include_timeline:
             timeline_prompt = f"[{start_time}~{end_time}s] {scene['description']}. Camera: {movement_kw}. View: {angle_kw}."
+            if transition_context:
+                timeline_prompt += f" Transition: {transition_context}."
             if audio_kw:
                 timeline_prompt += f" Audio: {audio_kw}."
 
-        # 영상 AI용 통합 프롬프트 (물리적 상호작용 포함)
-        video_prompt = f"[Camera] {movement_kw}, {angle_kw}. [Scene] {scene['description']}, architectural visualization of {project_info.get('building_type', 'modern building')}. [Physics] Subtle environmental movement, realistic lighting transitions. [Tech] 4k resolution, cinematic lighting, photorealistic, fluid motion."
+        # 영상 AI용 통합 프롬프트 (씬 연결 + 물리적 상호작용 포함)
+        video_prompt = f"[Camera] {movement_kw}, {angle_kw}. [Scene] {scene['description']}, architectural visualization of {project_info.get('building_type', 'modern building')}."
+        if transition_context:
+            video_prompt += f" [Transition] {transition_context}."
+        video_prompt += " [Physics] Subtle environmental movement, realistic lighting transitions. [Tech] 4k resolution, cinematic lighting, photorealistic, fluid motion."
         if audio_kw:
             video_prompt += f" [Audio] {audio_kw}."
 
