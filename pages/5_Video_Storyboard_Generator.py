@@ -371,6 +371,140 @@ def generate_scene_prompts(scenes, project_info, include_timeline=True):
     return prompts
 
 
+def parse_scene_prompts_ai(response_text, scene_count):
+    """AI 응답에서 씬별 이미지/비디오 프롬프트 파싱"""
+    import re
+    result = {}
+
+    image_pattern = r'\*\*Scene\s+(\d+)\s*-\s*Image:\*\*\s*\n(.*?)(?=\n\*\*Scene\s+\d+|$)'
+    for match in re.findall(image_pattern, response_text, re.DOTALL):
+        scene_num = int(match[0])
+        result.setdefault(scene_num, {})['image'] = match[1].strip()
+
+    video_pattern = r'\*\*Scene\s+(\d+)\s*-\s*Video:\*\*\s*\n(.*?)(?=\n\*\*Scene\s+\d+|$)'
+    for match in re.findall(video_pattern, response_text, re.DOTALL):
+        scene_num = int(match[0])
+        result.setdefault(scene_num, {})['video'] = match[1].strip()
+
+    print(f"[DEBUG] 프롬프트 파싱: {len(result)}개 씬 (기대: {scene_count}개)")
+    return result
+
+
+def generate_scene_prompts_with_ai(scenes, project_info, pdf_summary=""):
+    """AI를 사용해 각 Scene에 대한 이미지(Midjourney)/비디오(Kling·Runway) 프롬프트 생성.
+    실패 시 키워드 조합 방식으로 자동 fallback.
+    """
+    scenes_text = ""
+    cumulative_time = 0
+    for i, scene in enumerate(scenes):
+        duration = scene.get('duration', 5)
+        start_time = cumulative_time
+        end_time = cumulative_time + duration
+        angle_kw = ANGLE_KEYWORDS.get(scene['angle'], '')
+        movement_kw = MOVEMENT_KEYWORDS.get(scene['movement'], '')
+        audio_kw = AUDIO_KEYWORDS.get(scene.get('audio', '없음'), '')
+        prev_name = scenes[i - 1]['name'] if i > 0 else None
+        next_name = scenes[i + 1]['name'] if i < len(scenes) - 1 else None
+
+        scenes_text += f"Scene {i + 1} ({scene['name']}, {start_time}~{end_time}s):\n"
+        scenes_text += f"  설명: {scene['description']}\n"
+        scenes_text += f"  카메라: {scene['angle']} ({angle_kw}), {scene['movement']} ({movement_kw})\n"
+        scenes_text += f"  오디오: {scene.get('audio', '없음')} ({audio_kw})\n"
+        if prev_name:
+            scenes_text += f"  이전 씬: {prev_name}\n"
+        if next_name:
+            scenes_text += f"  다음 씬: {next_name}\n"
+        scenes_text += "\n"
+        cumulative_time = end_time
+
+    pdf_section = f"\n## 프로젝트 컨텍스트 (PDF 요약)\n{pdf_summary}\n" if pdf_summary else ""
+
+    prompt = f"""당신은 건축 영상 제작 및 AI 이미지/영상 생성 전문가입니다.
+아래 스토리보드 씬들에 대해 이미지 AI(Midjourney)와 영상 AI(Kling AI/Runway)에 최적화된 프롬프트를 작성해주세요.
+
+## 프로젝트 정보
+- 프로젝트명: {project_info.get('project_name', 'N/A')}
+- 건물 유형: {project_info.get('building_type', 'N/A')}
+- 위치: {project_info.get('location', 'N/A')}
+{pdf_section}
+## 씬 목록
+{scenes_text}
+## 출력 형식 (반드시 준수)
+
+**Scene 1 - Image:**
+[Midjourney 프롬프트]
+
+**Scene 1 - Video:**
+[Kling/Runway 프롬프트]
+
+**Scene 2 - Image:**
+...
+
+## 작성 가이드라인
+
+### 이미지 프롬프트 (Midjourney):
+- 영어 키워드를 쉼표로 나열
+- 건축물의 재료·분위기·조명을 구체적으로 명시
+- 카메라 앵글을 Midjourney 키워드로 표현 (예: bird's eye view, low angle shot)
+- 품질 키워드 포함: photorealistic, cinematic, 8k, high detail, golden hour lighting 등
+- 마지막에 --ar 16:9 --v 6 추가
+- PDF 컨텍스트의 설계 개념·분위기를 반영
+
+### 비디오 프롬프트 (Kling/Runway):
+- 자연스러운 영어 문장으로 서술
+- 카메라 움직임을 명확히 묘사 (예: The camera slowly dollies forward...)
+- 씬의 시작 상태 → 끝 상태 흐름 포함
+- 이전·다음 씬과의 연결감 반영
+- 오디오 분위기가 있으면 반영
+- 빛·바람·그림자 등 물리적 현실감 포함
+"""
+
+    try:
+        analyzer = EnhancedArchAnalyzer()
+        result = analyzer.analyze_custom_block(prompt, "")
+
+        if result['success']:
+            parsed = parse_scene_prompts_ai(result['analysis'], len(scenes))
+
+            prompts = []
+            cumulative_time = 0
+            for i, scene in enumerate(scenes):
+                duration = scene.get('duration', 5)
+                start_time = cumulative_time
+                end_time = cumulative_time + duration
+                scene_num = i + 1
+                movement_kw = MOVEMENT_KEYWORDS.get(scene['movement'], '')
+                angle_kw = ANGLE_KEYWORDS.get(scene['angle'], '')
+                audio_kw = AUDIO_KEYWORDS.get(scene.get('audio', '없음'), '')
+
+                scene_data = parsed.get(scene_num, {})
+                midjourney_prompt = scene_data.get('image', '')
+                video_prompt = scene_data.get('video', '')
+
+                timeline_prompt = f"[{start_time}~{end_time}s] {scene['description']}. Camera: {movement_kw}. View: {angle_kw}."
+                if audio_kw:
+                    timeline_prompt += f" Audio: {audio_kw}."
+
+                prompts.append({
+                    'scene_number': scene_num,
+                    'scene_name': scene['name'],
+                    'prompt': midjourney_prompt,
+                    'midjourney_prompt': midjourney_prompt,
+                    'video_prompt': video_prompt,
+                    'timeline_prompt': timeline_prompt,
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'duration': duration
+                })
+                cumulative_time = end_time
+
+            return {'success': True, 'prompts': prompts, 'model': result['model']}
+        else:
+            return {'success': False, 'error': result.get('error', '알 수 없는 오류')}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 def generate_full_timeline_script(scenes, project_info):
     """전체 영상에 대한 타임라인 스크립트 생성 (Kling AI 등 지원)"""
     script_lines = []
@@ -845,13 +979,22 @@ def main():
 
             # 프롬프트 생성 섹션
             st.markdown("---")
-            st.subheader("Scene별 이미지 프롬프트")
+            st.subheader("Scene별 이미지 / 비디오 프롬프트")
 
-            if st.button("Scene별 프롬프트 생성", type="secondary"):
+            if st.button("Scene별 프롬프트 생성 (AI)", type="secondary"):
                 project_info = st.session_state.get('storyboard_project_info', {})
-                prompts = generate_scene_prompts(st.session_state.storyboard_scenes, project_info)
-                st.session_state.scene_prompts = prompts
-                st.success("프롬프트가 생성되었습니다!")
+                pdf_summary = st.session_state.get('storyboard_pdf_summary', '')
+                with st.spinner("AI가 프롬프트를 생성하고 있습니다..."):
+                    ai_result = generate_scene_prompts_with_ai(
+                        st.session_state.storyboard_scenes, project_info, pdf_summary
+                    )
+                if ai_result['success']:
+                    st.session_state.scene_prompts = ai_result['prompts']
+                    st.success(f"프롬프트가 생성되었습니다! (모델: {ai_result.get('model', 'AI')})")
+                else:
+                    st.warning(f"AI 생성 실패 — 키워드 방식으로 대체합니다. ({ai_result.get('error', '')})")
+                    prompts = generate_scene_prompts(st.session_state.storyboard_scenes, project_info)
+                    st.session_state.scene_prompts = prompts
 
             if 'scene_prompts' in st.session_state and st.session_state.scene_prompts:
                 for prompt_data in st.session_state.scene_prompts:
@@ -903,11 +1046,18 @@ def main():
         else:
             # 프롬프트 자동 생성 (없는 경우)
             if 'scene_prompts' not in st.session_state or not st.session_state.scene_prompts:
-                with st.spinner("프롬프트 자동 생성 중..."):
+                with st.spinner("AI가 프롬프트를 생성하고 있습니다..."):
                     project_info = st.session_state.get('storyboard_project_info', {})
+                    pdf_summary = st.session_state.get('storyboard_pdf_summary', '')
+                    ai_result = generate_scene_prompts_with_ai(
+                        st.session_state.storyboard_scenes, project_info, pdf_summary
+                    )
+                if ai_result['success']:
+                    st.session_state.scene_prompts = ai_result['prompts']
+                    st.success("프롬프트가 생성되었습니다!")
+                else:
                     prompts = generate_scene_prompts(st.session_state.storyboard_scenes, project_info)
                     st.session_state.scene_prompts = prompts
-                st.success("프롬프트가 생성되었습니다!")
 
             st.subheader("다운로드 옵션")
             st.info("📦 포함 내용: 스토리보드 + 나레이션 + 이미지 프롬프트")
