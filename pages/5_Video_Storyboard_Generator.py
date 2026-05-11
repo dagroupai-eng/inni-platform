@@ -1044,20 +1044,10 @@ def main():
         if not st.session_state.storyboard_scenes:
             st.warning("먼저 Scene 구성을 완료해주세요.")
         else:
-            # 프롬프트 자동 생성 (없는 경우)
+            # 프롬프트 미생성 시 안내
             if 'scene_prompts' not in st.session_state or not st.session_state.scene_prompts:
-                with st.spinner("AI가 프롬프트를 생성하고 있습니다..."):
-                    project_info = st.session_state.get('storyboard_project_info', {})
-                    pdf_summary = st.session_state.get('storyboard_pdf_summary', '')
-                    ai_result = generate_scene_prompts_with_ai(
-                        st.session_state.storyboard_scenes, project_info, pdf_summary
-                    )
-                if ai_result['success']:
-                    st.session_state.scene_prompts = ai_result['prompts']
-                    st.success("프롬프트가 생성되었습니다!")
-                else:
-                    prompts = generate_scene_prompts(st.session_state.storyboard_scenes, project_info)
-                    st.session_state.scene_prompts = prompts
+                st.warning("프롬프트가 아직 생성되지 않았습니다. '스토리보드 미리보기' 탭에서 먼저 프롬프트를 생성해주세요.")
+                st.stop()
 
             st.subheader("다운로드 옵션")
             st.info("📦 포함 내용: 스토리보드 + 나레이션 + 이미지 프롬프트")
