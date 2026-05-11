@@ -182,6 +182,42 @@ def parse_scene_narratives(narratives_text, scene_count):
     return scene_narratives
 
 
+def summarize_pdf_for_storyboard(pdf_text):
+    """영상 스토리보드 나레이션 목적에 맞게 PDF를 요약"""
+    prompt = f"""당신은 건축 영상 제작 전문가입니다. 아래 건축 프로젝트 문서를 영상 스토리보드 나레이션 작성 목적으로 요약해주세요.
+
+## 요약 목적
+- 영상 스토리보드의 각 씬(Scene) 나레이션 작성에 활용
+- 영상 감독이 장면별 설명을 쓸 때 참고할 핵심 정보 추출
+
+## 반드시 포함할 항목
+1. **설계 개념/철학**: 프로젝트의 핵심 컨셉과 비전
+2. **공간 구성**: 주요 공간, 동선, 배치 특징
+3. **분위기/감성**: 프로젝트가 전달하려는 감성과 분위기
+4. **핵심 시설/랜드마크**: 영상에 담길 주요 요소들
+5. **맥락/배경**: 입지, 주변 환경, 프로젝트 의의
+
+## 출력 형식
+- 총 400~600자 이내
+- 항목별 핵심 문장 위주 (나레이션 작성자가 바로 활용 가능하도록)
+- 불필요한 수치·행정 정보는 제외
+
+## 문서 내용
+{pdf_text[:15000]}{'...(이하 생략)' if len(pdf_text) > 15000 else ''}
+"""
+
+    try:
+        analyzer = EnhancedArchAnalyzer()
+        result = analyzer.analyze_custom_block(prompt, "")
+
+        if result['success']:
+            return {'success': True, 'summary': result['analysis'], 'model': result['model']}
+        else:
+            return {'success': False, 'error': result.get('error', '알 수 없는 오류')}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 def generate_narrative(scenes, project_info, narrative_type, narrative_tone, pdf_content=""):
     """AI를 사용하여 각 Scene에 대한 Narrative 생성"""
 
@@ -198,7 +234,7 @@ def generate_narrative(scenes, project_info, narrative_type, narrative_tone, pdf
 
     pdf_section = ""
     if pdf_content:
-        pdf_section = f"\n## PDF 문서 내용 (참고)\n{pdf_content[:3000]}{'...' if len(pdf_content) > 3000 else ''}\n"
+        pdf_section = f"\n## PDF 문서 내용 (참고)\n{pdf_content[:8000]}{'...' if len(pdf_content) > 8000 else ''}\n"
 
     prompt = f"""
 당신은 건축 영상 제작 전문가입니다. 아래 스토리보드의 각 Scene에 대해 Narrative(나레이션/해설)를 작성해주세요.
@@ -398,8 +434,18 @@ def main():
                 if _already:
                     st.success(f"PDF 분석 완료! ({len(st.session_state.storyboard_pdf_text)}자)")
                     st.info(f"파일명: {uploaded_pdf.name}")
+                    if st.session_state.get("_storyboard_pdf_sum_id") != _file_id:
+                        with st.spinner("스토리보드용 요약 생성 중..."):
+                            sum_result = summarize_pdf_for_storyboard(st.session_state.storyboard_pdf_text)
+                            if sum_result['success']:
+                                st.session_state.storyboard_pdf_summary = sum_result['summary']
+                            else:
+                                st.warning("요약 생성 실패 — 원문을 사용합니다.")
+                            # 성공/실패 무관하게 재시도 방지
+                            st.session_state["_storyboard_pdf_sum_id"] = _file_id
                 else:
-                    with st.spinner("PDF를 분석하고 있습니다..."):
+                    extracted_text = None
+                    with st.spinner("PDF 분석 중..."):
                         try:
                             analyzer = UniversalFileAnalyzer()
                             pdf_bytes = uploaded_pdf.read()
@@ -407,10 +453,11 @@ def main():
                             if result['success']:
                                 pdf_text = result['text']
                                 if pdf_text and len(pdf_text.strip()) > 0:
-                                    st.session_state.storyboard_pdf_text = pdf_text.strip()
+                                    extracted_text = pdf_text.strip()
+                                    st.session_state.storyboard_pdf_text = extracted_text
                                     st.session_state['storyboard_uploaded_pdf'] = uploaded_pdf
                                     st.session_state["_storyboard_pdf_id"] = _file_id
-                                    st.success(f"PDF 분석 완료! ({len(pdf_text.strip())}자)")
+                                    st.success(f"PDF 분석 완료! ({len(extracted_text)}자)")
                                     st.info(f"파일명: {uploaded_pdf.name}")
                                     if 'metadata' in result:
                                         st.caption(f"페이지 수: {result['metadata'].get('page_count', 'N/A')}")
@@ -420,6 +467,14 @@ def main():
                                 st.error(f"PDF 분석 실패: {result.get('error', '알 수 없는 오류')}")
                         except Exception as e:
                             st.error(f"PDF 분석 실패: {str(e)}")
+                    if extracted_text:
+                        with st.spinner("스토리보드용 요약 생성 중..."):
+                            sum_result = summarize_pdf_for_storyboard(extracted_text)
+                            if sum_result['success']:
+                                st.session_state.storyboard_pdf_summary = sum_result['summary']
+                                st.session_state["_storyboard_pdf_sum_id"] = _file_id
+                            else:
+                                st.warning("요약 생성 실패 — 원문을 사용합니다.")
         else:
             st.info("직접 입력 모드입니다.")
 
@@ -446,7 +501,23 @@ def main():
             if pdf_text_preview:
                 with st.expander("PDF 내용 미리보기"):
                     st.text(pdf_text_preview[:1000] + "..." if len(pdf_text_preview) > 1000 else pdf_text_preview)
-                st.info("PDF 내용이 나레이션 생성에 자동으로 활용됩니다. 아래 필드를 추가로 채워주세요.")
+
+                pdf_summary = st.session_state.get('storyboard_pdf_summary', '')
+                if pdf_summary:
+                    st.markdown("**나레이션용 요약** (편집 후 저장 가능)")
+                    edited_summary = st.text_area(
+                        "요약",
+                        value=pdf_summary,
+                        height=200,
+                        key="pdf_summary_editor",
+                        label_visibility="collapsed"
+                    )
+                    if st.button("요약 저장", key="save_summary"):
+                        st.session_state.storyboard_pdf_summary = edited_summary
+                        st.toast("요약이 저장되었습니다.", icon="✅")
+                    st.info("이 요약이 나레이션 생성에 활용됩니다. 필요시 편집 후 저장하세요.")
+                else:
+                    st.info("PDF 내용이 나레이션 생성에 자동으로 활용됩니다. 아래 필드를 추가로 채워주세요.")
             else:
                 st.info("PDF에서 프로젝트 정보를 추출하여 아래 필드를 채워주세요.")
 
@@ -664,7 +735,7 @@ def main():
                 project_info = st.session_state.get('storyboard_project_info', {})
 
                 with st.spinner("나레이션을 생성하고 있습니다..."):
-                    pdf_content = st.session_state.get('storyboard_pdf_text', '')
+                    pdf_content = st.session_state.get('storyboard_pdf_summary') or st.session_state.get('storyboard_pdf_text', '')
                     result = generate_narrative(
                         st.session_state.storyboard_scenes,
                         project_info,
