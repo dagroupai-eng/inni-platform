@@ -723,8 +723,7 @@ def main():
                     import copy
                     st.session_state.storyboard_scenes = copy.deepcopy(STORYBOARD_TEMPLATES[selected_template])
                     st.session_state.scene_count_confirmed = True
-                    st.success(f"'{selected_template}' 예시가 적용되었습니다. 자유롭게 수정하세요.")
-                    st.rerun()
+                    st.toast(f"'{selected_template}' 예시가 적용되었습니다.", icon="✅")
 
         st.markdown("---")
 
