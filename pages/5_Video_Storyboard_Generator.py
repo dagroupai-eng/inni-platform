@@ -547,6 +547,12 @@ def main():
         st.session_state.scene_narratives = {}
     if 'scene_count_confirmed' not in st.session_state:
         st.session_state.scene_count_confirmed = False
+    if '_narrative_applied_count' not in st.session_state:
+        st.session_state._narrative_applied_count = None
+    if '_narrative_error' not in st.session_state:
+        st.session_state._narrative_error = None
+    if '_prompt_status' not in st.session_state:
+        st.session_state._prompt_status = None
 
     # 사이드바
     with st.sidebar:
@@ -867,7 +873,6 @@ def main():
 
             if st.button("나레이션 생성", type="primary", use_container_width=True):
                 project_info = st.session_state.get('storyboard_project_info', {})
-
                 with st.spinner("나레이션을 생성하고 있습니다..."):
                     pdf_content = st.session_state.get('storyboard_pdf_summary') or st.session_state.get('storyboard_pdf_text', '')
                     result = generate_narrative(
@@ -878,31 +883,27 @@ def main():
                         pdf_content=pdf_content
                     )
 
-                    if result['success']:
-                        st.session_state.narratives = result['narratives']
-                        st.session_state.scene_narratives = result.get('scene_narratives', {})
+                if result['success']:
+                    st.session_state.narratives = result['narratives']
+                    st.session_state.scene_narratives = result.get('scene_narratives', {})
+                    applied_count = 0
+                    for i in range(len(st.session_state.storyboard_scenes)):
+                        scene_num = i + 1
+                        if scene_num in st.session_state.scene_narratives:
+                            st.session_state.storyboard_scenes[i]['narrative'] = st.session_state.scene_narratives[scene_num]
+                            applied_count += 1
+                    st.session_state._narrative_applied_count = applied_count
+                    st.session_state._narrative_error = None
+                else:
+                    st.session_state._narrative_error = result.get('error', '알 수 없는 오류')
+                    st.session_state._narrative_applied_count = None
 
-                        # 각 씬에 narrative 추가 (인덱스로 직접 접근)
-                        applied_count = 0
-                        for i in range(len(st.session_state.storyboard_scenes)):
-                            scene_num = i + 1
-                            if scene_num in st.session_state.scene_narratives:
-                                st.session_state.storyboard_scenes[i]['narrative'] = st.session_state.scene_narratives[scene_num]
-                                applied_count += 1
-
-                        st.success(f"나레이션이 생성되었습니다! {applied_count}개 씬에 적용됨")
-                        st.info("스토리보드 미리보기 탭에서 각 씬의 나레이션을 확인하세요.")
-
-                        # 디버깅 정보 표시
-                        with st.expander("적용 상태 확인"):
-                            st.write(f"파싱된 Scene Narrative 수: {len(st.session_state.scene_narratives)}")
-                            st.write(f"전체 Scene 수: {len(st.session_state.storyboard_scenes)}")
-                            for i, scene in enumerate(st.session_state.storyboard_scenes):
-                                has_narrative = 'narrative' in scene and scene.get('narrative', '').strip()
-                                status = "✅" if has_narrative else "❌"
-                                st.write(f"{status} Scene {i+1}: {scene.get('name', '')}")
-                    else:
-                        st.error(f"나레이션 생성 실패: {result.get('error', '알 수 없는 오류')}")
+            # 결과 상태 표시 (button 블록 밖 — 리렌더링 후에도 유지됨)
+            if st.session_state._narrative_error:
+                st.error(f"나레이션 생성 실패: {st.session_state._narrative_error}")
+            elif st.session_state._narrative_applied_count is not None:
+                st.success(f"나레이션 생성 완료! {st.session_state._narrative_applied_count}개 씬에 적용됨")
+                st.info("아래에서 나레이션을 확인하고 편집할 수 있습니다.")
 
             # Narrative 결과 표시 및 편집
             if st.session_state.narratives:
@@ -990,11 +991,19 @@ def main():
                     )
                 if ai_result['success']:
                     st.session_state.scene_prompts = ai_result['prompts']
-                    st.success(f"프롬프트가 생성되었습니다! (모델: {ai_result.get('model', 'AI')})")
+                    st.session_state._prompt_status = ('success', ai_result.get('model', 'AI'))
                 else:
-                    st.warning(f"AI 생성 실패 — 키워드 방식으로 대체합니다. ({ai_result.get('error', '')})")
                     prompts = generate_scene_prompts(st.session_state.storyboard_scenes, project_info)
                     st.session_state.scene_prompts = prompts
+                    st.session_state._prompt_status = ('fallback', ai_result.get('error', ''))
+
+            # 결과 상태 표시 (button 블록 밖)
+            if st.session_state._prompt_status:
+                status_type, status_val = st.session_state._prompt_status
+                if status_type == 'success':
+                    st.success(f"프롬프트 생성 완료! (모델: {status_val})")
+                elif status_type == 'fallback':
+                    st.warning(f"AI 생성 실패 — 키워드 방식으로 대체했습니다. ({status_val})")
 
             if 'scene_prompts' in st.session_state and st.session_state.scene_prompts:
                 for prompt_data in st.session_state.scene_prompts:
