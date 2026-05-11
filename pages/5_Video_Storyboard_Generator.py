@@ -161,24 +161,29 @@ def load_analysis_data():
 
 
 def parse_scene_narratives(narratives_text, scene_count):
-    """생성된 Narrative 텍스트를 씬별로 파싱"""
+    """생성된 Narrative 텍스트를 씬별로 파싱 (볼드 헤더 / 마크다운 테이블 모두 지원)"""
     import re
-
     scene_narratives = {}
 
-    # **Scene N: [이름]** 패턴으로 분리
+    # 방법 1: **Scene N: [이름]** 패턴
     pattern = r'\*\*Scene\s+(\d+):\s*([^\*]+?)\*\*\s*\n(.*?)(?=\n\*\*Scene\s+\d+:|$)'
     matches = re.findall(pattern, narratives_text, re.DOTALL)
-
-    print(f"[DEBUG] 파싱 결과: {len(matches)}개의 Scene을 찾았습니다. (기대: {scene_count}개)")
-
     for match in matches:
         scene_num = int(match[0])
-        scene_name = match[1].strip()
-        narrative_content = match[2].strip()
-        scene_narratives[scene_num] = narrative_content
-        print(f"[DEBUG] Scene {scene_num} 파싱 완료: {narrative_content[:50]}...")
+        scene_narratives[scene_num] = match[2].strip()
 
+    # 방법 2: 마크다운 테이블 파싱 (| Scene N | 이름 | 내용 | Narrative |)
+    if not scene_narratives:
+        table_rows = re.findall(
+            r'^\|\s*Scene\s+(\d+)\s*\|[^|]*\|[^|]*\|\s*(.+?)\s*\|?\s*$',
+            narratives_text, re.MULTILINE
+        )
+        for match in table_rows:
+            narrative = match[1].strip()
+            if narrative and not narrative.lower().startswith('narrative'):
+                scene_narratives[int(match[0])] = narrative
+
+    print(f"[DEBUG] 파싱: {len(scene_narratives)}개 씬 (기대: {scene_count}개)")
     return scene_narratives
 
 
@@ -549,6 +554,8 @@ def main():
         st.session_state.scene_count_confirmed = False
     if '_narrative_applied_count' not in st.session_state:
         st.session_state._narrative_applied_count = None
+    if '_narrative_generated' not in st.session_state:
+        st.session_state._narrative_generated = False
     if '_narrative_error' not in st.session_state:
         st.session_state._narrative_error = None
     if '_prompt_status' not in st.session_state:
@@ -884,25 +891,20 @@ def main():
 
                 if result['success']:
                     st.session_state.narratives = result['narratives']
-                    st.session_state.scene_narratives = result.get('scene_narratives', {})
-                    applied_count = 0
-                    for i in range(len(st.session_state.storyboard_scenes)):
-                        scene_num = i + 1
-                        if scene_num in st.session_state.scene_narratives:
-                            st.session_state.storyboard_scenes[i]['narrative'] = st.session_state.scene_narratives[scene_num]
-                            applied_count += 1
-                    st.session_state._narrative_applied_count = applied_count
+                    st.session_state._narrative_generated = True
+                    st.session_state._narrative_applied_count = None
                     st.session_state._narrative_error = None
                 else:
+                    st.session_state._narrative_generated = False
                     st.session_state._narrative_error = result.get('error', '알 수 없는 오류')
-                    st.session_state._narrative_applied_count = None
 
-            # 결과 상태 표시 (button 블록 밖 — 리렌더링 후에도 유지됨)
+            # 결과 상태 표시 (button 블록 밖)
             if st.session_state._narrative_error:
                 st.error(f"나레이션 생성 실패: {st.session_state._narrative_error}")
             elif st.session_state._narrative_applied_count is not None:
-                st.success(f"나레이션 생성 완료! {st.session_state._narrative_applied_count}개 씬에 적용됨")
-                st.info("아래에서 나레이션을 확인하고 편집할 수 있습니다.")
+                st.success(f"저장 완료! {st.session_state._narrative_applied_count}개 씬에 적용됨")
+            elif st.session_state._narrative_generated:
+                st.success("나레이션이 생성되었습니다. 아래에서 확인·편집 후 저장하세요.")
 
             # Narrative 결과 표시 및 편집
             if st.session_state.narratives:
@@ -915,9 +917,19 @@ def main():
                     height=400
                 )
 
-                if st.button("나레이션 저장"):
+                if st.button("나레이션 저장 및 씬 적용", type="primary"):
                     st.session_state.narratives = edited_narratives
-                    st.success("나레이션이 저장되었습니다.")
+                    parsed = parse_scene_narratives(edited_narratives, len(st.session_state.storyboard_scenes))
+                    applied = 0
+                    for i in range(len(st.session_state.storyboard_scenes)):
+                        if (i + 1) in parsed:
+                            st.session_state.storyboard_scenes[i]['narrative'] = parsed[i + 1]
+                            applied += 1
+                    st.session_state._narrative_applied_count = applied
+                    if applied == 0:
+                        st.session_state._narrative_error = "씬 자동 매칭 실패 — 나레이션 형식을 확인하세요."
+                    else:
+                        st.session_state._narrative_error = None
 
     # 탭 4: 스토리보드 미리보기
     with tab4:
