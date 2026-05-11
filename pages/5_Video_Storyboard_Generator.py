@@ -991,9 +991,7 @@ def main():
 
             # 프롬프트 생성 섹션
             st.markdown("---")
-            st.subheader("Scene별 이미지 / 비디오 프롬프트")
-
-            if st.button("Scene별 프롬프트 생성 (AI)", type="secondary"):
+            if st.button("🎬 씬별 프롬프트 생성 (AI)", type="primary", use_container_width=True):
                 project_info = st.session_state.get('storyboard_project_info', {})
                 pdf_summary = st.session_state.get('storyboard_pdf_summary', '')
                 with st.spinner("AI가 프롬프트를 생성하고 있습니다..."):
